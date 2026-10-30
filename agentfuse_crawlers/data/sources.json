@@ -1,0 +1,56 @@
+[
+  {
+    "id": "openai_api_docs",
+    "provider": "OpenAI",
+    "category": "documentation",
+    "url": "https://developers.openai.com/api/docs"
+  },
+  {
+    "id": "openai_api_pricing",
+    "provider": "OpenAI",
+    "category": "pricing",
+    "url": "https://developers.openai.com/api/docs/pricing"
+  },
+  {
+    "id": "openai_api_changelog",
+    "provider": "OpenAI",
+    "category": "changelog",
+    "url": "https://developers.openai.com/api/docs/changelog"
+  },
+  {
+    "id": "anthropic_api_docs",
+    "provider": "Anthropic",
+    "category": "documentation",
+    "url": "https://platform.claude.com/docs/en/api/overview"
+  },
+  {
+    "id": "anthropic_api_pricing",
+    "provider": "Anthropic",
+    "category": "pricing",
+    "url": "https://platform.claude.com/docs/en/about-claude/pricing"
+  },
+  {
+    "id": "anthropic_api_changelog",
+    "provider": "Anthropic",
+    "category": "changelog",
+    "url": "https://platform.claude.com/docs/en/release-notes/overview"
+  },
+  {
+    "id": "gemini_api_docs",
+    "provider": "Google Gemini",
+    "category": "documentation",
+    "url": "https://ai.google.dev/gemini-api/docs"
+  },
+  {
+    "id": "gemini_api_pricing",
+    "provider": "Google Gemini",
+    "category": "pricing",
+    "url": "https://ai.google.dev/gemini-api/docs/pricing"
+  },
+  {
+    "id": "gemini_api_changelog",
+    "provider": "Google Gemini",
+    "category": "changelog",
+    "url": "https://ai.google.dev/gemini-api/docs/changelog"
+  }
+]
