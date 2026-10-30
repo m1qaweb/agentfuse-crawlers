@@ -34,9 +34,12 @@ def _allowed_redirect(raw_url, source):
     """Only follow HTTPS redirects on this source's exact trusted host."""
     parts = urlsplit(raw_url)
     origin = urlsplit(source["url"])
-    return (parts.scheme == "https" and parts.hostname == origin.hostname
-            and not parts.username and not parts.password
-            and parts.port in (None, 443))
+    try:
+        return (parts.scheme == "https" and parts.hostname == origin.hostname
+                and not parts.username and not parts.password
+                and parts.port in (None, 443))
+    except ValueError:
+        return False
 
 
 class OfficialBaseSpider(scrapy.Spider):
@@ -93,7 +96,7 @@ class OfficialBaseSpider(scrapy.Spider):
 
     def parse_page(self, response, source):
         record = self._base_record(source)
-        meta = response.meta or {}
+        meta = response.request.meta if response.request is not None else {}
         chain = list(meta.get("source_redirect_chain", []))
         record.update(
             final_url=_visible_url(response.url),
