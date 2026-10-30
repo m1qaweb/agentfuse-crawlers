@@ -1,0 +1,51 @@
+name: Validate Scrapy Cloud package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies and package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip install .
+      - name: Verify Scrapy recognizes all three spiders
+        run: |
+          scrapy list
+          python - <<'PY'
+          from scrapy.utils.project import get_project_settings
+          from scrapy.spiderloader import SpiderLoader
+          names = set(SpiderLoader.from_settings(get_project_settings()).list())
+          expected = {'official_documentation', 'official_pricing', 'official_changelogs'}
+          assert expected == names, (expected, names)
+          print('Spiders registered:', ', '.join(sorted(names)))
+          PY
+      - name: Verify deployed package settings entry point and source data
+        run: |
+          python - <<'PY'
+          from importlib.metadata import distribution
+          from agentfuse_crawlers.sources import load_sources
+          points = [e for e in distribution('agentfuse-crawlers').entry_points if e.group == 'scrapy' and e.name == 'settings']
+          assert len(points) == 1, points
+          assert points[0].value == 'agentfuse_crawlers.settings', points[0].value
+          assert len(load_sources()) == 9
+          print('Scrapy Cloud packaging entry point and manifest: OK')
+          PY
+      - name: Run unit tests
+        run: python -m pytest -q
