@@ -1,0 +1,5 @@
+[
+  "openai_api_docs", "openai_api_pricing", "openai_api_changelog",
+  "anthropic_api_docs", "anthropic_api_pricing", "anthropic_api_changelog",
+  "gemini_api_docs", "gemini_api_pricing", "gemini_api_changelog"
+]
