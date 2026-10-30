@@ -23,7 +23,8 @@ class OfficialBaseSpider(scrapy.Spider):
     category = None
     allowed_domains = ALLOWED_HOSTS
 
-    def start_requests(self):
+    async def start(self):
+        """Scrapy 2.18+ calls start(), not the removed start_requests()."""
         for source in SOURCES:
             if source["category"] != self.category:
                 continue
