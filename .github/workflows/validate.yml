@@ -57,5 +57,18 @@ jobs:
           assert len(load_sources()) == 82
           print('Scrapy Cloud packaging entry point and manifest: OK')
           PY
+      - name: Verify no new spiders and freshness protections
+        run: |
+          python - <<'PY'
+          from scrapy.utils.project import get_project_settings
+          s = get_project_settings()
+          assert s.getbool('ROBOTSTXT_OBEY')
+          assert not s.getbool('HTTPCACHE_ENABLED')
+          assert not s.getbool('REDIRECT_ENABLED')
+          assert not s.getbool('METAREFRESH_ENABLED')
+          assert s.get('DEFAULT_REQUEST_HEADERS')['Cache-Control'] == 'no-cache'
+          assert 'agentfuse_crawlers.extensions.coverage.SourceCoverageAudit' in s.get('EXTENSIONS')
+          print('Fresh-fetch and per-source redirect protection enabled.')
+          PY
       - name: Run unit tests
         run: python -m pytest -q

@@ -24,7 +24,19 @@ LOG_LEVEL = "INFO"
 DEFAULT_REQUEST_HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "en-US,en;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
 
 # No Zyte API / headless browser add-on; no production database integrations.
 FEED_EXPORT_ENCODING = "utf-8"
+# Every periodic job makes real requests; never reuse an earlier crawl's HTML.
+HTTPCACHE_ENABLED = False
+# Handle only HTTPS same-source redirects in our spider. Never follow cross-host
+# locations or HTML meta-refresh automatically (including 29 other allowed hosts).
+REDIRECT_ENABLED = False
+METAREFRESH_ENABLED = False
+DOWNLOAD_WARNSIZE = 4_000_000
+EXTENSIONS = {
+    "agentfuse_crawlers.extensions.coverage.SourceCoverageAudit": 100,
+}
