@@ -108,3 +108,28 @@ def test_legacy_truncated_table_snapshot_is_not_a_reliable_price_baseline():
     old['tables_truncated'] = True
     new = record('a', 'sha2', category='pricing')
     assert compare({'a': new}, {'a': old})[0]['change_type'] == 'new_baseline'
+
+
+
+def test_review_export_respects_offset_for_scheduled_job(tmp_path):
+    from agentfuse_crawlers.sources import select_sources
+    batch = select_sources("changelog", cohort="candidate", offset=15, limit=10)
+    rows = {}
+    for src in batch:
+        entry = record(src["id"], "hash-" + src["id"], category="changelog")
+        entry["source_cohort"] = "candidate"
+        rows[src["id"]] = entry
+    summary = export(rows, {}, tmp_path, category="changelog",
+                     cohort="candidate", offset=15, limit=10)
+    assert summary["sources_expected"] == 10
+    assert summary["sources_captured"] == 10
+    assert summary["capture_rate"] == 1
+    assert summary["offset_per_category"] == 15
+    assert summary["approved_for_advisor"] == 0
+
+
+def test_export_rejects_out_of_range_offset(tmp_path):
+    import pytest
+    with pytest.raises(ValueError, match="empty"):
+        export({}, {}, tmp_path, category="pricing",
+               cohort="candidate", offset=10000, limit=10)

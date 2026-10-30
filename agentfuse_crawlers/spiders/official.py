@@ -46,17 +46,18 @@ class OfficialBaseSpider(scrapy.Spider):
     category = None
     allowed_domains = ALLOWED_HOSTS
 
-    def __init__(self, cohort="all", source_ids=None, limit=None, **kwargs):
+    def __init__(self, cohort="all", source_ids=None, limit=None, offset=0, **kwargs):
         super().__init__(**kwargs)
         # Spider args can only select manifest IDs, not append arbitrary URLs.
-        self.selected = select_sources(self.category, cohort, source_ids, limit)
+        self.selected = select_sources(self.category, cohort, source_ids, limit, offset)
         self.cohort = cohort
+        self.offset = int(offset)
 
     async def start(self):
         """Required for Scrapy 2.18+; called on every scheduled job."""
         self.logger.info(
-            "Starting %s: %d approved source URLs (cohort=%s)",
-            self.category, len(self.selected), self.cohort,
+            "Starting %s: %d approved source URLs (cohort=%s, offset=%d)",
+            self.category, len(self.selected), self.cohort, self.offset,
         )
         for source in self.selected:
             yield scrapy.Request(
