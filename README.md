@@ -4,9 +4,9 @@ A conservative, **read-only** Scrapy Cloud project that tracks *official documen
 
 ## What's implemented
 
-- **82 configured source URLs / 29 providers** (as of 2026-10-30). The **original nine URLs** for OpenAI, Anthropic and Google Gemini completed real Zyte crawls; the remaining 73 are **candidates** requiring live source-by-source checks. A URL in the manifest does not mean it works.
-- Exactly three Scrapy 2.18 spiders: `official_documentation`, `official_pricing`, `official_changelogs`. Each job requests the current HTML of every selected official URL; the source inventory is intentionally unchanged.
-- Fixed offline URL manifest; no arbitrary-URL spider arguments. `cohort=proven|candidate|all`, explicit source-ID selection, and bounded `limit` make safe rollout easier.
+- **460 configured official-source URL candidates / 194 provider names** (October 30, 2026): 194 documentation, 177 pricing, 89 changelogs. **82** original entries preserved, **378** appended from the owner's expanded JSON file. Only the original **nine** source URLs have previous observed Zyte crawl success; **451 remain candidates** awaiting source-by-source live validation. The uploaded filename saying "verified" is not live extraction evidence.
+- Exactly three Scrapy 2.18 spiders: `official_documentation`, `official_pricing`, `official_changelogs`. Each job requests the current HTML of every selected official URL; the source inventory can be expanded without adding spider types.
+- Fixed offline URL manifest; no arbitrary-URL spider arguments. `cohort=proven|candidate|all`, explicit source-ID selection, and bounded `offset` and `limit` make safe rollout easier.
 - Evidence schema v2: fetch metadata, status, full-text SHA-256, semantic heading sections and dated *candidates*, HTML table cells with row/colspan, canonical link when same-host, length/quality warnings and original source URLs.
 - Offline JSON/JSONL import, snapshots, source health report, page diffs, section diffs, and **unverified review queue**. A first crawl is a baseline, not a new announcement.
 - Optional manual Zyte job exporter to archive data beyond Zyte's retention window. Uses an environment variable; never commits API keys.
@@ -22,7 +22,7 @@ The spider only follows bounded (max 3) **same-source-host HTTPS redirects** and
 
 ### Match review exports to periodic-job scope
 
-For your daily/weekly schedules currently using `cohort=proven`, the post-run comparison automatically detects that cohort from v2.1 Items. When reviewing a limited candidate run, explicitly pass `--cohort candidate --limit 5` or `--source-ids cursor_docs` to match what the job actually selected; otherwise unrequested sources appear missing. Example:
+For your schedules using `cohort=proven`, the post-run comparison automatically detects that cohort from v2.1 Items. For a bounded candidate batch, pass the **exact same** `--cohort candidate --offset 15 --limit 15` or `--source-ids cursor_docs` arguments used in Zyte; otherwise unrequested sources may appear missing. Use `python -m scripts.plan_validation --batch-size 15` to generate batch instructions and static warning flags for all 451 candidates. See [EXPANDED_SOURCES_ROLLOUT.md](docs/EXPANDED_SOURCES_ROLLOUT.md). Example:
 
 ```bash
 python -m scripts.compare_exports --current output/today-changelogs.json \
@@ -63,12 +63,12 @@ The GitHub `main` branch deploys to your existing Zyte project `aidata`. First c
 Recommended validation order:
 
 1. Run `official_changelogs` with spider argument **`cohort=proven`**: expect three requests and three items (plus robots.txt requests).
-2. Run `official_changelogs` with **`cohort=candidate`**: review each item. Flag broken URLs, redirects, blocked policy responses, JS shells and irrelevant content. Preserve these errors; do not bypass site restrictions.
-3. Repeat for pricing and documentation. Run `cohort=all` only when coverage is satisfactory.
+2. Run `official_changelogs` with **`cohort=candidate`, `offset=0`, `limit=15`**; review all 15 records, and advance by offset 15 after validation. Never test all 451 candidate URLs at once on a single unit. Flag broken URLs, redirects, blocked policy responses, JS shells and irrelevant content without bypassing site restrictions.
+3. Repeat for pricing and documentation. Do not switch a periodic job to `cohort=all` until its source inventory is validated and run times are measured.
 
-To test individual sites safely, use `source_ids=cursor_changelog` (ID must be present in `sources.json`) or `limit=5`; **neither supports arbitrary URLs**. Use `cohort=all` with an explicit source ID that is outside the proven cohort.
+To test individual sites safely, use `source_ids=cursor_changelog` (ID must be present in `sources.json`) or `cohort=candidate`, `offset=30`, `limit=15`; **none supports arbitrary URLs**. Use `cohort=all` with an explicit source ID that is outside the proven cohort.
 
-Proposed schedule *after validating access and plan scheduling*: changelogs daily, pricing and docs weekly. On one unit, offset their start times; observe runtimes, response quality, and data retention. Do not enable automatic paid features.
+Current owner-configured schedule: changelogs **daily**, documentation **daily**, pricing **Mondays**. On one unit, offset their start times; observe runtimes, response quality, and data retention. Do not enable automatic paid features.
 
 ## Review local Zyte exports
 
