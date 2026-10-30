@@ -35,7 +35,47 @@ DATE_MONTH = re.compile(
 
 # Do not infer publication year from the crawl timestamp or a server cache header.
 # The official page must explicitly supply both the month/year group and day.
-GROUP_MONTH_YEAR = re.compile(r'^([A-Za-z]{3,9})\s*,?\s*(20\d{2})
+GROUP_MONTH_YEAR = re.compile(r'([A-Za-z]{3,9})\s*,?\s*(20\d{2})', re.I)
+GROUP_MONTH_DAY = re.compile(r'([A-Za-z]{3,9})\.?\s+(0?[1-9]|[12]\d|3[01])', re.I)
+
+def _month_number(token):
+    part = token.lower().rstrip('.')[:3]
+    return next((i for i in range(1, 13)
+                 if calendar.month_name[i].lower().startswith(part)), None)
+
+
+def _date_from_month_group(heading, body):
+    """Use only a month/year heading followed by a matching standalone day."""
+    match = GROUP_MONTH_YEAR.fullmatch(heading.strip())
+    if not match:
+        return ''
+    month = _month_number(match.group(1))
+    if not month:
+        return ''
+    year = int(match.group(2))
+    for line in body.splitlines()[1:10]:
+        item = GROUP_MONTH_DAY.fullmatch(line.strip())
+        if not item or _month_number(item.group(1)) != month:
+            continue
+        try:
+            return datetime(year, month, int(item.group(2))).date().isoformat()
+        except ValueError:
+            continue
+    return ''
+
+
+def _leading_release_date(text):
+    """Require a standalone full date near top, not a date embedded in prose."""
+    for line in text.splitlines()[:12]:
+        candidate = line.strip()
+        if DATE_ISO.fullmatch(candidate) or DATE_MONTH.fullmatch(candidate):
+            day = _date_from_heading(candidate)
+            if day:
+                return day
+    return ''
+
+
+MAX_SECTION_TEXT = 6000
 MAX_SECTIONS = 180
 MAX_TABLES = 40
 MAX_ROWS = 150
