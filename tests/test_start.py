@@ -1,14 +1,13 @@
-"""Prevent empty Scrapy 2.18 runs caused by removed start_requests hook."""
+"""Regression: Scrapy 2.18+ async start must queue each configured URL."""
 
 import asyncio
 
-import scrapy
 import pytest
+import scrapy
 
+from agentfuse_crawlers.sources import load_sources
 from agentfuse_crawlers.spiders.official import (
-    ChangelogSpider,
-    DocumentationSpider,
-    PricingSpider,
+    ChangelogSpider, DocumentationSpider, PricingSpider
 )
 
 
@@ -20,20 +19,18 @@ from agentfuse_crawlers.spiders.official import (
         (PricingSpider, "pricing"),
     ],
 )
-def test_each_spider_schedules_three_provider_requests(spider_cls, category):
+def test_all_manifest_sources_generate_requests(spider_cls, category):
     spider = spider_cls()
 
-    async def collect_start_requests():
+    async def collect_requests():
         return [request async for request in spider.start()]
 
-    requests = asyncio.run(collect_start_requests())
-
-    assert len(requests) == 3
-    assert all(isinstance(req, scrapy.Request) for req in requests)
-    assert all(req.url.startswith("https://") for req in requests)
-    assert {req.cb_kwargs["source"]["provider"] for req in requests} == {
-        "OpenAI", "Anthropic", "Google Gemini"
-    }
-    assert all(req.cb_kwargs["source"]["category"] == category for req in requests)
-    assert all(req.callback == spider.parse_page for req in requests)
-    assert all(req.errback == spider.record_failure for req in requests)
+    requests = asyncio.run(collect_requests())
+    expected = [s for s in load_sources() if s["category"] == category]
+    assert len(requests) == len(expected)
+    assert {r.url for r in requests} == {s["url"] for s in expected}
+    assert all(isinstance(r, scrapy.Request) for r in requests)
+    assert all(r.url.startswith("https://") for r in requests)
+    assert all(r.cb_kwargs["source"]["category"] == category for r in requests)
+    assert all(r.callback == spider.parse_page for r in requests)
+    assert all(r.errback == spider.record_failure for r in requests)

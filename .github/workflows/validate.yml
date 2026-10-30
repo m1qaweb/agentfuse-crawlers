@@ -54,7 +54,7 @@ jobs:
           points = [e for e in distribution('agentfuse-crawlers').entry_points if e.group == 'scrapy' and e.name == 'settings']
           assert len(points) == 1, points
           assert points[0].value == 'agentfuse_crawlers.settings', points[0].value
-          assert len(load_sources()) == 9
+          assert len(load_sources()) == 82
           print('Scrapy Cloud packaging entry point and manifest: OK')
           PY
       - name: Run unit tests

@@ -11,7 +11,7 @@ from agentfuse_crawlers.sources import load_sources
 
 SOURCES = load_sources()
 ALLOWED_HOSTS = sorted({urlsplit(entry["url"]).hostname for entry in SOURCES})
-MAX_TEXT_CHARS = 70_000
+MAX_TEXT_CHARS = 250_000
 MIN_WORDS = 45
 BLOCK_MARKERS = (
     "verify you are human", "checking your browser before accessing",
