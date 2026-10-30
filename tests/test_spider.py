@@ -21,10 +21,10 @@ def test_200_page_needs_real_content():
     short = list(spider.parse_page(response('<main><p>Short shell</p></main>'), SOURCE))[0]
     assert short['status'] == 'needs_review'
     real = list(spider.parse_page(response('<main><h1>Pricing</h1><p>' +
-        ('Model pricing input and output tokens. ' * 20) + '</p></main>'), SOURCE))[0]
+        ('Model pricing $1.50 input and $4.50 output per million tokens. ' * 20) + '</p></main>'), SOURCE))[0]
     assert real['status'] == 'captured'
     assert real['review_status'] == 'unverified'
-    assert real['schema_version'] == '2.0'
+    assert real['schema_version'] == '2.1'
     assert real['source_cohort'] == 'proven'
     assert real['content_sha256'] and real['word_count'] > 45
 

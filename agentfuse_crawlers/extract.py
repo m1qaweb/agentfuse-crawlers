@@ -104,6 +104,7 @@ def _sections(main, source_url):
     current = None
     buffer = []
     total = 0
+    current_day = ''
 
     def flush():
         if current is None:
@@ -133,18 +134,28 @@ def _sections(main, source_url):
             raw_anchor = element.get('id', '')
             anchor = raw_anchor if re.fullmatch(r'[A-Za-z0-9_:.-]{1,120}', raw_anchor) else ''
             section_id = f'{key}{suffix}'
-            # The stable heading-derived ID is for comparing within the same source.
+            # Prefer explicit stable anchors: repeated headings otherwise shift IDs
+            # whenever a provider inserts another identically named section.
+            if anchor:
+                section_id = 'anchor-' + anchor.lower()
             section_url = source_url.split('#', 1)[0] + ('#' + quote(anchor) if anchor else '')
+            heading_day = _date_from_heading(heading)
+            if tag == 'h2':
+                current_day = heading_day
             current = {
                 'section_id': section_id,
                 'heading': heading,
                 'level': int(tag[1]),
-                'date_candidate': _date_from_heading(heading),
+                'date_candidate': heading_day or current_day,
                 'section_url': section_url,
             }
             buffer = []
         if current is None:
             continue
+        if event == 'start' and tag == 'time' and not current['date_candidate']:
+            raw_date = (element.get('datetime') or '').strip()[:10]
+            if re.fullmatch(r'20\d{2}-\d{2}-\d{2}', raw_date):
+                current['date_candidate'] = _date_from_heading(raw_date)
         if event == 'start':
             if tag in BLOCKS or tag == 'br':
                 buffer.append('\n')
@@ -210,6 +221,14 @@ def extract_evidence(raw_html, source_url):
     if heading1:
         title = re.sub(r'\s+', ' ', heading1[0].text_content()).strip() or title
     text = _collect_text(main)
+    paragraphs = main.xpath('.//p')
+    prose_paragraphs = sum(
+        len(re.sub(r'\s+', ' ', p.text_content()).strip()) >= 65
+        for p in paragraphs
+    )
+    links = main.xpath('.//a[@href]')
+    link_chars = sum(len(re.sub(r'\s+', ' ', a.text_content()).strip()) for a in links)
+    main_link_text_ratio = min(1.0, link_chars / max(len(text), 1))
     sections, sections_truncated = _sections(main, source_url)
     tables, tables_truncated = _tables(main)
     canonical = root.xpath('//link[translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="canonical"]/@href')
@@ -228,6 +247,13 @@ def extract_evidence(raw_html, source_url):
         'canonical_url': canonical_url,
         'description': description,
         'language': root.get('lang', ''),
+        'prose_paragraphs': prose_paragraphs,
+        'main_link_count': len(links),
+        'main_link_text_ratio': round(main_link_text_ratio, 4),
+        'visible_latest_date_candidate': max(
+            (s['date_candidate'] for s in sections if s['date_candidate']),
+            default='',
+        ),
         'sections': sections,
         'sections_truncated': sections_truncated,
         'tables': tables,

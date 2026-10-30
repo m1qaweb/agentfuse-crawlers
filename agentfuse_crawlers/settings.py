@@ -24,7 +24,20 @@ LOG_LEVEL = "INFO"
 DEFAULT_REQUEST_HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "en-US,en;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
 
 # No Zyte API / headless browser add-on; no production database integrations.
 FEED_EXPORT_ENCODING = "utf-8"
+# Every periodic job makes real requests; never reuse an earlier crawl's HTML.
+HTTPCACHE_ENABLED = False
+# Keep the normal RedirectMiddleware for robots.txt: site robots endpoints may
+# redirect. Every source-page request has dont_redirect=True and implements
+# bounded, same-origin redirects in the spider instead.
+REDIRECT_ENABLED = True
+METAREFRESH_ENABLED = False
+DOWNLOAD_WARNSIZE = 4_000_000
+EXTENSIONS = {
+    "agentfuse_crawlers.extensions.coverage.SourceCoverageAudit": 100,
+}

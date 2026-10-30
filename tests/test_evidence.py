@@ -52,3 +52,28 @@ def test_invalid_dates_do_not_invent_publication():
 def test_cross_domain_canonical_is_not_trusted():
     doc = '<html><head><link rel="canonical" href="https://attacker.invalid/"/></head><body><main><p>Text</p></main></body></html>'
     assert extract_evidence(doc, 'https://docs.example.com/') ['canonical_url'] == ''
+
+
+def test_changelog_dates_propagate_to_subheadings_without_inventing_timestamps():
+    doc = """<html><body><main>
+    <h2 id="release-day">October 30, 2026</h2>
+    <h3 id="version-a">New API release</h3><p>Current release details and migration requirements.</p>
+    <h3 id="version-b">New model</h3><p>Latest supported model information.</p>
+    <h2>Miscellaneous guides</h2><h3>Help page</h3><p>Not a release.</p>
+    </main></body></html>"""
+    data = extract_evidence(doc, "https://example.com/changelog")
+    matching = {s["heading"]: s["date_candidate"] for s in data["sections"]}
+    assert matching["New API release"] == "2026-10-30"
+    assert matching["New model"] == "2026-10-30"
+    assert matching["Help page"] == ""
+    assert data["visible_latest_date_candidate"] == "2026-10-30"
+    assert any(s["section_id"] == "anchor-version-a" for s in data["sections"])
+
+
+def test_html_time_datetime_can_supply_explicit_date_candidate():
+    doc = """<html><body><main>
+    <h3>Release</h3><time datetime="2026-10-29">Oct 29</time>
+    <p>A valid dated release.</p></main></body></html>"""
+    data = extract_evidence(doc, "https://example.com/changelog")
+    assert data["sections"][0]["date_candidate"] == "2026-10-29"
+    assert data["visible_latest_date_candidate"] == "2026-10-29"

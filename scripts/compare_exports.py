@@ -77,7 +77,15 @@ def read_jsonl(paths):
 
 
 def _healthy(row):
-    return row.get('status') == 'captured' and row.get('content_sha256') and not row.get('text_truncated')
+    """A successful HTTP response or legacy 'captured' flag is insufficient."""
+    return (
+        row.get('status') == 'captured'
+        and bool(row.get('content_sha256'))
+        and not row.get('text_truncated')
+        and not (row.get('category') == 'pricing' and row.get('tables_truncated'))
+        and not (row.get('category') in {'documentation', 'changelog'}
+                 and row.get('sections_truncated'))
+    )
 
 
 def compare(current, previous):
@@ -193,7 +201,7 @@ def write_csv(path, rows, fields):
         writer.writerows(rows)
 
 
-def export(current, previous, out_dir, category='auto'):
+def export(current, previous, out_dir, category='auto', cohort='auto', source_ids=None, limit=None):
     if category not in {'auto', 'all', 'documentation', 'pricing', 'changelog'}:
         raise ValueError('Invalid category filter')
     categories = ({x.get('category') for x in current.values()}
@@ -202,14 +210,59 @@ def export(current, previous, out_dir, category='auto'):
     categories = categories.intersection({'documentation', 'pricing', 'changelog'})
     if not categories:
         raise ValueError('No recognized categories in current exports; pass --category')
-    manifest = [s for s in load_sources() if s['category'] in categories]
+    catalog = load_sources()
+    known = {s['id']: s for s in catalog}
+    # A Zyte job with cohort=proven emits only three items for a spider.
+    # Never pretend that 26 changelogs failed because 23 were intentionally skipped.
+    if cohort not in {'auto', 'all', 'proven', 'candidate'}:
+        raise ValueError('Invalid cohort')
+    if cohort == 'auto':
+        observed_cohorts = {x.get('source_cohort') for x in current.values()}
+        cohort = (next(iter(observed_cohorts)) if observed_cohorts in
+                  ({'proven'}, {'candidate'}) else 'all')
+    proven = load_proven_source_ids()
+    if source_ids is not None:
+        if isinstance(source_ids, str):
+            source_ids = {x.strip() for x in source_ids.split(',')}
+        else:
+            source_ids = set(source_ids)
+        if not source_ids or not source_ids <= set(known):
+            raise ValueError('Unknown or empty --source-ids selection')
+    if limit is not None:
+        if isinstance(limit, bool) or not str(limit).isdigit() or not 1 <= int(limit) <= 500:
+            raise ValueError('limit must be between 1 and 500')
+        limit = int(limit)
+    manifest = [
+        s for s in catalog
+        if s['category'] in categories
+        and (cohort == 'all' or (s['id'] in proven) == (cohort == 'proven'))
+        and (source_ids is None or s['id'] in source_ids)
+    ]
+    if limit is not None:
+        by_category = Counter()
+        limited = []
+        for s in manifest:
+            if by_category[s['category']] < limit:
+                limited.append(s)
+                by_category[s['category']] += 1
+        manifest = limited
+    if not manifest:
+        raise ValueError('Expected source selection is empty')
     ids = {s['id'] for s in manifest}
+    # V2.1 records carry a fixed source identity. Reject files that attempt
+    # to reattribute an official URL to a different provider/category.
+    for source_id, row in current.items():
+        expected = known.get(source_id)
+        if row.get('schema_version') == '2.1' and expected and any(
+            row.get(key) != expected.get(key)
+            for key in ('provider', 'category', 'source_url')
+        ):
+            raise ValueError('Export has a mismatched source identity')
     unknown = set(current) - {s['id'] for s in load_sources()}
     if unknown:
         raise ValueError(f'Unknown source IDs not in trusted manifest: {sorted(unknown)}')
     current = {k: v for k, v in current.items() if k in ids}
     previous = {k: v for k, v in previous.items() if k in ids}
-    proven = load_proven_source_ids()
     for s in manifest:
         if s['id'] not in current:
             current[s['id']] = {
@@ -237,6 +290,9 @@ def export(current, previous, out_dir, category='auto'):
     summary = {
         'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'categories': sorted(categories),
+        'cohort_scope': cohort,
+        'source_ids_explicit': source_ids is not None,
+        'limit_per_category': limit,
         'sources_expected': len(manifest),
         'sources_captured': statuses['captured'],
         'sources_comparable': sum(bool(_healthy(row)) for row in current.values()),
@@ -257,9 +313,12 @@ def main():
     parser.add_argument('--current', nargs='+', required=True, type=Path)
     parser.add_argument('--previous', nargs='*', default=[], type=Path)
     parser.add_argument('--category', choices=['auto', 'all', 'documentation', 'pricing', 'changelog'], default='auto')
+    parser.add_argument('--cohort', choices=['auto', 'all', 'proven', 'candidate'], default='auto')
+    parser.add_argument('--source-ids', help='Comma-separated manifest IDs for a bounded Zyte job')
+    parser.add_argument('--limit', type=int, help='Same per-spider limit used in Zyte')
     parser.add_argument('--out-dir', required=True, type=Path)
     args = parser.parse_args()
-    summary = export(read_jsonl(args.current), read_jsonl(args.previous), args.out_dir, args.category)
+    summary = export(read_jsonl(args.current), read_jsonl(args.previous), args.out_dir, args.category, args.cohort, args.source_ids, args.limit)
     print(json.dumps(summary, indent=2))
 
 
