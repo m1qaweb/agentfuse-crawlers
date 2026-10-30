@@ -45,3 +45,22 @@ def test_fresh_capture_settings_preserve_robots_txt_redirect_handling():
     assert settings.getbool("REDIRECT_ENABLED")
     assert not settings.getbool("METAREFRESH_ENABLED")
     assert settings.get("DEFAULT_REQUEST_HEADERS")["Cache-Control"] == "no-cache"
+
+
+
+@pytest.mark.parametrize(("klass", "category"), [
+    (ChangelogSpider, "changelog"),
+    (DocumentationSpider, "documentation"),
+    (PricingSpider, "pricing"),
+])
+def test_later_candidate_batch_schedules_exact_urls(klass, category):
+    spider = klass(cohort="candidate", offset="15", limit="15")
+
+    async def collect():
+        return [r async for r in spider.start()]
+
+    requests = asyncio.run(collect())
+    expected = select_sources(category, cohort="candidate", offset=15, limit=15)
+    assert [r.url for r in requests] == [s["url"] for s in expected]
+    assert spider.offset == 15
+    assert len(requests) == 15

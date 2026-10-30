@@ -201,7 +201,7 @@ def write_csv(path, rows, fields):
         writer.writerows(rows)
 
 
-def export(current, previous, out_dir, category='auto', cohort='auto', source_ids=None, limit=None):
+def export(current, previous, out_dir, category='auto', cohort='auto', source_ids=None, limit=None, offset=0):
     if category not in {'auto', 'all', 'documentation', 'pricing', 'changelog'}:
         raise ValueError('Invalid category filter')
     categories = ({x.get('category') for x in current.values()}
@@ -238,13 +238,19 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
         and (cohort == 'all' or (s['id'] in proven) == (cohort == 'proven'))
         and (source_ids is None or s['id'] in source_ids)
     ]
-    if limit is not None:
+    if isinstance(offset, bool) or not str(offset).isdigit() or not 0 <= int(offset) <= 100000:
+        raise ValueError('offset must be between 0 and 100000')
+    offset = int(offset)
+    if offset or limit is not None:
         by_category = Counter()
         limited = []
         for s in manifest:
-            if by_category[s['category']] < limit:
+            index = by_category[s['category']]
+            by_category[s['category']] += 1
+            if index < offset:
+                continue
+            if limit is None or index < offset + limit:
                 limited.append(s)
-                by_category[s['category']] += 1
         manifest = limited
     if not manifest:
         raise ValueError('Expected source selection is empty')
@@ -293,6 +299,7 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
         'cohort_scope': cohort,
         'source_ids_explicit': source_ids is not None,
         'limit_per_category': limit,
+        'offset_per_category': offset,
         'sources_expected': len(manifest),
         'sources_captured': statuses['captured'],
         'sources_comparable': sum(bool(_healthy(row)) for row in current.values()),
@@ -316,9 +323,10 @@ def main():
     parser.add_argument('--cohort', choices=['auto', 'all', 'proven', 'candidate'], default='auto')
     parser.add_argument('--source-ids', help='Comma-separated manifest IDs for a bounded Zyte job')
     parser.add_argument('--limit', type=int, help='Same per-spider limit used in Zyte')
+    parser.add_argument('--offset', type=int, default=0, help='Same per-spider offset used in Zyte')
     parser.add_argument('--out-dir', required=True, type=Path)
     args = parser.parse_args()
-    summary = export(read_jsonl(args.current), read_jsonl(args.previous), args.out_dir, args.category, args.cohort, args.source_ids, args.limit)
+    summary = export(read_jsonl(args.current), read_jsonl(args.previous), args.out_dir, args.category, args.cohort, args.source_ids, args.limit, args.offset)
     print(json.dumps(summary, indent=2))
 
 

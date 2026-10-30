@@ -54,7 +54,10 @@ jobs:
           points = [e for e in distribution('agentfuse-crawlers').entry_points if e.group == 'scrapy' and e.name == 'settings']
           assert len(points) == 1, points
           assert points[0].value == 'agentfuse_crawlers.settings', points[0].value
-          assert len(load_sources()) == 82
+          from collections import Counter
+          sources = load_sources()
+          assert len(sources) == 460, len(sources)
+          assert Counter(s['category'] for s in sources) == {'documentation': 194, 'pricing': 177, 'changelog': 89}
           print('Scrapy Cloud packaging entry point and manifest: OK')
           PY
       - name: Verify no new spiders and freshness protections

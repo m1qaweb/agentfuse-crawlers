@@ -48,8 +48,8 @@ def load_proven_source_ids():
     return frozenset(ids)
 
 
-def select_sources(category, cohort='all', source_ids=None, limit=None):
-    """Deterministic, safely scoped URL selection from the reviewed manifest."""
+def select_sources(category, cohort='all', source_ids=None, limit=None, offset=0):
+    """Stable batches from fixed allowed URLs; never discover arbitrary targets."""
     if category not in VALID_CATEGORIES:
         raise ValueError('Unknown category')
     if cohort not in VALID_COHORTS:
@@ -66,10 +66,15 @@ def select_sources(category, cohort='all', source_ids=None, limit=None):
     filtered = [s for s in sources if s['category'] == category
                 and (cohort == 'all' or (s['id'] in proven) == (cohort == 'proven'))
                 and (source_ids is None or s['id'] in source_ids)]
+    if isinstance(offset, bool) or not str(offset).isdigit() or not 0 <= int(offset) <= 100000:
+        raise ValueError('offset must be an integer from 0 through 100000')
+    offset = int(offset)
     if limit is not None:
         if isinstance(limit, bool) or not str(limit).isdigit() or not 1 <= int(limit) <= 500:
             raise ValueError('limit must be an integer from 1 through 500')
-        filtered = filtered[:int(limit)]
+        filtered = filtered[offset:offset + int(limit)]
+    if limit is None:
+        filtered = filtered[offset:]
     if not filtered:
         raise ValueError('Selection contains no sources; check category/cohort/source_ids')
     return filtered
