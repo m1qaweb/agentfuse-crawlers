@@ -52,3 +52,14 @@ No automation in this repository may bypass these gates. A model cannot elevate 
 - Backfill historical snapshots and version immutable evidence; provider announcements must not be inferred from crawl timestamps.
 - Pagination/navigation only when publisher terms permit and crawl load is bounded.
 - If automated export is added, use repository secrets with least privilege and avoid logging keys; GitHub Actions is not a general-purpose archive.
+
+
+## Integrity hardening (v2.1; source set unchanged)
+
+- Requests on each Zyte trigger use no Scrapy HTTP cache, with revalidation hints. Record server freshness metadata but do not call it a confirmed publication time.
+- Only source-page redirects are constrained to the original exact HTTPS host and three hops; Scrapy's built-in redirect middleware remains available for robots.txt redirects. Moved/canonical paths require operator review.
+- Detect JS-only shells, access challenges, link-only docs indexes, missing dated release signals, insufficient pricing evidence, and incomplete table/section captures. Each is `needs_review` or `partial_capture`; only complete, substantive HTML gets `captured`.
+- Add run-level expected/observed/usable/missing source stats and explicit `CloseSpider` reasons; this protects against silently empty 'finished' jobs.
+- v2.1 adds response metadata, `latest_publication_verified=false` and `approved_for_advisor=false`. This is not a fact-truth score or a live origin guarantee.
+- Review exporter scopes expected sources to the same proven/candidate cohort, explicit source IDs and per-category limit used in the Zyte job. Unrequested pages are not failures; missing requested records are.
+- Three spiders are not complete crawls of entire documentation sites. Newly added official pages require source inventory review and separate crawl validation before being considered covered.

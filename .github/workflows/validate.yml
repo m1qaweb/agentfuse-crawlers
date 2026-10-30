@@ -64,7 +64,7 @@ jobs:
           s = get_project_settings()
           assert s.getbool('ROBOTSTXT_OBEY')
           assert not s.getbool('HTTPCACHE_ENABLED')
-          assert not s.getbool('REDIRECT_ENABLED')
+          assert s.getbool('REDIRECT_ENABLED')  # robots.txt redirects remain functional
           assert not s.getbool('METAREFRESH_ENABLED')
           assert s.get('DEFAULT_REQUEST_HEADERS')['Cache-Control'] == 'no-cache'
           assert 'agentfuse_crawlers.extensions.coverage.SourceCoverageAudit' in s.get('EXTENSIONS')

@@ -34,3 +34,14 @@ def test_limit_one_and_explicit_id():
     async def collect():
         return [request async for request in spider.start()]
     assert [r.cb_kwargs['source']['id'] for r in asyncio.run(collect())] == ['openai_api_pricing']
+
+
+
+def test_fresh_capture_settings_preserve_robots_txt_redirect_handling():
+    from scrapy.utils.project import get_project_settings
+    settings = get_project_settings()
+    assert settings.getbool("ROBOTSTXT_OBEY")
+    assert not settings.getbool("HTTPCACHE_ENABLED")
+    assert settings.getbool("REDIRECT_ENABLED")
+    assert not settings.getbool("METAREFRESH_ENABLED")
+    assert settings.get("DEFAULT_REQUEST_HEADERS")["Cache-Control"] == "no-cache"

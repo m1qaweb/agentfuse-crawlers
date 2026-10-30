@@ -5,12 +5,32 @@ A conservative, **read-only** Scrapy Cloud project that tracks *official documen
 ## What's implemented
 
 - **82 configured source URLs / 29 providers** (as of 2026-10-30). The **original nine URLs** for OpenAI, Anthropic and Google Gemini completed real Zyte crawls; the remaining 73 are **candidates** requiring live source-by-source checks. A URL in the manifest does not mean it works.
-- Three Scrapy 2.18 spiders: `official_documentation`, `official_pricing`, `official_changelogs`.
+- Exactly three Scrapy 2.18 spiders: `official_documentation`, `official_pricing`, `official_changelogs`. Each job requests the current HTML of every selected official URL; the source inventory is intentionally unchanged.
 - Fixed offline URL manifest; no arbitrary-URL spider arguments. `cohort=proven|candidate|all`, explicit source-ID selection, and bounded `limit` make safe rollout easier.
 - Evidence schema v2: fetch metadata, status, full-text SHA-256, semantic heading sections and dated *candidates*, HTML table cells with row/colspan, canonical link when same-host, length/quality warnings and original source URLs.
 - Offline JSON/JSONL import, snapshots, source health report, page diffs, section diffs, and **unverified review queue**. A first crawl is a baseline, not a new announcement.
 - Optional manual Zyte job exporter to archive data beyond Zyte's retention window. Uses an environment variable; never commits API keys.
 - GitHub Actions validation of packaged egg and Scrapy spider registration, plus unit tests.
+
+## Fresh-fetch and extraction integrity (v2.1)
+
+Each triggered run schedules **new network requests**, with Scrapy's HTTP cache disabled and `Cache-Control: no-cache` / `Pragma: no-cache` revalidation hints. The crawler records the fetch timestamp, server Date, Last-Modified, ETag, Cache-Control and CDN Age when available. These are *response observations*, not proof that the publisher has posted a newer version.
+
+The spider only follows bounded (max 3) **same-source-host HTTPS redirects** and flags moved URLs or unexpected canonical paths for review. Global automatic redirects remain enabled to let Scrapy process **robots.txt redirects**; all *source page requests* explicitly opt out and use the stricter per-source policy. A login page, JavaScript-only shell, missing dated release sections, link-only documentation index, or pricing page with no observable billing evidence is `needs_review`, not `captured`. Truncated text/tables/changelog sections are `partial_capture`. The cross-source coverage extension writes job stats `agentfuse/coverage/*` and closes a run with a descriptive reason when expected item records are missing or nothing usable was collected.
+
+**Important boundary:** these spiders fetch the current version of each **configured page**, not every subpage in a provider's entire documentation tree. A changelog includes historical entries; a daily run should identify *changes relative to prior snapshots*, not pretend those old entries were published today. A CDN may serve cached content even when the crawler asks for revalidation. Thus `latest_publication_verified=false` until independently confirmed. A `captured` status means structurally useful source evidence, **never fact verification**. Do not mistake a `finished` job for successful source coverage—inspect the coverage stats.
+
+### Match review exports to periodic-job scope
+
+For your daily/weekly schedules currently using `cohort=proven`, the post-run comparison automatically detects that cohort from v2.1 Items. When reviewing a limited candidate run, explicitly pass `--cohort candidate --limit 5` or `--source-ids cursor_docs` to match what the job actually selected; otherwise unrequested sources appear missing. Example:
+
+```bash
+python -m scripts.compare_exports --current output/today-changelogs.json \
+    --previous output/yesterday-changelogs.json --cohort proven \
+    --out-dir output/changelog-review
+```
+
+Only the original **nine** source URLs have prior real Zyte crawl evidence. A URL in `sources.json` is not automatically current, accurate, or reachable.
 
 ## Security & accuracy contract
 
