@@ -133,3 +133,16 @@ def test_export_rejects_out_of_range_offset(tmp_path):
     with pytest.raises(ValueError, match="empty"):
         export({}, {}, tmp_path, category="pricing",
                cohort="candidate", offset=10000, limit=10)
+
+
+
+def test_official_url_migration_is_new_baseline_not_fresh_release():
+    before = record("google_cloud_ai_changelog", "sha-old")
+    after = record("google_cloud_ai_changelog", "sha-new")
+    before["source_url"] = "https://docs.cloud.google.com/vertex-ai/docs/release-notes"
+    after["source_url"] = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/release-notes"
+    changes = compare({"google_cloud_ai_changelog": after},
+                      {"google_cloud_ai_changelog": before})
+    assert changes[0]["change_type"] == "new_baseline"
+    assert review_queue({"google_cloud_ai_changelog": after},
+                        {"google_cloud_ai_changelog": before}, changes) == []

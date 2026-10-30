@@ -489,7 +489,7 @@
     "id": "google_cloud_ai_changelog",
     "provider": "Google Cloud AI Platform",
     "category": "changelog",
-    "url": "https://docs.cloud.google.com/vertex-ai/docs/release-notes"
+    "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/release-notes"
   },
   {
     "id": "ai21_labs_docs",
