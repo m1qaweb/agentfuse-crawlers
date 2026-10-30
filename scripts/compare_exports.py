@@ -99,6 +99,11 @@ def compare(current, previous):
             kind = 'not_captured'
         elif not old or not _healthy(old):
             kind = 'new_baseline'
+        elif (old.get('source_url') and item.get('source_url') and
+              old['source_url'] != item['source_url']):
+            # URL migrations start a new baseline: do not call a moved feed
+            # a newly announced feature or a content update.
+            kind = 'new_baseline'
         elif old_hash != new_hash:
             kind = 'page_text_changed'
         else:
@@ -127,6 +132,9 @@ def _section_diffs(current, previous):
     for source_id, curr in sorted(current.items()):
         old = previous.get(source_id)
         if not old or not _healthy(curr) or not _healthy(old):
+            continue
+        if (old.get('source_url') and curr.get('source_url') and
+                old['source_url'] != curr['source_url']):
             continue
         if any(x.get('sections_truncated') for x in (curr, old)):
             continue

@@ -191,10 +191,18 @@ class OfficialBaseSpider(scrapy.Spider):
             status, reason = "needs_review", "canonical_path_differs"
         record.update(status=status, error=reason)
 
-        if status in {"captured", "partial_capture"}:
+        if status in {"captured", "partial_capture"} or (
+            status == "needs_review" and reason in {
+                "no_dated_release_section_detected",
+                "canonical_path_differs",
+                "no_price_or_billing_detail_detected",
+                "documentation_link_index_only",
+            }
+        ):
             record["text"] = text[:HARD_TEXT_LIMIT]
         else:
-            # Keep a short diagnostic sample, not a full login or block page.
+            # Keep a short diagnostic sample for shells and access challenges.
+            # Substantive but undated release evidence is retained above for review.
             record["text_sample"] = text[:500]
         yield self._emit_status(record)
 

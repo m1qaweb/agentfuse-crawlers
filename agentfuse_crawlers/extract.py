@@ -9,6 +9,7 @@ import hashlib
 import re
 from collections import Counter
 from datetime import datetime
+import calendar
 from urllib.parse import quote, urlsplit
 
 from lxml import etree, html
@@ -31,6 +32,46 @@ DATE_MONTH = re.compile(
     r'Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sep\.?|Sept\.?|Oct\.?|Nov\.?|Dec\.?)'
     r'\s+(\d{1,2})(?:st|nd|rd|th)?[,]?[ ]+(20\d{2})\b', re.I
 )
+# Date evidence from an explicit year/month section and standalone matching day.
+GROUP_MONTH_YEAR = re.compile(r'([A-Za-z]{3,9})\s*,?\s*(20\d{2})', re.I)
+GROUP_MONTH_DAY = re.compile(r'([A-Za-z]{3,9})\.?\s+(0?[1-9]|[12]\d|3[01])', re.I)
+
+def _month_number(token):
+    part = token.lower().rstrip('.')[:3]
+    return next((i for i in range(1, 13)
+                 if calendar.month_name[i].lower().startswith(part)), None)
+
+
+def _date_from_month_group(heading, body):
+    """Extract a date only when matching month/year and standalone day agree."""
+    match = GROUP_MONTH_YEAR.fullmatch(heading.strip())
+    if not match:
+        return ''
+    month = _month_number(match.group(1))
+    if not month:
+        return ''
+    year = int(match.group(2))
+    for line in body.splitlines()[1:10]:
+        item = GROUP_MONTH_DAY.fullmatch(line.strip())
+        if not item or _month_number(item.group(1)) != month:
+            continue
+        try:
+            return datetime(year, month, int(item.group(2))).date().isoformat()
+        except ValueError:
+            continue
+    return ''
+
+
+def _leading_release_date(text):
+    """Find a full, standalone, year-explicit date preceding release headings."""
+    for line in text.splitlines()[:12]:
+        candidate = line.strip()
+        if DATE_ISO.fullmatch(candidate) or DATE_MONTH.fullmatch(candidate):
+            day = _date_from_heading(candidate)
+            if day:
+                return day
+    return ''
+
 MAX_SECTION_TEXT = 6000
 MAX_SECTIONS = 180
 MAX_TABLES = 40
@@ -110,6 +151,8 @@ def _sections(main, source_url):
         if current is None:
             return
         body = _normalized_lines(''.join(buffer)).strip()
+        if not current['date_candidate']:
+            current['date_candidate'] = _date_from_month_group(current['heading'], body)
         # No speculative release classification: even dated sections are unverified.
         result.append({
             'section_id': current['section_id'],
@@ -230,6 +273,8 @@ def extract_evidence(raw_html, source_url):
     link_chars = sum(len(re.sub(r'\s+', ' ', a.text_content()).strip()) for a in links)
     main_link_text_ratio = min(1.0, link_chars / max(len(text), 1))
     sections, sections_truncated = _sections(main, source_url)
+    dated_sections = [s['date_candidate'] for s in sections if s['date_candidate']]
+    leading_date = _leading_release_date(text) if not dated_sections else ''
     tables, tables_truncated = _tables(main)
     canonical = root.xpath('//link[translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="canonical"]/@href')
     canonical_url = canonical[0].strip() if canonical else ''
@@ -250,9 +295,10 @@ def extract_evidence(raw_html, source_url):
         'prose_paragraphs': prose_paragraphs,
         'main_link_count': len(links),
         'main_link_text_ratio': round(main_link_text_ratio, 4),
-        'visible_latest_date_candidate': max(
-            (s['date_candidate'] for s in sections if s['date_candidate']),
-            default='',
+        'visible_latest_date_candidate': max(dated_sections + [leading_date], default=''),
+        'visible_latest_date_provenance': (
+            'dated_section_or_group' if dated_sections else
+            'leading_explicit_date_line' if leading_date else ''
         ),
         'sections': sections,
         'sections_truncated': sections_truncated,
