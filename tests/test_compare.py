@@ -60,3 +60,51 @@ def test_zyte_json_array_and_jsonl_supported(tmp_path):
     b.write_text(json.dumps(row) + '\n')
     assert read_jsonl([a])['openai_api_pricing']['content_sha256'] == 'aaa'
     assert read_jsonl([b])['openai_api_pricing']['content_sha256'] == 'aaa'
+
+
+
+def test_export_auto_scope_understands_daily_proven_cohort(tmp_path):
+    from agentfuse_crawlers.sources import load_sources
+    all_proven_changelogs = [
+        row for row in load_sources()
+        if row['category'] == 'changelog' and row['id'] in {
+            'openai_api_changelog', 'anthropic_api_changelog', 'gemini_api_changelog'
+        }
+    ]
+    rows = {}
+    for src in all_proven_changelogs:
+        item = record(src['id'], 'hash-' + src['id'])
+        item['source_cohort'] = 'proven'
+        rows[src['id']] = item
+    summary = export(rows, {}, tmp_path, category='changelog')
+    assert summary['cohort_scope'] == 'proven'
+    assert summary['sources_expected'] == 3
+    assert summary['sources_captured'] == 3
+    assert summary['capture_rate'] == 1
+
+
+def test_limited_candidate_cohort_does_not_mark_unrequested_sources_missing(tmp_path):
+    from agentfuse_crawlers.sources import load_sources, load_proven_source_ids
+    proven = load_proven_source_ids()
+    candidate = next(s for s in load_sources()
+                     if s['category'] == 'pricing' and s['id'] not in proven)
+    row = record(candidate['id'], 'sha', category='pricing')
+    row['source_cohort'] = 'candidate'
+    result = export({candidate['id']: row}, {}, tmp_path,
+                    category='pricing', source_ids=candidate['id'])
+    assert result['sources_expected'] == 1
+
+
+def test_v21_mismatched_provider_url_is_rejected(tmp_path):
+    import pytest
+    row = record('openai_api_pricing', 'sha', category='pricing')
+    row.update(schema_version='2.1', source_cohort='proven')
+    with pytest.raises(ValueError, match='mismatched source identity'):
+        export({'openai_api_pricing': row}, {}, tmp_path, category='pricing')
+
+
+def test_legacy_truncated_table_snapshot_is_not_a_reliable_price_baseline():
+    old = record('a', 'sha1', category='pricing')
+    old['tables_truncated'] = True
+    new = record('a', 'sha2', category='pricing')
+    assert compare({'a': new}, {'a': old})[0]['change_type'] == 'new_baseline'
