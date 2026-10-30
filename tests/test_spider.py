@@ -24,7 +24,7 @@ def test_200_page_needs_real_content():
         ('Model pricing $1.50 input and $4.50 output per million tokens. ' * 20) + '</p></main>'), SOURCE))[0]
     assert real['status'] == 'captured'
     assert real['review_status'] == 'unverified'
-    assert real['schema_version'] == '2.0'
+    assert real['schema_version'] == '2.1'
     assert real['source_cohort'] == 'proven'
     assert real['content_sha256'] and real['word_count'] > 45
 
