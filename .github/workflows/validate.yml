@@ -18,13 +18,23 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: pip
       - name: Install dependencies and package
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
           python -m pip install .
+      - name: Reproduce Zyte Scrapy Cloud legacy egg packaging
+        run: |
+          python -c "import setuptools; print('setuptools available:', setuptools.__version__)"
+          python setup.py bdist_egg
+          python - <<'PY'
+          from pathlib import Path
+          built = sorted(Path('dist').glob('*.egg'))
+          assert built, 'Legacy egg was not created'
+          print('Zyte-compatible egg package:', built[0])
+          PY
       - name: Verify Scrapy recognizes all three spiders
         run: |
           scrapy list
