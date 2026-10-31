@@ -24,7 +24,7 @@ NON_NUMERIC = [
     ("usage_based", re.compile(r"\b(?:pay[- ]as[- ]you[- ]go|usage.based|variable usage)\b", re.I)),
 ]
 TEMPORAL = re.compile(
-    r"\b(?:through|starting|until|before|after|effective|promo(?:tional)?|"
+    r"\b(?:through|starting|until|before|after|effective|promo(?:tion(?:s?|al)|s?)?|"
     r"discount(?:ed)?|limited.time|expires?|first \d+ months?|trial)\b", re.I
 )
 CONDITIONAL = re.compile(
