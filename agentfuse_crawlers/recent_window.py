@@ -64,6 +64,7 @@ class WindowAccumulator:
         self.version_desc = True
         self.all_dated = True
         self.all_versioned = True
+        self.dated_count = 0
         self.previous_date = None
         self.previous_version = None
         self.body_loss_count = 0
@@ -83,6 +84,8 @@ class WindowAccumulator:
         v = version_parts(event.get("version"))
         if not day:
             self.all_dated = False
+        else:
+            self.dated_count += 1
         if v is None:
             self.all_versioned = False
         if day and self.previous_date is not None:
@@ -106,6 +109,7 @@ class WindowAccumulator:
                 "events": [], "total": 0, "omitted": 0,
                 "order": "unknown", "basis": "none", "window_complete": False,
                 "collision": self.collisions, "body_loss_count": 0,
+                "recent_body_loss_count": 0,
             }
         def which(asc, desc):
             if self.count == 1:
@@ -120,7 +124,7 @@ class WindowAccumulator:
         if self.all_dated:
             direction = which(self.date_asc, self.date_desc)
             basis = "explicit_publication_dates"
-        elif self.all_versioned:
+        elif self.dated_count == 0 and self.all_versioned:
             direction = which(self.version_asc, self.version_desc)
             basis = "numeric_versions_no_date_inference"
         else:
@@ -134,8 +138,8 @@ class WindowAccumulator:
         # This proves that bounded events from the fetched page were recognized
         # in a consistent date/version order. It is NOT global vendor coverage.
         window_complete = bool(
-            self.count >= MIN_RECENT_EVENTS
-            and direction in {"newest_first", "oldest_first"}
+            self.count >= 1
+            and direction in {"newest_first", "oldest_first", "equal_values", "single"}
             and not self.collisions
             and recent_loss == 0
         )
