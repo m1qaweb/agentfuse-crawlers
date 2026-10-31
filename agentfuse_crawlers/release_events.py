@@ -50,6 +50,7 @@ MONTHS = {
 }
 SKIP_TITLE = {
     "changelog", "change log", "release notes", "releases", "what's new",
+    "recent updates", "latest releases",
     "product updates", "documentation", "updates", "latest updates",
 }
 SUBHEADING = {"features", "bug fixes", "fixes", "improvements", "changes", "other"}
@@ -281,6 +282,10 @@ def extract_release_events(main, source_url, source_id):
 
     for typ, text, node, level in _signals(main):
         if typ == "heading":
+            # H1 normally identifies the entire page; it is not a release
+            # event unless it explicitly contains a version or a dateline.
+            if level == 1 and not VERSION.search(text) and not _date(text)[0]:
+                continue
             group = _year_month(text)
             if group:
                 finish()

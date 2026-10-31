@@ -226,7 +226,10 @@ def test_changelog_capture_requires_event_dates_not_old_heuristic_date():
     data = extract("""
     <h2>Version v2.3.0</h2><p>New release with enough prose to
     discuss availability, tools, APIs, models and migration prerequisites.
-    These product details are unverified source text, not a dated release.</p>
+    These product details are unverified source text, not a dated release.
+    The exact product version, model availability, provider requirements and
+    supported clients must always be checked against independently linked
+    official evidence before inclusion in any recommendation or integration.</p>
     """)
     status, reason = assess_capture("changelog", data, data["text"])
     assert status == "needs_review"
@@ -238,7 +241,10 @@ def test_date_known_but_more_recent_undated_candidate_is_review_not_captured():
     <h2>Version v2.3.0</h2>
     <p>The newest feature adds support for additional developer workflows.</p>
     <h2>Oct 20, 2026</h2><h3>Previous model support</h3>
-    <p>The previous release expanded API capabilities for tools and integrations.</p>
+    <p>The previous release expanded API capabilities for tools and integrations.
+    Official release dates, supported versions, access conditions, pricing tiers
+    and usage limits require explicit publication evidence and independent review.
+    Do not infer any missing dates from the current time or from the URL structure.</p>
     """)
     assert assess_capture("changelog", data, data["text"]) == (
         "needs_review", "latest_release_date_ambiguous",
