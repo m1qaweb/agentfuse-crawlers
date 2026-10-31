@@ -15,6 +15,8 @@ from urllib.parse import quote, urljoin, urlsplit
 
 from lxml import etree
 
+from agentfuse_crawlers.recent_window import WindowAccumulator
+
 MAX_EVENTS = 80
 MAX_BODY_CHARS = 24000
 MAX_EXCERPT = 1200
@@ -268,14 +270,13 @@ def extract_release_events(main, source_url, source_id):
     Return only candidates, not confirmed changes or current supported products.
     This first iteration does not guarantee complete historical release coverage.
     """
-    events = []
+    window = WindowAccumulator(limit=MAX_EVENTS)
     current = None
     month_group = None
     date_context = (None, "", "")
     context_heading_level = None
     date_group_active = False
     pending_date = False
-    collision = False
     entries_seen = 0
 
     def finish():
@@ -303,8 +304,7 @@ def extract_release_events(main, source_url, source_id):
         current["body_text_truncated"] = bool(current.pop("_body_overflow", False))
         current["heading_level"] = heading_level
         entries_seen += 1
-        if len(events) < MAX_EVENTS:
-            events.append(current)
+        window.add(current)
         current = None
 
     for typ, text, node, level in _signals(main):
@@ -415,33 +415,48 @@ def extract_release_events(main, source_url, source_id):
                 date_group_active = False
     finish()
 
-    # A collision would make two vendor announcements indistinguishable.
-    # Do not silently assign ordinal IDs that would change after reordering.
-    seen = set()
-    for event in events:
-        if event["event_id"] in seen:
-            event["event_identity_ambiguous"] = True
-            collision = True
-        seen.add(event["event_id"])
-
-    dated = [x["published_at"] for x in events if x["published_at"]]
-    # Strict: an undated version anywhere in the observed event list could
-    # invalidate a guessed "latest". Do not replace unknown with old dates.
-    newest_undated = any(not x["published_at"] for x in events)
-    likely_latest = max(dated) if dated and not newest_undated and not collision else None
+    view = window.finish()
+    events = view["events"]
+    collision = view["collision"]
+    dated = [entry["published_at"] for entry in events if entry["published_at"]]
+    newest_undated = not window.all_dated
+    # Only an explicitly dated, ordered window is eligible for a claimed
+    # page-level newest date. For a single identified event we expose its
+    # actual date as a candidate, without claiming the page is exhaustive.
+    dated_order_ok = (
+        window.all_dated and view["order"] in {
+            "newest_first", "oldest_first", "equal_values", "single",
+        }
+    )
+    reliable_date = bool(dated_order_ok and dated and not collision
+                         and view["recent_body_loss_count"] == 0)
+    latest = max(dated) if reliable_date else None
     return {
-        "release_events_schema": "1.0",
+        "release_events_schema": "1.1",
         "release_events": events,
         "release_event_count": entries_seen,
-        "release_events_truncated": entries_seen > MAX_EVENTS,
+        "release_recent_event_count": len(events),
+        # Historical retention is separate from completeness of the newest
+        # recognized window. A publisher may have hundreds of old releases.
+        "release_events_truncated": view["omitted"] > 0,
+        "release_historical_event_count_omitted": view["omitted"],
+        "release_historical_body_loss_count": view["body_loss_count"],
+        "release_recent_body_loss_count": view["recent_body_loss_count"],
+        "release_order_direction": view["order"],
+        "release_order_basis": view["basis"],
         "release_dated_event_count": len(dated),
         "release_event_identity_collision": collision,
-        "latest_release_date_candidate": likely_latest,
+        "latest_release_date_candidate": latest,
         "latest_release_date_status": (
-            "ambiguous_undated_or_collision" if newest_undated or collision
-            else "event_date_candidate_only" if likely_latest else "unknown"
+            "ambiguous_undated_or_collision"
+            if newest_undated or collision or view["order"] in {"mixed", "unknown"}
+            else "event_date_candidate_only" if latest else "unknown"
         ),
-        "release_window_complete": False,
-        "release_window_coverage_status": "unverified_html_layout",
+        "release_window_complete": view["window_complete"],
+        "release_window_coverage_status": (
+            "ordered_recognized_events_on_fetched_page"
+            if view["window_complete"] else "unverified_order_or_entry_evidence"
+        ),
+        "latest_publication_verified": False,
         "approved_for_advisor": False,
     }
