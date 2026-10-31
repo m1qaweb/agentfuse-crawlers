@@ -265,3 +265,54 @@ def test_triage_safe_url_never_leaks_token_or_password():
     assert _safe_url("https://example.com/path?q=secret") == "https://example.com/path"
     assert _safe_url("https://user:secret@example.com/path") == ""
     assert _safe_url("http://example.com/path") == ""
+
+
+def test_pinned_registry_hash_rejects_unexpected_policy_edits():
+    expected = registry_revision_sha256()
+    spider = DocumentationSpider(
+        source_ids="openai_api_docs",
+        expected_source_registry_sha256=expected,
+    )
+    assert spider.source_registry_sha256 == expected
+    with pytest.raises(ValueError, match="Source registry changed"):
+        DocumentationSpider(
+            source_ids="openai_api_docs",
+            expected_source_registry_sha256="0" * 64,
+        )
+
+
+def test_validation_planner_accounts_for_quarantined_urls_without_disappearing():
+    from scripts.plan_validation import plan_validation
+
+    plan = plan_validation(cohort="candidate", batch_size=100)
+    assert plan["source_registry_sha256"] == registry_revision_sha256()
+    assert plan["monitor_approved_source_count"] == 0
+    assert plan["collection_mode"] == "validation"
+    flattened = {id for batch in plan["batches"] for id in batch["source_ids"]}
+    assert {"v0_docs", "v0_pricing", "v0_changelog"} <= flattened
+    for batch in plan["batches"]:
+        assert batch["expected_source_registry_sha256"] == registry_revision_sha256()
+        assert batch["expected_network_requests"] == (
+            batch["requested_count"] - len(batch["skipped_by_policy_source_ids"])
+        )
+    quarantined = {
+        id for batch in plan["batches"] for id in batch["skipped_by_policy_source_ids"]
+    }
+    assert quarantined == {"v0_docs", "v0_pricing", "v0_changelog"}
+
+
+def test_rejected_redirect_keeps_review_only_redacted_target():
+    from scrapy.http import HtmlResponse
+
+    source = SOURCES["openai_api_docs"]
+    spider = DocumentationSpider(source_ids=source["id"])
+    req = Request(source["url"])
+    response = HtmlResponse(
+        url=source["url"], status=302, request=req,
+        headers={"Location": "https://new.example.org/docs?auth=secret"},
+        body=b"", encoding="utf-8",
+    )
+    item = list(spider.parse_page(response, source))[0]
+    assert item["status"] == "rejected_redirect"
+    assert item["redirect_review_target"] == "https://new.example.org/docs"
+    assert item["approved_for_advisor"] is False
