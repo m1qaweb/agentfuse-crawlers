@@ -225,6 +225,8 @@ def _priced_map(row):
 def _pricing_delta(current, previous):
     if not (current.get("pricing_evidence_schema") == "1.0"
             and previous.get("pricing_evidence_schema") == "1.0"
+            and current.get("pricing_parser_revision")
+                == previous.get("pricing_parser_revision")
             and current.get("pricing_inventory_complete")
             and previous.get("pricing_inventory_complete")):
         return []
