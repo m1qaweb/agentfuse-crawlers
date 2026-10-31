@@ -17,6 +17,16 @@
 
 Run the source reviewer offline using previously downloaded Zyte Items (JSON or JSONL):
 
+The owner's saved, unverified October 31 inventory audit can also be used directly,
+without copying its raw vendor evidence into the GitHub repository:
+
+    python -m scripts.triage_sources --audit agentfuse_zyte_460_source_audit_2026-10-31.json --out-dir output/source-triage
+
+This produces historically grounded per-ID review tasks; it does NOT validate current
+publisher pages or upgrade any source lifecycle state. Do not confuse compiled
+audit records with new raw Zyte Items.
+
+
     python -m scripts.triage_sources --exports output/zyte/documentation.json output/zyte/pricing.json output/zyte/changelogs.json --out-dir output/source-triage
 
 Outputs: source_review_queue.csv, source_review_queue.json and triage_summary.json. Each source ID has one row; sources not found in the provided files remain explicitly **unobserved**. Automatically approved sources always equal zero.
