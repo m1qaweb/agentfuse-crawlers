@@ -316,3 +316,40 @@ def test_rejected_redirect_keeps_review_only_redacted_target():
     assert item["status"] == "rejected_redirect"
     assert item["redirect_review_target"] == "https://new.example.org/docs"
     assert item["approved_for_advisor"] is False
+
+
+def test_historical_audit_import_is_labeled_unverified_and_not_approved(tmp_path):
+    from scripts.triage_sources import read_historical_audit
+
+    audit = {
+        "audit_date": "2026-10-31",
+        "total_source_records": 1,
+        "all_captures_unverified": True,
+        "sources": [{
+            "source_id": "kiro_docs",
+            "source_url": SOURCES["kiro_docs"]["url"],
+            "status": "needs_review",
+            "error": "insufficient_substantive_text",
+            "word_count": 0,
+            "approved_for_advisor": False,
+        }],
+    }
+    path = tmp_path / "audit.json"
+    path.write_text(json.dumps(audit), encoding="utf-8")
+    observed = read_historical_audit(path)
+    result = write_triage(
+        generate_triage(observed), tmp_path / "triage",
+        input_basis="historical_compiled_audit_not_live_verified",
+    )
+    assert result["observed_in_supplied_exports"] == 1
+    assert result["unobserved_in_supplied_exports"] == 459
+    assert result["input_basis"] == "historical_compiled_audit_not_live_verified"
+    assert result["approved_for_advisor"] is False
+    path.write_text(json.dumps(dict(audit, total_source_records=2)), encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid or not explicitly"):
+        read_historical_audit(path)
+    path.write_text(json.dumps(dict(audit, sources=[
+        dict(audit["sources"][0], approved_for_advisor=True)
+    ])), encoding="utf-8")
+    with pytest.raises(ValueError, match="unapproved"):
+        read_historical_audit(path)
