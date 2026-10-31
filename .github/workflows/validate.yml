@@ -11,14 +11,21 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.14']
+    env:
+      TZ: UTC
+      PYTHONHASHSEED: '0'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install dependencies and package
         run: |
@@ -73,5 +80,43 @@ jobs:
           assert 'agentfuse_crawlers.extensions.coverage.SourceCoverageAudit' in s.get('EXTENSIONS')
           print('Fresh-fetch and per-source redirect protection enabled.')
           PY
+      - name: Run synthetic P08 accuracy corpus (never live publisher data)
+        run: |
+          python -m scripts.replay_gold --out output/ci-synthetic/synthetic_report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("output/ci-synthetic/synthetic_report.json").read_text())
+          assert report["synthetic_only"] is True
+          assert report["independently_human_reviewed"] is False
+          assert report["pass"] is True
+          assert report["date_cases"] >= 24 and report["rate_cases"] >= 240
+          assert report["false_latest_date_errors"] == 0
+          assert report["unscoped_rate_false_comparable"] == 0
+          print("Synthetic extractor regression passed; NOT a production release approval")
+          PY
+      - name: Verify missing independent evidence BLOCKS production release
+        run: |
+          python -m scripts.quality_gates --synthetic-report output/ci-synthetic/synthetic_report.json --out-dir output/ci-synthetic/gates
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("output/ci-synthetic/gates/quality_gate_report.json").read_text())
+          assert report["status"] == "blocked_pending_evidence_or_quality", report
+          assert report["deployment_authorized"] is False
+          assert report["advisor_fact_approvals"] == 0
+          assert report["checks"]["synthetic_replay"] is True
+          assert report["checks"]["independent_pricing_gold"] is False
+          assert report["checks"]["two_repeat_canaries"] is False
+          print("Production quality gates correctly block unreviewed/unobserved evidence")
+          PY
       - name: Run unit tests
         run: python -m pytest -q
+      - name: Publish synthetic-only regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p08-synthetic-regression-py${{ matrix.python-version }}
+          path: output/ci-synthetic
+          if-no-files-found: ignore
+          retention-days: 7
