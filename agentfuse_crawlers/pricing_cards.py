@@ -203,6 +203,27 @@ def _pairs(card):
                 used.add(id(dd))
                 used.update(id(child) for child in dd.iterdescendants())
                 yield label, value, dd
+    # Explicit, paired rate rows are common in tableless developer pricing
+    # pages: <div class="rate-row"><span>Input</span><span>USD 1 / MTok</span>.
+    # Only exact two-cell labels are admitted, never arbitrary nearby numbers.
+    for row in card.xpath(".//div|.//li"):
+        if not any(w in _attr_text(row) for w in ROW_MARKERS):
+            continue
+        children = [child for child in row
+                    if _tag(child) in {"span", "strong", "b", "small"}]
+        if len(children) != 2 or any(
+            _tag(x) in {"table", "li", "div"} for x in row.iterdescendants()
+        ):
+            continue
+        label, value = (
+            clean(children[0].text_content(), 100),
+            clean(children[1].text_content(), 260),
+        )
+        if _price_label(label) and _is_value(value):
+            used.add(id(row))
+            used.update(id(child) for child in row.iterdescendants())
+            yield label, value, row
+
     for node in card.xpath(".//li|.//p|.//div|.//span|.//small"):
         if id(node) in used:
             continue
