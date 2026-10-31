@@ -60,7 +60,7 @@ class OfficialBaseSpider(scrapy.Spider):
     def __init__(self, cohort=None, source_ids=None, limit=None, offset=0,
                  confirm_full_inventory=None, expected_manifest_sha256=None,
                  expected_selection_ids_sha256=None, collection_mode="validation",
-                 **kwargs):
+                 expected_source_registry_sha256=None, **kwargs):
         super().__init__(**kwargs)
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
@@ -80,6 +80,9 @@ class OfficialBaseSpider(scrapy.Spider):
             raise ValueError("Invalid collection_mode")
         self.collection_mode = collection_mode
         self.source_registry_sha256 = registry_revision_sha256()
+        if (expected_source_registry_sha256 is not None and
+                expected_source_registry_sha256 != self.source_registry_sha256):
+            raise ValueError("Source registry changed since validation plan")
         self.cohort = cohort
         self.offset = int(offset)
         self.run_context = build_run_context(
