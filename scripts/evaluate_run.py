@@ -32,7 +32,9 @@ def _source_identity(row):
         row.get("source_url"), row.get("manifest_sha256"),
         row.get("source_registry_sha256"),
         row.get("schema_version"),
-        row.get("release_events_schema"), row.get("pricing_evidence_schema"),
+        row.get("release_events_schema"),
+        row.get("release_identity_revision"),
+        row.get("pricing_evidence_schema"),
         row.get("documentation_evidence_schema"),
         row.get("documentation_product_scope"),
         row.get("source_format"),
@@ -124,6 +126,8 @@ def _release_delta(current, previous, older_healthy=()):
     """Explicit event identity and content hashes; never infer removals."""
     if (current.get("release_events_schema") != "1.1"
             or previous.get("release_events_schema") != "1.1"
+            or current.get("release_identity_revision")
+                != previous.get("release_identity_revision")
             or not current.get("release_window_complete")
             or not previous.get("release_window_complete")):
         return []

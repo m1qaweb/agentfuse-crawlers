@@ -137,38 +137,81 @@ def _inline_heading(text, group):
     return text, None, "", ""
 
 
-def _permalink(node, source_url):
-    """Only first-party HTTPS permalinks; never treat scraped URLs as targets."""
+def _first_party_reference(href, source_url):
+    """An allowlisted source-host reference, not an authorized crawl target."""
+    from urllib.parse import urlunsplit
+
     source = urlsplit(source_url)
+    target = urljoin(source_url, href)
+    dest = urlsplit(target)
+    try:
+        safe = (
+            dest.scheme == "https" and dest.hostname == source.hostname
+            and not dest.username and not dest.password
+            and dest.port in (None, 443)
+        )
+    except ValueError:
+        safe = False
+    if not safe:
+        return None
+    if dest.fragment and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", dest.fragment):
+        return None
+    # Never copy potentially credential-bearing query strings into evidence.
+    return urlunsplit((
+        dest.scheme, dest.netloc, dest.path, "", dest.fragment[:120],
+    ))[:800]
+
+
+def _related_references(node, source_url):
+    """Docs links remain optional supporting evidence, NEVER event identity."""
+    links = []
+    for link in node.xpath(".//a[@href]")[:5]:
+        target = _first_party_reference(link.get("href", ""), source_url)
+        if target and target != source_url and target not in links:
+            links.append(target)
+        if len(links) == 3:
+            break
+    return links
+
+
+def _permalink(node, source_url):
+    """Only a release-owned anchor or nested announcement URL is identity.
+
+    A heading may link to a common /guides/... or /models/... page, but that
+    is NOT the publication's permalink. Treating related documentation
+    links as release identity collapsed distinct OpenAI/Anthropic/Gemini
+    announcements in the October 31 owner's official Zyte run.
+    """
+    source = urlsplit(source_url)
+    source_path = source.path.rstrip("/")
     anchor = node.get("id", "")
     if anchor and re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", anchor):
         return source_url.split("#", 1)[0] + "#" + quote(anchor)
-    for link in node.xpath(".//a[@href]")[:3]:
-        target = urljoin(source_url, link.get("href", ""))
+    for link in node.xpath(".//a[@href]")[:5]:
+        target = _first_party_reference(link.get("href", ""), source_url)
+        if not target:
+            continue
         dest = urlsplit(target)
-        try:
-            safe = (dest.scheme == "https" and dest.hostname == source.hostname
-                    and not dest.username and not dest.password
-                    and dest.port in (None, 443))
-        except ValueError:
-            safe = False
-        if safe:
-            # Avoid a link to the page root masquerading as an event URL.
-            if dest.path != source.path or dest.fragment:
-                # Query parameters can contain tokens, tracking data or
-                # ephemeral signatures; do not use them in event provenance.
-                from urllib.parse import urlunsplit
-                return urlunsplit((
-                    dest.scheme, dest.netloc, dest.path, "",
-                    dest.fragment[:120],
-                ))[:800]
+        # Explicitly nested under THIS changelog, for example
+        # /changelog/release-123 or /releases/tag/v1.2.3. A sibling guide,
+        # pricing page, model documentation, or shared releases INDEX does
+        # not get to dictate event identity.
+        if dest.path.startswith(source_path + "/") and dest.path != source.path:
+            return target
+        if (dest.path.rstrip("/") == source_path
+                and dest.fragment not in {"", "top", "changelog", "releases"}):
+            return target
     for ancestor in list(node.iterancestors())[:3]:
         if _tag(ancestor) in {"article", "section", "li", "div"}:
+            # Generic release-list wrapper IDs are shared by many headings;
+            # only use an ancestor ID that identifies one release heading.
+            headings = ancestor.xpath(".//h2|.//h3|.//h4|.//h5")
+            if len(headings) != 1 or headings[0] is not node:
+                continue
             anchor = ancestor.get("id", "")
             if anchor and re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", anchor):
                 return source_url.split("#", 1)[0] + "#" + quote(anchor)
     return source_url
-
 
 def _signals(main):
     """Ordered semantic tokens; only standalone date text is a date marker."""
@@ -232,12 +275,15 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
     version_match = VERSION.search(title)
     version = version_match.group(1) if version_match else None
     permalink = _permalink(heading_node, source_url)
+    related = _related_references(heading_node, source_url)
+    # Use the FULL recognized heading (up to parser's bounded 250 chars), not
+    # the 100-character display excerpt. A publication-date correction should
+    # be an edit, not falsely appear as a brand-new release.
+    stable_heading = _normalize(title).casefold()
     title = _normalize(title)[:MAX_TITLE]
-    # An official event permalink takes precedence; otherwise title/date/version
-    # survives card reordering. Body edits do not modify the identity.
     identity = (
-        "url:" + permalink if permalink != source_url
-        else "title:" + title.lower() + "|day:" + (day or "") + "|version:" + (version or "")
+        "announcement:" + permalink if permalink != source_url
+        else "heading:" + stable_heading + "|version:" + (version or "")
     )
     digest = hashlib.sha256((source_id + "|" + identity).encode("utf-8")).hexdigest()[:24]
     return {
@@ -250,6 +296,11 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         "published_date_provenance": kind or "none",
         "date_evidence_text": date_text[:80] if date_text else "",
         "permalink": permalink,
+        "related_documentation_urls": related,
+        "identity_basis": (
+            "release_owned_permalink" if permalink != source_url
+            else "stable_title_and_version_no_date"
+        ),
         "evidence_locator": {
             "heading_id": heading_node.get("id", "")[:120],
             "source_url": source_url,
@@ -436,6 +487,10 @@ def extract_release_events(main, source_url, source_id):
     latest = max(dated) if reliable_date else None
     return {
         "release_events_schema": "1.1",
+        # A changed event-ID algorithm requires a NEW baseline compared with
+        # older archived Items. Same schema of event fields is not the same
+        # semantic identity revision. Never issue hundreds of false news.
+        "release_identity_revision": "release_owned_anchor_v2",
         "release_events": events,
         "release_event_count": entries_seen,
         "release_recent_event_count": len(events),
