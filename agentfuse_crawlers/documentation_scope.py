@@ -205,3 +205,74 @@ def extract_documentation_evidence(
         "documentation_canonical_review_url": canonical["review_url"],
         "documentation_all_capabilities_verified": False,
     }
+
+def _serialized_size(record):
+    return len(json.dumps(
+        record, ensure_ascii=False, separators=(",", ":"), default=str,
+    ).encode("utf-8"))
+
+
+def compact_documentation_record(record, full_text, *, target_bytes=650_000):
+    """Bound Zyte Items while explicitly describing any lost evidence.
+
+    This only reduces current exported excerpts; hashes/source locators remain.
+    A formerly complete capture becomes partial if relevant proof is omitted.
+    """
+    output = dict(record)
+    output["documentation_text_total_characters"] = len(full_text)
+    output["documentation_item_budget_truncated"] = False
+    if _serialized_size(output) <= target_bytes:
+        return output
+
+    output["documentation_item_budget_truncated"] = True
+    if "text" in output:
+        output["text"] = output["text"][:24_000]
+    elif "text_sample" in output:
+        output["text_sample"] = output["text_sample"][:500]
+    output["text_truncated"] = len(full_text) > len(output.get("text", ""))
+    output["status"] = "partial_capture"
+    output["error"] = "documentation_item_budget_truncated"
+    sections = []
+    for section in output.get("sections", []):
+        section = dict(section)
+        excerpt = section.get("excerpt", "")
+        section["excerpt"] = excerpt[:400]
+        section["excerpt_truncated"] = bool(
+            section.get("excerpt_truncated") or len(excerpt) > 400
+        )
+        sections.append(section)
+    output["sections"] = sections[:32]
+    output["sections_truncated"] = bool(
+        output.get("sections_truncated") or len(sections) > 32
+    )
+    candidates = []
+    for entry in output.get("documentation_topic_candidates", []):
+        entry = dict(entry)
+        excerpt = entry.get("excerpt", "")
+        entry["excerpt"] = excerpt[:250]
+        entry["excerpt_truncated"] = bool(
+            entry.get("excerpt_truncated") or len(excerpt) > 250
+        )
+        candidates.append(entry)
+    output["documentation_topic_candidates"] = candidates[:8]
+    output["documentation_topic_candidate_omitted"] = (
+        output.get("documentation_topic_candidate_omitted", 0)
+        + max(0, len(candidates) - 8)
+    )
+    if output.get("tables"):
+        output["documentation_tables_evidence_omitted"] = len(output["tables"])
+        output["tables"] = []
+        output["tables_truncated"] = True
+    if _serialized_size(output) > target_bytes:
+        # Keep a small auditable diagnostic, never a misleading "captured".
+        output["sections"] = []
+        output["sections_truncated"] = True
+        output["documentation_topic_candidate_omitted"] += len(
+            output["documentation_topic_candidates"]
+        )
+        output["documentation_topic_candidates"] = []
+        output["text"] = output.get("text", "")[:1200]
+        output["text_truncated"] = True
+    if _serialized_size(output) > target_bytes:
+        raise ValueError("Documentation source Item remains over safe budget")
+    return output
