@@ -10,7 +10,8 @@ import hashlib
 import re
 
 from agentfuse_crawlers.pricing_scope import (
-    ALL_CURRENCY, _citation, _statement_declarations, scoped_text,
+    ALL_CURRENCY, _citation, _leaf_statement,
+    _statement_declarations, scoped_text,
 )
 from agentfuse_crawlers.rate_units import (
     CURRENCY_CODES, PRICE_MARKER, NON_NUMERIC, analyze_cell, clean,
@@ -101,9 +102,28 @@ def _is_value(text):
     )
 
 
-def _card_declarations(card):
+def _page_currency_preface(main, first_card):
+    """Only an explicit ALL-prices claim before card content is page-wide."""
+    currencies = []
+    for node in main.iter():
+        if node is first_card:
+            break
+        line = _leaf_statement(node)
+        if line and not EXCLUDED_CONTENT.search(line):
+            match = ALL_CURRENCY.search(line)
+            if match and match.group(1).upper() in CURRENCY_CODES:
+                currencies.append(_citation(
+                    name="currency", value=match.group(1).upper(),
+                    scope="page_all_prices", text=line,
+                ))
+    if len({x["value"] for x in currencies}) > 1:
+        return None, True
+    return (currencies[-1] if currencies else None), False
+
+
+def _card_declarations(card, *, page_currency=None, page_conflict=False):
     """Only standalone, card-local explicit scope; no unrelated page text."""
-    raw = []
+    raw = [page_currency] if page_currency else []
     for node in card.xpath(".//p|.//li|.//small|.//span|.//div"):
         if node.xpath("ancestor::table|ancestor::nav|ancestor::footer"):
             continue
@@ -127,10 +147,10 @@ def _card_declarations(card):
     buckets = {}
     for row in raw:
         buckets.setdefault(row["dimension"], []).append(row)
-    conflict = any(
+    conflict = bool(page_conflict or any(
         len({v["value"].casefold() for v in values}) != 1
         for values in buckets.values()
-    )
+    ))
     declarations = [
         values[-1] for values in buckets.values()
         if len({v["value"].casefold() for v in values}) == 1
@@ -170,6 +190,7 @@ def _pairs(card):
             label, value = clean(dt.text_content(), 100), clean(dd.text_content(), 260)
             if _price_label(label) and _is_value(value):
                 used.add(id(dd))
+                used.update(id(child) for child in dd.iterdescendants())
                 yield label, value, dd
     for node in card.xpath(".//li|.//p|.//div|.//span|.//small"):
         if id(node) in used:
@@ -185,6 +206,7 @@ def _pairs(card):
         pair = _split_rate(text)
         if pair:
             used.add(id(node))
+            used.update(id(child) for child in node.iterdescendants())
             yield (*pair, node)
             continue
         cls = _attr_text(node)
@@ -194,9 +216,19 @@ def _pairs(card):
                 and _is_value(text) and not EXCLUDED_CONTENT.search(text)
                 and not any(_tag(d) in {"li", "p", "div", "span"}
                             for d in node.iterdescendants())):
-            # An unlabeled displayed price is a RAW observation. Do not
-            # manufacture an input/output/subscription dimension.
-            yield "Price", text, node
+            # A bare amount has an unknown dimension. The narrow exception
+            # is an explicitly printed seat/user per month denominator.
+            # This is textual evidence, not an inferred subscription plan.
+            label = (
+                "Price per seat/month"
+                if re.search(
+                    r"(?:\bper\b|/)\s*(?:seat|user)\s*(?:/|per)\s*month\b",
+                    text, re.I,
+                ) else "Price"
+            )
+            used.add(id(node))
+            used.update(id(child) for child in node.iterdescendants())
+            yield label, text, node
 
 
 def _card_rate(source_id, source_url, heading, cid, idx, label, raw,
@@ -247,8 +279,24 @@ def _card_rate(source_id, source_url, heading, cid, idx, label, raw,
 
 def extract_card_evidence(main, source_url, source_id):
     """Extract structurally labeled pricing cards; return counts of any losses."""
-    candidates = [node for node in main.iter() if _is_card(node) and _eligible(node)]
+    candidates = []
+    oversized = 0
+    for node in main.iter():
+        if not _is_card(node) or node.xpath(BANNED_ANCESTORS):
+            continue
+        # A wrapper around other cards is not another independent card.
+        if any(_is_card(child) for child in node.iterdescendants()):
+            continue
+        if node.xpath(".//table"):
+            continue  # Table observations are inventoried by the table parser.
+        if len(node.text_content()) > MAX_CARD_TEXT_CHARS:
+            oversized += 1  # Never silently treat an oversized card as complete.
+            continue
+        candidates.append(node)
     selected = candidates[:MAX_CARDS]
+    global_currency, page_conflict = _page_currency_preface(
+        main, candidates[0] if candidates else None
+    )
     observations, exemplars = [], []
     examined, row_omitted = 0, 0
     for i, card in enumerate(selected):
@@ -257,7 +305,9 @@ def extract_card_evidence(main, source_url, source_id):
         cid = raw_id if re.fullmatch(r"[a-zA-Z0-9_.:-]{1,100}", raw_id) else (
             f"card-{i+1}"
         )
-        declarations, conflict = _card_declarations(card)
+        declarations, conflict = _card_declarations(
+            card, page_currency=global_currency, page_conflict=page_conflict
+        )
         entries = list(_pairs(card))
         examined += len(entries)
         if len(entries) > MAX_ROWS_PER_CARD:
@@ -276,13 +326,14 @@ def extract_card_evidence(main, source_url, source_id):
                 "scope_conflict": conflict, "review_status": "unverified",
             })
     return {
-        "card_total": len(candidates),
+        "card_total": len(candidates) + oversized,
         "card_selected": len(selected),
-        "card_omitted": len(candidates) - len(selected),
+        "card_omitted": len(candidates) - len(selected) + oversized,
+        "card_oversized": oversized,
         "card_entries_examined": examined,
         "card_entries_omitted": row_omitted,
         "card_scan_truncated": bool(
-            len(candidates) > MAX_CARDS or row_omitted
+            len(candidates) > MAX_CARDS or row_omitted or oversized
         ),
         "card_observations": observations,
         "card_evidence_excerpts": exemplars,
