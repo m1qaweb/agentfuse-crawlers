@@ -86,7 +86,7 @@ def _review_findings(source, latest, lifecycle):
                  "pricing_rate_dimensions_unresolved",
                  "pricing_product_scope_unresolved"}:
         findings.append("pricing_scope_or_billing_review")
-    if latest.get("category") == "pricing" and (
+    if source["category"] == "pricing" and (
         latest.get("pricing_inventory_complete") is False
         or latest.get("tables_truncated")
     ):
