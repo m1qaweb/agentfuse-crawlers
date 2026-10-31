@@ -250,3 +250,23 @@ def test_archive_finished_but_nonstandard_close_reason_is_not_comparable(tmp_pat
     info["close_reason"] = "closespider_error"
     _, report, _, _ = make_archive(tmp_path, job=job, info=info)
     assert report["source_scope"]["safe_for_semantic_diff"] is False
+
+
+def test_envelope_cannot_be_edited_to_fake_semantic_comparability(tmp_path):
+    target, envelope, *_ = make_archive(tmp_path)
+    path = target / "envelope.json"
+    metadata = json.loads(path.read_text())
+    metadata["source_scope"]["safe_for_semantic_diff"] = False
+    path.write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="scope/provenance metadata mismatch"):
+        load_archive(target)
+
+
+def test_envelope_summary_count_forgery_detected(tmp_path):
+    target, envelope, *_ = make_archive(tmp_path)
+    path = target / "envelope.json"
+    metadata = json.loads(path.read_text())
+    metadata["source_summary_count"] = 999
+    path.write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="summary count"):
+        load_archive(target)
