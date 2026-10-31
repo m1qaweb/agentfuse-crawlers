@@ -14,6 +14,9 @@ from urllib.parse import urlsplit
 
 from agentfuse_crawlers.sources import load_proven_source_ids, load_sources, select_sources
 from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
+from agentfuse_crawlers.source_lifecycle import (
+    source_lifecycle, collection_decision, registry_revision_sha256,
+)
 
 SPIDERS = {
     "changelog": "official_changelogs",
@@ -50,6 +53,7 @@ def plan_validation(cohort="candidate", batch_size=15):
     all_ids = {entry["id"] for entry in manifest}
     proven = load_proven_source_ids()
     manifest_fingerprint = manifest_sha256(manifest)
+    registry_fingerprint = registry_revision_sha256()
     batches = []
     expected_ids = set()
     seen = set()
@@ -63,8 +67,18 @@ def plan_validation(cohort="candidate", batch_size=15):
             if any(sid in seen for sid in ids):
                 raise ValueError("Duplicate validation selection")
             seen.update(ids)
+            eligible = [
+                source for source in batch
+                if collection_decision(source, "validation")[0]
+            ]
             batches.append({
                 "spider": spider_name,
+                "collection_mode": "validation",
+                "expected_network_requests": len(eligible),
+                "skipped_by_policy_source_ids": [
+                    source["id"] for source in batch if source not in eligible
+                ],
+                "expected_source_registry_sha256": registry_fingerprint,
                 "category": category,
                 "cohort": cohort,
                 "offset": offset,
@@ -81,7 +95,13 @@ def plan_validation(cohort="candidate", batch_size=15):
                 "last_source_id": ids[-1],
             })
         for source in selected:
-            for warning in static_warnings(source):
+            lifecycle = source_lifecycle(source)
+            lifecycle_flags = []
+            if lifecycle["state"] in {"quarantined", "retired"}:
+                lifecycle_flags.append("policy_guard_skips_network_request")
+            elif lifecycle["state"] == "degraded":
+                lifecycle_flags.append("historical_source_degraded_needs_validation")
+            for warning in static_warnings(source) + lifecycle_flags:
                 warnings.append({
                     "source_id": source["id"],
                     "provider": source["provider"],
@@ -95,6 +115,11 @@ def plan_validation(cohort="candidate", batch_size=15):
     return {
         "schema_version": 2,
         "manifest_sha256": manifest_fingerprint,
+        "source_registry_sha256": registry_fingerprint,
+        "collection_mode": "validation",
+        "monitor_approved_source_count": sum(
+            collection_decision(s, "monitor")[0] for s in manifest
+        ),
         "cohort": cohort,
         "batch_size": batch_size,
         "manifest_sources": len(manifest),
@@ -124,7 +149,8 @@ def write_plan(plan, out_dir):
             "spider", "category", "cohort", "offset", "limit", "requested_count",
             "first_source_id", "last_source_id", "pinned_cohort",
             "source_ids_csv", "expected_manifest_sha256",
-            "expected_selection_ids_sha256",
+            "expected_selection_ids_sha256", "collection_mode",
+            "expected_network_requests", "expected_source_registry_sha256",
         ]
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
