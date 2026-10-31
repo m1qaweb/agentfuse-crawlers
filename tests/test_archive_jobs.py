@@ -215,3 +215,38 @@ def test_empty_finished_job_archived_as_unusable_not_made_success(tmp_path):
     assert data["source_summary_count"] == 0
     assert data["source_scope"]["scope_count_matches_items"] is False
     assert load_archive(target)[1] == []
+
+
+def test_real_pagination_21_items_uses_start_and_count_without_gaps(tmp_path):
+    sources = [s for s in load_sources() if s["category"] == "changelog"][:21]
+    job = "883514/1/97"
+    rows = [row(source["id"], job, n) for n, source in enumerate(sources)]
+    selected_hash = selection_ids_sha256(sources)
+    for item in rows:
+        item["selection_ids_sha256"] = selected_hash
+        item["selection_source_count"] = len(rows)
+    target, report, result, calls = make_archive(
+        tmp_path, job=job, rows=rows, info=metadata(count=21)
+    )
+    assert result == "archived"
+    assert calls == [(job, 0, 20), (job, 20, 1)]
+    assert report["source_scope"]["safe_for_semantic_diff"] is True
+    assert len(load_archive(target)[1]) == 21
+
+
+def test_mismatched_first_party_url_archived_but_never_comparable(tmp_path):
+    job = "883514/1/98"
+    data = [row("openai_api_changelog", job, 0),
+            row("anthropic_api_changelog", job, 1)]
+    data[0]["source_url"] = "https://invalid.example/changed-scope"
+    _, report, _, _ = make_archive(tmp_path, job=job, rows=data)
+    assert report["source_scope"]["source_identity_mismatches"] == 1
+    assert report["source_scope"]["safe_for_semantic_diff"] is False
+
+
+def test_archive_finished_but_nonstandard_close_reason_is_not_comparable(tmp_path):
+    job = "883514/1/99"
+    info = metadata()
+    info["close_reason"] = "closespider_error"
+    _, report, _, _ = make_archive(tmp_path, job=job, info=info)
+    assert report["source_scope"]["safe_for_semantic_diff"] is False
