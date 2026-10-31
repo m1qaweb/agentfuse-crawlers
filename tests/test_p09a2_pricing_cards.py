@@ -439,3 +439,35 @@ def test_price_or_numeric_table_row_cannot_be_mislabeled_as_a_model(first_label)
     assert o["model_or_service"] is None
     assert o["normalized_amount_decimal"] is None
     assert "missing_model_or_service" in o["normalization_blockers"]
+
+
+
+@pytest.mark.parametrize("kind", ["div", "li"])
+def test_explicit_rate_row_two_span_structure_not_ignored_or_double_counted(kind):
+    markup = (
+        "<div class='pricing-card'><h3>Model Delta</h3>"
+        "<p>Region: Global</p><p>Tier: Standard</p>"
+        f"<{kind} class='rate-row'><span>Input</span>"
+        f"<span>USD 0.20 / MTok</span></{kind}>"
+        f"<{kind} class='price-row'><span>Output</span>"
+        f"<span>USD 1.00 / MTok</span></{kind}>"
+        "</div>"
+    )
+    ev = extract(markup)
+    assert ev["pricing_observation_count"] == 2
+    assert ev["pricing_card_price_entries_examined"] == 2
+    obs = ev["pricing_observations"]
+    assert {x["price_dimension"] for x in obs} == {"input", "output"}
+    assert {x["normalized_amount_decimal"] for x in obs} == {"0.20", "1.00"}
+    assert all(x["model_or_service"] == "Model Delta" for x in obs)
+    assert all(x["approved_for_advisor"] is False for x in obs)
+
+
+def test_unlabeled_paired_rows_are_not_assumed_to_be_input_output_rates():
+    ev = extract(
+        "<section class='plan-card'><h3>Model Safe</h3>"
+        "<p>Region: Global</p><p>Tier: Standard</p>"
+        "<div class='rate-row'><span>More information</span>"
+        "<span>USD 10.00</span></div></section>"
+    )
+    assert ev["pricing_observation_count"] == 0
