@@ -224,6 +224,8 @@ def score_canaries(plan, archives):
         "schema_version": "1.0",
         "report_kind": "offline_two_round_canary_score",
         "synthetic_only": False,
+        "manifest_sha256": plan["manifest_sha256"],
+        "source_registry_sha256": plan["source_registry_sha256"],
         "network_requests_performed_by_evaluator": 0,
         "source_count": len(plan["source_ids"]),
         "expected_jobs": len(jobs),
