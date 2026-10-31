@@ -165,18 +165,27 @@ def _validate_run_provenance(current, manifest, cohort, categories,
     return "verified_against_current_manifest_and_args"
 
 def _healthy(row):
-    """A successful HTTP response or legacy 'captured' flag is insufficient."""
-    return (
-        row.get('status') == 'captured'
-        and bool(row.get('content_sha256'))
-        and not row.get('text_truncated')
-        and not (row.get('category') == 'pricing' and row.get('tables_truncated'))
-        and not (row.get('category') in {'documentation', 'changelog'}
-                 and row.get('sections_truncated'))
-        and not any(x.get('excerpt_truncated') for x in row.get('sections', []))
-        and not row.get('release_events_truncated')
-        and not row.get('release_event_identity_collision')
-        and not any(x.get('body_text_truncated') for x in row.get('release_events', []))
+    """Only comparable evidence; a short excerpt is not the full document."""
+    if row.get("status") != "captured" or not row.get("content_sha256"):
+        return False
+    if row.get("category") == "changelog" and row.get("release_events_schema") == "1.1":
+        return bool(
+            row.get("release_window_complete")
+            and not row.get("release_event_evidence_lost")
+            and not row.get("release_event_identity_collision")
+            and not row.get("release_recent_body_loss_count", 0)
+            and not any(e.get("body_text_truncated")
+                        for e in row.get("release_events", []))
+        )
+    return bool(
+        not row.get("text_truncated")
+        and not (row.get("category") == "pricing" and row.get("tables_truncated"))
+        and not (row.get("category") in {"documentation", "changelog"}
+                 and row.get("sections_truncated"))
+        and not any(x.get("excerpt_truncated") for x in row.get("sections", []))
+        and not row.get("release_events_truncated")
+        and not row.get("release_event_identity_collision")
+        and not any(x.get("body_text_truncated") for x in row.get("release_events", []))
     )
 
 
@@ -227,8 +236,8 @@ def _release_diffs(current, previous):
         old = previous.get(source_id)
         if not old or curr.get('category') != 'changelog':
             continue
-        if (curr.get('release_events_schema') != '1.0'
-                or old.get('release_events_schema') != '1.0'
+        if (curr.get('release_events_schema') not in {'1.0', '1.1'}
+                or old.get('release_events_schema') != curr.get('release_events_schema')
                 or not _healthy(curr) or not _healthy(old)):
             continue
         if (curr.get('source_url') != old.get('source_url')
@@ -287,8 +296,8 @@ def _section_diffs(current, previous):
     for source_id, curr in sorted(current.items()):
         old = previous.get(source_id)
         if curr.get('category') == 'changelog' and (
-            curr.get('release_events_schema') == '1.0'
-            or (old and old.get('release_events_schema') == '1.0')
+            curr.get('release_events_schema') in {'1.0', '1.1'}
+            or (old and old.get('release_events_schema') in {'1.0', '1.1'})
         ):
             # Never duplicate or contradict typed release comparisons with
             # coarse h2/h3 section changes or a parser schema migration.
@@ -346,7 +355,7 @@ def review_queue(current, previous, changes):
     modern_changelog_sources = {
         sid for sid, item in current.items()
         if item.get('category') == 'changelog'
-        and item.get('release_events_schema') == '1.0'
+        and item.get('release_events_schema') in {'1.0', '1.1'}
     }
     # Only generate page-level tasks if no section-level diff is available.
     for item in changes:
