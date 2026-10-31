@@ -261,10 +261,19 @@ def main():
     )
     print(json.dumps({
         "pass": report["pass"], "date_cases": report["date_cases"],
-        "rate_cases": report["rate_cases"],
+        "date_correct": report["date_correct"],
+        "rate_cases": report["rate_cases"], "rate_correct": report["rate_correct"],
+        "negative_false_comparable": report["unscoped_rate_false_comparable"],
         "synthetic_only": True,
     }))
     if not report["pass"]:
+        print(json.dumps({
+            "failed_release_examples": [
+                row for row in report["date_results"] if not row["passed"]
+            ],
+            "failed_price_rows": report["rate_failed_cases"][:20],
+            "failed_noncomparable_rows": report["rate_failed_negative_cases"],
+        }, ensure_ascii=False))
         raise SystemExit(1)
 
 
