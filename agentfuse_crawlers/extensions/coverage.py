@@ -31,6 +31,18 @@ def _comparable(item):
             and not item.get("release_event_identity_collision")
             and not item.get("release_recent_body_loss_count", 0)
         )
+    if (item.get("category") == "documentation"
+            and item.get("documentation_evidence_schema") == "1.0"):
+        return bool(
+            item.get("status") == "captured"
+            and item.get("content_sha256")
+            and item.get("documentation_scope_status") == "scoped_page"
+            and item.get("documentation_profile_status") == "curated_pending_live_validation"
+            and item.get("documentation_topic_candidates")
+            and not item.get("documentation_topic_candidate_omitted")
+            and not item.get("documentation_source_sections_truncated")
+            and not item.get("documentation_item_budget_truncated")
+        )
     if item.get("category") == "pricing" and item.get("pricing_evidence_schema") == "1.0":
         return bool(
             item.get("status") == "captured"
@@ -67,6 +79,10 @@ class SourceCoverageAudit:
         self.item_budget_failed = set()
         self.pricing_incomplete = set()
         self.pricing_comparable = set()
+        self.documentation_overview_only = set()
+        self.documentation_scoped = set()
+        self.documentation_unprofiled = set()
+        self.documentation_canonical_review = set()
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -98,6 +114,15 @@ class SourceCoverageAudit:
                     self.pricing_incomplete.add(source_id)
                 if item.get("pricing_comparable_candidate_count", 0) > 0:
                     self.pricing_comparable.add(source_id)
+            if item.get("documentation_evidence_schema") == "1.0":
+                if item.get("documentation_scope_status") == "overview_only":
+                    self.documentation_overview_only.add(source_id)
+                if item.get("documentation_scope_status") == "scoped_page":
+                    self.documentation_scoped.add(source_id)
+                if item.get("documentation_profile_status") == "unprofiled":
+                    self.documentation_unprofiled.add(source_id)
+                if item.get("documentation_canonical_relation") == "same_host_path_differs":
+                    self.documentation_canonical_review.add(source_id)
             if any(s.get("excerpt_truncated") for s in item.get("sections", [])):
                 self.clipped_excerpts.add(source_id)
             context = getattr(spider, "run_context", None)
@@ -150,6 +175,10 @@ class SourceCoverageAudit:
             "item_budget_failure_sources": len(self.item_budget_failed & expected),
             "pricing_inventory_incomplete_sources": len(self.pricing_incomplete & expected),
             "pricing_with_comparable_candidates": len(self.pricing_comparable & expected),
+            "documentation_overview_only_sources": len(self.documentation_overview_only & expected),
+            "documentation_scoped_page_sources": len(self.documentation_scoped & expected),
+            "documentation_unprofiled_sources": len(self.documentation_unprofiled & expected),
+            "documentation_canonical_review_sources": len(self.documentation_canonical_review & expected),
             "captured_with_clipped_excerpts": len(self.clipped_excerpts & expected),
             "missing_sources": len(missing),
             "duplicate_sources": len(self.duplicates),

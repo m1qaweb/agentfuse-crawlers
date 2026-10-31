@@ -77,7 +77,9 @@ def test_same_path_slash_redirect_remains_eligible_for_capture():
     spider = DocumentationSpider(source_ids=source["id"])
     first = list(spider.parse_page(response(source, 301, source["url"] + "/"), source))
     assert isinstance(first[0], Request)
-    body = "<main><h1>Official Docs</h1><p>" + (
+    # Same-path redirects remain eligible when the fetched page also
+    # substantiates the curated source's product identity.
+    body = "<main><h1>" + source["provider"] + " Official Docs</h1><p>" + (
         "Current model and feature documentation with implementation details. " * 30
     ) + "</p></main>"
     final = list(spider.parse_page(response(

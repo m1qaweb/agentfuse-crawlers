@@ -151,11 +151,24 @@ a newly seen amount is effective today. See
 [PR04_PRICING_EVIDENCE.md](docs/PR04_PRICING_EVIDENCE.md) for limitations,
 output fields, and source-by-source Zyte canary instructions.
 
+## Scoped documentation evidence (PR 05 — draft)
+
+The existing `official_documentation` spider now distinguishes a captured
+landing/index page from a substantive, product-scoped technical page. A
+companion registry pins 22 priority source IDs to the original official URLs
+and records intended product/page scope with **pending live validation**.
+Sections about models, authentication, limits, tools or SDKs are **unverified
+topic evidence**, not confirmed vendor capabilities. Canonical equivalences
+remain same-host/safe-path only; genuine migrations stay review tasks.
+`kiro_docs` requires a new Zyte capture to diagnose the previously empty
+HTML, and Google Cloud's narrower product scope remains unapproved. See
+[PR05_DOCUMENTATION_SCOPE_RUNBOOK.md](docs/PR05_DOCUMENTATION_SCOPE_RUNBOOK.md).
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.
 2. Validate PR04's structured pricing rate evidence on live source HTML. Add explicit source-verified effective-date intervals and model/region/tier scope mappings before any advisor publication. Do **not** derive prices from flattened `text`.
-3. Add dated release entry extraction and cross-source corroboration; deduplicate repeated announcements.
+3. Extend already implemented dated release extraction with verified official GitHub release adapters and additional per-provider canaries; deduplicate repeated announcements.
 4. Introduce a reviewed-fact schema and evidence ledger (source, first seen, source published date, effective date, last verified, expiry and reviewer). Only reviewed facts should inform advisor recommendations.
 5. Build a separate AgentFuse `/intelligence` interface using attributed summaries, searchable provider pages, and source-health indicators. It should read from a reviewed public dataset, **not raw Zyte output**.
 
