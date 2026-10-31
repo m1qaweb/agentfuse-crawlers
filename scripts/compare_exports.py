@@ -207,6 +207,7 @@ def _compatible_source(row, old):
         "source_id", "provider", "category", "source_url",
         "manifest_sha256", "source_registry_sha256",
         "schema_version", "release_events_schema",
+        "release_identity_revision",
         "pricing_evidence_schema", "documentation_evidence_schema",
         "documentation_product_scope", "source_format",
     )
