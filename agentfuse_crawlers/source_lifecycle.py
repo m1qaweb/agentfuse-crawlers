@@ -77,6 +77,13 @@ def _validate_approval(source, entry):
 
 
 @lru_cache(maxsize=1)
+def _manifest_by_id():
+    # The publisher manifest is immutable within a deployed Scrapy process.
+    # Avoid reparsing and validating all 460 URLs for each source decision.
+    return {s["id"]: s for s in load_sources()}
+
+
+@lru_cache(maxsize=1)
 def load_lifecycle_registry():
     """Validate all overrides against the immutable 460-URL source manifest."""
     raw = files("agentfuse_crawlers").joinpath(SOURCE_DATA_PATH).read_text(encoding="utf-8")
@@ -88,7 +95,7 @@ def load_lifecycle_registry():
     overrides = data.get("overrides")
     if not isinstance(overrides, dict):
         raise ValueError("Source lifecycle overrides must be an object")
-    by_id = {s["id"]: s for s in load_sources()}
+    by_id = _manifest_by_id()
     for source_id, entry in overrides.items():
         source = by_id.get(source_id)
         if source is None or not isinstance(entry, dict):
@@ -123,8 +130,7 @@ def registry_revision_sha256():
 
 def source_lifecycle(source):
     """Return reviewed metadata, or an explicitly unreviewed default."""
-    by_id = {x["id"]: x for x in load_sources()}
-    valid = by_id.get(source.get("id"))
+    valid = _manifest_by_id().get(source.get("id"))
     if valid is None or valid != source:
         raise ValueError("Source must be an exact current manifest entry")
     overrides = load_lifecycle_registry()["overrides"]
