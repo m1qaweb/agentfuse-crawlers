@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0",
+  "origin": "synthetic_examples_no_vendor_html",
+  "independently_human_reviewed": false,
+  "required_milestone": "PR08",
+  "cases": [
+    {
+      "source_id": "cursor_changelog",
+      "layout": "article_time",
+      "title": "Editor agent improvements",
+      "date": "2026-10-20",
+      "expected": "2026-10-20"
+    },
+    {
+      "source_id": "render_changelog",
+      "layout": "month_group",
+      "title": "Updated developer platform tooling",
+      "date": "2026-10-29",
+      "expected": "2026-10-29"
+    },
+    {
+      "source_id": "xai_changelog",
+      "layout": "yearless_dateline",
+      "title": "Updated inference integration modes",
+      "date": "Oct 30",
+      "expected": null
+    },
+    {
+      "source_id": "openai_api_changelog",
+      "layout": "month_group",
+      "title": "Expanded API development support",
+      "date": "2026-10-30",
+      "expected": "2026-10-30"
+    },
+    {
+      "source_id": "kiro_changelog",
+      "layout": "dateline",
+      "title": "Workspace installer update",
+      "date": "2026-10-28",
+      "expected": "2026-10-28"
+    },
+    {
+      "source_id": "supabase_changelog",
+      "layout": "relative_time",
+      "title": "Improved application database tooling",
+      "date": "2026-10-27",
+      "expected": "2026-10-27"
+    },
+    {
+      "source_id": "claude_code_changelog",
+      "layout": "version_only",
+      "title": "v2.1.0",
+      "date": null,
+      "expected": null
+    },
+    {
+      "source_id": "chatgpt_codex_changelog",
+      "layout": "inline_prefix",
+      "title": "New developer console interface",
+      "date": "2026-10-26",
+      "expected": "2026-10-26"
+    },
+    {
+      "source_id": "google_antigravity_changelog",
+      "layout": "month_group",
+      "title": "New code navigation tooling",
+      "date": "2026-10-25",
+      "expected": "2026-10-25"
+    },
+    {
+      "source_id": "qdrant_changelog",
+      "layout": "article_time",
+      "title": "v1.2.0",
+      "date": "2026-10-10",
+      "expected": "2026-10-10",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "chroma_changelog",
+      "layout": "relative_time",
+      "title": "v2.2.0",
+      "date": "2026-10-11",
+      "expected": "2026-10-11",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "lancedb_changelog",
+      "layout": "article_time",
+      "title": "v3.2.0",
+      "date": "2026-10-12",
+      "expected": "2026-10-12",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "elasticsearch_ai_search_changelog",
+      "layout": "relative_time",
+      "title": "v4.2.0",
+      "date": "2026-10-13",
+      "expected": "2026-10-13",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "meilisearch_changelog",
+      "layout": "article_time",
+      "title": "v5.2.0",
+      "date": "2026-10-14",
+      "expected": "2026-10-14",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "typesense_changelog",
+      "layout": "relative_time",
+      "title": "v6.2.0",
+      "date": "2026-10-15",
+      "expected": "2026-10-15",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "flowise_changelog",
+      "layout": "article_time",
+      "title": "v7.2.0",
+      "date": "2026-10-16",
+      "expected": "2026-10-16",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "litellm_changelog",
+      "layout": "relative_time",
+      "title": "v8.2.0",
+      "date": "2026-10-17",
+      "expected": "2026-10-17",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "promptfoo_changelog",
+      "layout": "article_time",
+      "title": "v9.2.0",
+      "date": "2026-10-18",
+      "expected": "2026-10-18",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "confident_ai_deepeval_changelog",
+      "layout": "relative_time",
+      "title": "v10.2.0",
+      "date": "2026-10-19",
+      "expected": "2026-10-19",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "openlit_changelog",
+      "layout": "article_time",
+      "title": "v11.2.0",
+      "date": "2026-10-20",
+      "expected": "2026-10-20",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "agno_changelog",
+      "layout": "relative_time",
+      "title": "v12.2.0",
+      "date": "2026-10-21",
+      "expected": "2026-10-21",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "mastra_changelog",
+      "layout": "article_time",
+      "title": "v13.2.0",
+      "date": "2026-10-22",
+      "expected": "2026-10-22",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "onyx_ai_changelog",
+      "layout": "relative_time",
+      "title": "v14.2.0",
+      "date": "2026-10-23",
+      "expected": "2026-10-23",
+      "publisher_layout": "synthetic_github_releases"
+    },
+    {
+      "source_id": "continue_changelog",
+      "layout": "article_time",
+      "title": "v15.2.0",
+      "date": "2026-10-24",
+      "expected": "2026-10-24",
+      "publisher_layout": "synthetic_github_releases"
+    }
+  ]
+}
