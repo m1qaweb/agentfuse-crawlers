@@ -385,8 +385,12 @@ def extract_release_events(main, source_url, source_id):
                                 "html_time_datetime" if typ == "timestamp" else "dateline_" + kind,
                                 text)
                 pending_date = True
-                date_group_active = False
-                context_heading_level = None
+                # Day markers nested under an explicit month/year heading
+                # may group several same-day h3 release entries. An ordinary
+                # standalone date outside that context applies to one card.
+                date_group_active = month_group is not None
+                if not date_group_active:
+                    context_heading_level = None
         elif typ == "body":
             if current is not None:
                 # Bound live memory per event; preserve clipping honestly.

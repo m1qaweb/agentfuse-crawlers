@@ -390,3 +390,33 @@ def test_official_permalink_omits_suspicious_query_tokens():
     """)
     assert data["release_events"][0]["permalink"] == "https://official.example/changelog/release-123"
     assert "token" not in data["release_events"][0]["permalink"]
+
+
+
+def test_month_group_multiple_entries_on_same_day_keep_each_explicit_date():
+    data = extract("""
+    <h2>October, 2026</h2>
+    <div>Oct 30</div>
+    <h3 id="one">Model A</h3><p>New API access tier and tools.</p>
+    <h3 id="two">Model B</h3><p>Additional model support.</p>
+    <div>Oct 28</div>
+    <h3 id="three">Earlier change</h3><p>Previous tools update.</p>
+    """)
+    assert [(x["title"], x["published_at"]) for x in data["release_events"]] == [
+        ("Model A", "2026-10-30"),
+        ("Model B", "2026-10-30"),
+        ("Earlier change", "2026-10-28"),
+    ]
+
+
+def test_month_group_year_does_not_leak_into_peer_unrelated_heading():
+    data = extract("""
+    <h2>October, 2026</h2><div>Oct 30</div>
+    <h3>Version v2.0.0</h3><p>Changes.</p>
+    <h2>Developer setup</h2>
+    <h3>Version v3.0.0</h3><p>October rollout not dated by publisher.</p>
+    """)
+    entries = data["release_events"]
+    assert entries[0]["published_at"] == "2026-10-30"
+    assert entries[-1]["published_at"] is None
+    assert data["latest_release_date_candidate"] is None
