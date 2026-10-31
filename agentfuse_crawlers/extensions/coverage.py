@@ -21,6 +21,14 @@ CONTEXT_FIELDS = (
 
 def _comparable(item):
     """Conservative page completeness, not approval of any vendor fact."""
+    if item.get("category") == "pricing" and item.get("pricing_evidence_schema") == "1.0":
+        return bool(
+            item.get("status") == "captured"
+            and item.get("content_sha256")
+            and item.get("pricing_inventory_complete")
+            and item.get("pricing_comparable_candidate_count", 0) > 0
+            and not item.get("pricing_evidence_lost_to_item_budget")
+        )
     return bool(
         item.get("status") == "captured"
         and item.get("content_sha256")
@@ -44,6 +52,8 @@ class SourceCoverageAudit:
         self.comparable = set()
         self.clipped_excerpts = set()
         self.advisor_approval_anomalies = set()
+        self.pricing_incomplete = set()
+        self.pricing_comparable = set()
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -64,6 +74,11 @@ class SourceCoverageAudit:
             self.status_counts[item.get("status", "unknown")] += 1
             if _comparable(item):
                 self.comparable.add(source_id)
+            if item.get("pricing_evidence_schema") == "1.0":
+                if not item.get("pricing_inventory_complete"):
+                    self.pricing_incomplete.add(source_id)
+                if item.get("pricing_comparable_candidate_count", 0) > 0:
+                    self.pricing_comparable.add(source_id)
             if any(s.get("excerpt_truncated") for s in item.get("sections", [])):
                 self.clipped_excerpts.add(source_id)
             context = getattr(spider, "run_context", None)
@@ -111,6 +126,8 @@ class SourceCoverageAudit:
             "partial_sources": partial,
             "uncaptured_sources": len(expected) - captured,
             "comparable_sources": comparable,
+            "pricing_inventory_incomplete_sources": len(self.pricing_incomplete & expected),
+            "pricing_with_comparable_candidates": len(self.pricing_comparable & expected),
             "captured_with_clipped_excerpts": len(self.clipped_excerpts & expected),
             "missing_sources": len(missing),
             "duplicate_sources": len(self.duplicates),

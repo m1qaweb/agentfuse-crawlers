@@ -14,6 +14,8 @@ from urllib.parse import quote, urlsplit
 
 from lxml import etree, html
 
+from agentfuse_crawlers.pricing_evidence import extract_pricing_evidence
+
 BLOCKS = frozenset({
     'article', 'blockquote', 'div', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3',
     'h4', 'h5', 'h6', 'li', 'ol', 'p', 'pre', 'section', 'table',
@@ -249,7 +251,7 @@ def _tables(main):
     return tables, truncated
 
 
-def extract_evidence(raw_html, source_url):
+def extract_evidence(raw_html, source_url, category=None, source_id=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
@@ -275,7 +277,14 @@ def extract_evidence(raw_html, source_url):
     sections, sections_truncated = _sections(main, source_url)
     dated_sections = [s['date_candidate'] for s in sections if s['date_candidate']]
     leading_date = _leading_release_date(text) if not dated_sections else ''
-    tables, tables_truncated = _tables(main)
+    pricing_details = {}
+    if category == "pricing" and source_id:
+        pricing_details = extract_pricing_evidence(main, source_url, source_id)
+        tables = pricing_details["pricing_legacy_table_excerpts"]
+        # A generic historic 40-table cap is not a pricing-completeness gate.
+        tables_truncated = not pricing_details["pricing_inventory_complete"]
+    else:
+        tables, tables_truncated = _tables(main)
     canonical = root.xpath('//link[translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="canonical"]/@href')
     canonical_url = canonical[0].strip() if canonical else ''
     # Don't trust cross-domain canonical links for attribution or fetching.
@@ -285,6 +294,7 @@ def extract_evidence(raw_html, source_url):
     description = root.xpath('//meta[translate(@name,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="description"]/@content')
     description = re.sub(r'\s+', ' ', description[0]).strip()[:500] if description else ''
     return {
+        **pricing_details,
         'title': title[:300],
         'text': text,
         'word_count': len(text.split()),

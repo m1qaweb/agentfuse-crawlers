@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import scrapy
 
 from agentfuse_crawlers.extract import extract_evidence
+from agentfuse_crawlers.pricing_evidence import compact_pricing_record
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.quality import (
     HARD_TEXT_LIMIT, assess_capture, response_freshness,
@@ -195,7 +196,10 @@ class OfficialBaseSpider(scrapy.Spider):
             return
 
         try:
-            evidence = extract_evidence(response.text, source["url"])
+            evidence = extract_evidence(
+                response.text, source["url"], category=source["category"],
+                source_id=source["id"],
+            )
         except Exception as exc:
             self.logger.warning("Failed extracting %s: %s", source["id"], exc)
             record.update(status="extraction_error", error=type(exc).__name__)
@@ -237,6 +241,18 @@ class OfficialBaseSpider(scrapy.Spider):
             # Keep a short diagnostic sample for shells and access challenges.
             # Substantive but undated release evidence is retained above for review.
             record["text_sample"] = text[:500]
+        if source["category"] == "pricing":
+            try:
+                record = compact_pricing_record(record, text)
+            except ValueError:
+                record = self._base_record(source)
+                record.update(
+                    status="partial_capture", error="pricing_item_budget_exceeded",
+                    pricing_evidence_lost_to_item_budget=True,
+                    content_sha256=evidence.get("content_sha256", ""),
+                    final_url=_visible_url(response.url),
+                    http_status=response.status,
+                )
         yield self._emit_status(record)
 
     def record_failure(self, failure):
