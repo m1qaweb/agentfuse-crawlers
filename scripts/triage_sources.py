@@ -126,10 +126,17 @@ def _review_findings(source, latest, lifecycle):
     if (isinstance(latest.get("reported_cache_age_seconds"), int)
             and latest["reported_cache_age_seconds"] > 86_400):
         findings.append("long_cdn_age_uncertain_not_publish_date")
-    if latest.get("release_events_truncated") or latest.get(
-        "release_recent_body_loss_count", 0
-    ):
+    if (source["category"] == "changelog" and
+        (latest.get("release_events_truncated") or
+         latest.get("release_recent_body_loss_count", 0) or
+         error in {"text_exceeds_capture_limit", "changelog_sections_truncated",
+                   "recent_release_body_incomplete", "recent_release_window_incomplete"})):
         findings.append("changelog_evidence_incomplete")
+    if error in {"no_dated_release_section_detected", "latest_release_date_ambiguous",
+                 "release_events_missing_publication_dates", "no_release_events_detected"}:
+        findings.append("changelog_date_evidence_missing")
+    if error == "server_cached_response_over_one_day":
+        findings.append("long_cdn_age_uncertain_not_publish_date")
     if latest.get("source_policy_status") == "unresolved":
         findings.append("historical_policy_unresolved")
     if not findings:
@@ -149,6 +156,10 @@ def _next_action(findings, lifecycle):
         return "Confirm exact product and authoritative technical page before using any capability evidence."
     if "pricing_scope_or_billing_review" in findings:
         return "Review official product/tier/billing units; unresolved rates remain unverified."
+    if "changelog_date_evidence_missing" in findings:
+        return "Inspect current official release cards and exact publication-date evidence; never infer year from fetch time."
+    if "changelog_evidence_incomplete" in findings:
+        return "Inspect recent release window and omitted evidence; do not claim complete release coverage."
     if "canonical_or_path_movement_review" in findings:
         return "Inspect official same-product canonical/path; do not follow unapproved cross-host redirects."
     if "insufficient_html_or_js_shell" in findings:
