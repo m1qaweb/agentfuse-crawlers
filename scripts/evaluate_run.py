@@ -48,6 +48,21 @@ def _run_eligible(envelope):
 def _healthy_for_typed_diffs(row):
     if not _healthy(row):
         return False
+    if row.get("source_policy_status") in {"unresolved", "prohibited_reviewed"}:
+        return False
+    if row.get("source_lifecycle_state") in {"quarantined", "retired"}:
+        return False
+    if row.get("freshness_warnings"):
+        return False
+    age = row.get("reported_cache_age_seconds")
+    if isinstance(age, (int, float)) and age > 86_400:
+        return False
+    flags = row.get("scrapy_response_flags") or []
+    if any("cache" in str(flag).lower() for flag in flags):
+        return False
+    code = row.get("http_status")
+    if code is not None and (not isinstance(code, int) or not 200 <= code < 300):
+        return False
     if row.get("category") == "documentation" and row.get(
         "documentation_evidence_schema"
     ):
