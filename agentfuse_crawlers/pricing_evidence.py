@@ -34,8 +34,21 @@ GENAI_SCOPE = re.compile(
     r"\b(?:generative AI|gen AI|language models?|inference models?)\b", re.I,
 )
 MODEL_ROW = re.compile(
-    r"\b(?:input price|output price|context caching|cache (?:write|read)|"
-    r"batch input|batch output|storage price|rate per)\b", re.I,
+    r"\b(?:input (?:price|cost|rate)|output (?:price|cost|rate)|"
+    r"cached input (?:price|cost|rate)|context caching|"
+    r"cache (?:write|read)|batch input|batch output|storage price|"
+    r"rate per|price per|monthly price|hourly rate)\b", re.I,
+)
+GENERIC_ROW_LABEL = re.compile(
+    r"^(?:(?:monthly|annual|hourly|subscription)\s+)?"
+    r"(?:prices?|rates?|costs?|charges?|models?|pricing|tiers?|plans?)$",
+    re.I,
+)
+GENERIC_MODEL_SECTION = re.compile(
+    r"^(?:models?|model prices?|model pricing|pricing|billing|"
+    r"api pricing|gemini api pricing|claude pricing|plans|"
+    r"on.demand pricing|standard prices?|rate card)$",
+    re.I,
 )
 
 
@@ -204,14 +217,23 @@ def _is_relevant(table, info, source_id):
 
 def _model_label(row_label, context, caption):
     label = clean(row_label, 180)
-    if not label or MODEL_ROW.search(label):
-        # For Gemini's per-model table, a row is a price DIMENSION, while
-        # the containing h2 describes the model.
-        for part in context.split(" > "):
-            if re.search(r"\b(?:gemini|claude|gpt|model|llama|command|mistral|cohere)\b", part, re.I):
-                return part[:180]
-        return ""
-    return label
+    if label and not MODEL_ROW.search(label) and not GENERIC_ROW_LABEL.fullmatch(label):
+        return label
+    # For model-by-rate tables, the row identifies INPUT/OUTPUT and a
+    # *specific* model must be named in a nearby heading. "Model pricing",
+    # "Gemini API pricing" and similar section titles are NOT model names.
+    for raw_part in reversed(context.split(" > ")):
+        part = clean(raw_part, 180)
+        if not part or GENERIC_MODEL_SECTION.fullmatch(part):
+            continue
+        if re.match(r"^Model\s*:\s*[A-Za-z][A-Za-z0-9_. -]{2,}$", part, re.I):
+            return part
+        if re.search(
+            r"\b(?:gemini|claude|gpt|grok|llama|command|mistral|cohere)\b",
+            part, re.I,
+        ) and not re.search(r"\b(?:pricing|billing|rates?)\b", part, re.I):
+            return part
+    return ""
 
 
 def extract_pricing_evidence(main, source_url, source_id):
@@ -366,10 +388,19 @@ def extract_pricing_evidence(main, source_url, source_id):
     )
     obs_overflow = total_detected > MAX_OBSERVATIONS
     card_incomplete = card_evidence["card_scan_truncated"]
+    # Ambiguous repeated typed keys across tables/cards are never safe rate
+    # comparisons. The source stays partial, even if both amounts are equal,
+    # until the model/region/plan attribution is independently checked.
+    ids = [
+        x["observation_id"] for x in observations
+        if x.get("comparable_candidate")
+    ]
+    rate_id_collision_count = len(ids) - len(set(ids))
     inventory_complete = bool(
         not scan_truncated and relevant_total == len(selected)
         and not rows_incomplete and not obs_overflow
         and not card_incomplete and not card_conflict
+        and not rate_id_collision_count
     )
     scope_unresolved = bool(
         source_id == "oracle_oci_generative_ai_pricing" and relevant_total == 0
@@ -405,11 +436,13 @@ def extract_pricing_evidence(main, source_url, source_id):
         "pricing_card_total": card_evidence["card_total"],
         "pricing_card_selected": card_evidence["card_selected"],
         "pricing_card_omitted": card_evidence["card_omitted"],
+        "pricing_card_oversized_count": card_evidence["card_oversized"],
         "pricing_card_scan_truncated": card_incomplete,
         "pricing_card_price_entries_examined": card_evidence["card_entries_examined"],
         "pricing_card_price_entries_omitted": card_evidence["card_entries_omitted"],
         "pricing_card_duplicate_rate_count": card_duplicates,
         "pricing_card_rate_identity_conflict": card_conflict,
+        "pricing_rate_identity_collision_count": rate_id_collision_count,
         "pricing_card_observation_count": sum(
             x.get("evidence_kind") == "structured_card" for x in observations
         ),
