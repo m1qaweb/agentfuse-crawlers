@@ -351,8 +351,30 @@ def load_archive(path):
             raise ValueError("Archived source/ordinal mismatch")
         if row["source_id"] in seen:
             raise ValueError("Duplicate source during archive replay")
+        if (row.get("status", "unknown") != entry["status"]
+                or row.get("category") != SPIDERS.get(job.get("spider"))):
+            raise ValueError("Archived source metadata differs from its index or job")
         seen.add(row["source_id"])
         parsed.append(row)
+    if envelope.get("source_summary_count") != len(parsed):
+        raise ValueError("Archive summary count differs from payload")
+    # The envelope itself is user-editable JSON. Recompute every derived
+    # comparison-safety gate instead of trusting a cached healthy=True flag.
+    recalculated = _scope(lines, entries)
+    recalculated["job_spider_matches_items"] = (
+        recalculated["spider_name_from_items"] == job.get("spider")
+    )
+    recalculated["safe_for_semantic_diff"] = bool(
+        recalculated["metadata_consistent"]
+        and recalculated["scope_count_matches_items"]
+        and recalculated["provenance_hashes_recorded"]
+        and recalculated["run_start_recorded"]
+        and recalculated["job_spider_matches_items"]
+        and not recalculated["source_identity_mismatches"]
+        and job.get("close_reason") == "finished"
+    )
+    if recalculated != envelope.get("source_scope"):
+        raise ValueError("Archive scope/provenance metadata mismatch")
     return envelope, parsed
 
 
