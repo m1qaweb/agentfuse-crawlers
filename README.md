@@ -129,6 +129,16 @@ template represents a new release. The new event-level review queue is
 unverified and baseline-safe. See [RELEASE_EVENTS_V1.md](docs/RELEASE_EVENTS_V1.md)
 for limitations and a source-by-source canary checklist.
 
+## Bounded recent changelog capture (stacked PR 03)
+
+The existing changelog spider retains a bounded, explicit recent-event
+window instead of exporting large historical text snapshots. Versioned
+events are compared only within compatible, healthy windows, and historical
+truncation is separately reported. Claude Code has a single vetted same-host
+Markdown fallback for version-only release evidence; dates are never guessed.
+Source Items are limited to a conservative byte budget for Zyte.
+See [RECENT_CHANGELOG_CAPTURE_PR03.md](docs/RECENT_CHANGELOG_CAPTURE_PR03.md).
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.
