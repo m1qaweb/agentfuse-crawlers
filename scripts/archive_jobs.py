@@ -42,9 +42,16 @@ ALLOWED_ARGS = (
 STATS_KEYS = (
     "item_scraped_count", "elapsed_time_seconds", "finish_reason",
     "downloader/request_count", "downloader/response_count",
-    "robotstxt/request_count", "agentfuse/coverage/expected_sources",
+    "robotstxt/request_count", "memusage/max",
+    "agentfuse/coverage/expected_sources",
     "agentfuse/coverage/reported_sources", "agentfuse/coverage/missing_sources",
-    "agentfuse/coverage/duplicate_sources", "agentfuse/run/quality_outcome",
+    "agentfuse/coverage/duplicate_sources",
+    "agentfuse/coverage/lifecycle_skipped_sources",
+    "agentfuse/coverage/quarantined_sources",
+    "agentfuse/coverage/policy_unresolved_sources",
+    "agentfuse/coverage/provenance_errors",
+    "agentfuse/coverage/approved_for_advisor_anomalies",
+    "agentfuse/run/quality_outcome",
 )
 
 
