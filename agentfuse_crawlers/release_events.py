@@ -191,8 +191,11 @@ def _signals(main):
                 node.get(x, "") for x in
                 ("itemprop", "class", "aria-label", "data-testid")
             ).lower()
-            if any(x in date_role for x in ("datemodified", "last-modified",
-                                            "updated-at", "last updated")):
+            if any(x in date_role for x in (
+                "datemodified", "date-modified", "last-modified",
+                "last-updated", "updated-at", "last updated",
+                "last edited", "edited-at", "modified-at",
+            )):
                 continue  # Edited time is not a release publication date.
             value = (node.get("datetime") or node.get("dateTime") or "").strip()
             if value and DATE_ISO.fullmatch(value[:10]):
