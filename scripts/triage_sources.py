@@ -24,7 +24,7 @@ from scripts.compare_exports import read_jsonl
 CSV_FIELDS = (
     "source_id", "provider", "category", "source_url", "lifecycle_state",
     "policy_status", "observed_status", "http_status", "observed_at_utc",
-    "observed_final_url", "observed_canonical_url",
+    "observed_final_url", "observed_canonical_url", "observed_redirect_target",
     "finding_codes", "review_status", "next_action",
 )
 
@@ -160,6 +160,7 @@ def generate_triage(latest, *, manifest=None):
             "observed_at_utc": observed.get("fetched_at_utc") if observed else None,
             "observed_final_url": _safe_url(observed.get("final_url")) if observed else "",
             "observed_canonical_url": _safe_url(observed.get("canonical_url")) if observed else "",
+            "observed_redirect_target": _safe_url(observed.get("redirect_review_target")) if observed else "",
             "finding_codes": "|".join(findings),
             "review_status": "pending_human_review",
             "next_action": _next_action(findings, lifecycle),
