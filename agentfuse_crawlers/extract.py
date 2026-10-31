@@ -16,6 +16,7 @@ from lxml import etree, html
 
 from agentfuse_crawlers.release_events import extract_release_events
 from agentfuse_crawlers.pricing_evidence import extract_pricing_evidence
+from agentfuse_crawlers.documentation_scope import extract_documentation_evidence
 
 BLOCKS = frozenset({
     'article', 'blockquote', 'div', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3',
@@ -285,6 +286,12 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
             main, source_url, max_sections=24, max_excerpt=900,
         )
         tables, tables_truncated = [], False
+    elif category == 'documentation':
+        # Bound page-level sections; a landing page is never an entire corpus.
+        sections, sections_truncated = _sections(
+            main, source_url, max_sections=64, max_excerpt=1200,
+        )
+        tables, tables_truncated = _tables(main)
     else:
         sections, sections_truncated = _sections(main, source_url)
         if category == 'pricing' and source_id:
@@ -307,9 +314,19 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
         extract_release_events(main, source_url, source_id)
         if category == 'changelog' and source_id else {}
     )
+    documentation_info = (
+        extract_documentation_evidence(
+            source_url, source_id, sections=sections, title=title, text=text,
+            prose_paragraphs=prose_paragraphs,
+            link_text_ratio=main_link_text_ratio,
+            sections_truncated=sections_truncated,
+            canonical_candidate=canonical[0] if canonical else '',
+        ) if category == 'documentation' and source_id else {}
+    )
     return {
         **release_info,
         **pricing_details,
+        **documentation_info,
         'title': title[:300],
         'text': text,
         'word_count': len(text.split()),
