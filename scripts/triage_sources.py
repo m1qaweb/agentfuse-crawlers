@@ -29,6 +29,31 @@ CSV_FIELDS = (
 )
 
 
+def read_historical_audit(path):
+    """Import the owner's archived per-source audit, never live verified Items.
+
+    Its curated 'sources' records were derived from October 31 Zyte exports,
+    but do not contain full raw HTML or current publisher validations.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    sources = data.get("sources")
+    if not (isinstance(sources, list) and
+            data.get("all_captures_unverified") is True and
+            data.get("total_source_records") == len(sources)):
+        raise ValueError("Invalid or not explicitly unverified source audit")
+    observed = {}
+    for item in sources:
+        if not isinstance(item, dict) or not isinstance(item.get("source_id"), str):
+            raise ValueError("Historical audit contains an invalid source")
+        sid = item["source_id"]
+        if sid in observed:
+            raise ValueError("Historical audit contains duplicate source: " + sid)
+        if item.get("approved_for_advisor") is not False:
+            raise ValueError("Historical audit must contain only unapproved Items")
+        observed[sid] = item
+    return observed
+
+
 def _safe_url(value):
     """Strip potentially sensitive query/credentials from untrusted Item URLs."""
     if not isinstance(value, str):
@@ -168,7 +193,7 @@ def generate_triage(latest, *, manifest=None):
     return rows
 
 
-def write_triage(rows, out_dir):
+def write_triage(rows, out_dir, *, input_basis="zyte_items"):
     output = Path(out_dir)
     output.mkdir(parents=True, exist_ok=True)
     with (output / "source_review_queue.csv").open("w", encoding="utf-8", newline="") as stream:
@@ -183,6 +208,7 @@ def write_triage(rows, out_dir):
     )
     summary = {
         "schema_version": "1.0",
+        "input_basis": input_basis,
         "source_count": len(rows),
         "observed_in_supplied_exports": sum(row["observed_status"] != "unobserved" for row in rows),
         "unobserved_in_supplied_exports": sum(row["observed_status"] == "unobserved" for row in rows),
@@ -203,12 +229,20 @@ def write_triage(rows, out_dir):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--exports", type=Path, nargs="+", required=True,
-                        help="Previously downloaded Zyte JSON or JSONL Items")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--exports", type=Path, nargs="+",
+                        help="Previously downloaded raw Zyte JSON/JSONL Items")
+    source.add_argument("--audit", type=Path,
+                        help="Owner's historical unverified 460-source audit JSON")
     parser.add_argument("--out-dir", type=Path, default=Path("output/source-triage"))
     args = parser.parse_args()
-    latest = read_jsonl(args.exports)
-    summary = write_triage(generate_triage(latest), args.out_dir)
+    if args.audit:
+        latest = read_historical_audit(args.audit)
+        basis = "historical_compiled_audit_not_live_verified"
+    else:
+        latest = read_jsonl(args.exports)
+        basis = "zyte_items_unverified"
+    summary = write_triage(generate_triage(latest), args.out_dir, input_basis=basis)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
