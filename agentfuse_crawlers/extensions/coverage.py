@@ -66,7 +66,7 @@ class SourceCoverageAudit:
                 self.comparable.add(source_id)
             if any(s.get("excerpt_truncated") for s in item.get("sections", [])):
                 self.clipped_excerpts.add(source_id)
-            if item.get("approved_for_advisor") is not False:
+            if item.get("approved_for_advisor") is True:
                 self.advisor_approval_anomalies.add(source_id)
             context = getattr(spider, "run_context", None)
             if context is not None and any(
