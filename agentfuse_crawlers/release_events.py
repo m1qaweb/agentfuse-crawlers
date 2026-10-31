@@ -336,9 +336,11 @@ def extract_release_events(main, source_url, source_id):
                     and level <= context_heading_level):
                 month_group = None
             title, inline_day, inline_kind, stamp = _inline_heading(text, month_group)
-            if current is not None and level > current["_level"] and not date_group_active:
-                # A deeper heading inside a release (e.g. Fixes) is not a
-                # separate announcement merely because it is another heading.
+            if (current is not None and level > current["_level"]
+                    and not date_group_active and not VERSION.search(text)):
+                # Deeper generic headings within an identified release are
+                # subheadings. A separately versioned nested heading must
+                # remain its own (potentially undated) release candidate.
                 current["_body"].append(text)
                 continue
             finish()
