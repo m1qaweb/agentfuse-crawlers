@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from agentfuse_crawlers.sources import load_sources
+from agentfuse_crawlers.source_lifecycle import collection_decision, registry_revision_sha256
+from agentfuse_crawlers.run_context import manifest_sha256
 
 MIN_REVIEWED_PRICES = 200
 MIN_REVIEWED_DATES = 100
@@ -123,16 +125,32 @@ def score_human_gold(gold):
         raise ValueError("Human gold must supply all four annotated case lists")
     seen = set()
     price_correct = 0
+    observed_rates = set()
     for row in pricing:
         _check_gold_source(row, known, seen, "pricing")
         if known[row["source_id"]]["category"] != "pricing":
             raise ValueError("Pricing gold source has wrong spider category")
+        oid = row.get("observation_id")
+        if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{32}", oid):
+            raise ValueError("Human pricing gold must cite a real typed observation ID")
+        identity = row["source_id"], row["job_id"], oid
+        if identity in observed_rates:
+            raise ValueError("Repeated pricing observation cannot inflate 200 reviewed examples")
+        observed_rates.add(identity)
         price_correct += bool(_comparison(row))
     date_correct, false_latest = 0, 0
+    reviewed_events = set()
     for row in dating:
         _check_gold_source(row, known, seen, "release_date")
         if known[row["source_id"]]["category"] != "changelog":
             raise ValueError("Date gold source has wrong spider category")
+        event_id = row.get("event_id")
+        if not isinstance(event_id, str) or not event_id.startswith(row["source_id"] + ":"):
+            raise ValueError("Reviewed publication dates require a typed event ID")
+        identity = row["source_id"], row["job_id"], event_id
+        if identity in reviewed_events:
+            raise ValueError("Repeated event cannot inflate publication-date accuracy")
+        reviewed_events.add(identity)
         expected = _iso_day(row.get("expected_day"))
         observed = _iso_day(row.get("observed_day"))
         if expected == observed:
@@ -172,6 +190,64 @@ def score_human_gold(gold):
     }
 
 
+def _canary_report_consistent(report):
+    """Do not treat a forged summary flag as publisher-approved evidence."""
+    if not isinstance(report, dict) or report.get("report_kind") != "offline_two_round_canary_score":
+        raise ValueError("Invalid offline canary scorer report")
+    from collections import Counter
+    from agentfuse_crawlers.sources import load_sources
+
+    catalog = load_sources()
+    known = {x["id"]: x for x in catalog}
+    if (report.get("manifest_sha256") != manifest_sha256(catalog)
+            or report.get("source_registry_sha256") != registry_revision_sha256()):
+        return False
+    entries = report.get("outcomes")
+    if not isinstance(entries, list) or not entries:
+        return False
+    if (report.get("expected_jobs") != len(entries)
+            or report.get("source_count", 0) * 2 != len(entries)
+            or report.get("observed_archives") != len(entries)):
+        return False
+    seen = set()
+    approved_sources = set()
+    for row in entries:
+        if not isinstance(row, dict):
+            return False
+        key = row.get("source_id"), row.get("round")
+        if key in seen or key[1] not in (1, 2) or key[0] not in known:
+            return False
+        seen.add(key)
+        actual_reviewed = collection_decision(known[key[0]], "monitor")[0]
+        if row.get("reviewed_collection_eligible") is not actual_reviewed:
+            return False
+        if actual_reviewed:
+            approved_sources.add(key[0])
+        if (not row.get("job_id") or not row.get("job_identity_valid")
+                or row.get("policy_violation") or row.get("unapproved_fact_count")):
+            return False
+    if not all((sid, 1) in seen and (sid, 2) in seen for sid, _ in seen):
+        return False
+    eligible = [row for row in entries if row["reviewed_collection_eligible"]]
+    if (report.get("reviewed_collection_eligible_sources") != len(approved_sources)
+            or report.get("reviewed_eligible_rounds") != len(eligible)
+            or len(eligible) != 2 * len(approved_sources)):
+        return False
+    computed = sum(row.get("usable") is True for row in eligible) / len(eligible) if eligible else None
+    return bool(
+        computed is not None
+        and report.get("reviewed_eligible_usable_rate") == round(computed, 5)
+        and report.get("source_accounting_complete") is True
+        and report.get("archive_mapping_complete") is True
+        and report.get("strict_round_order") is True
+        and report.get("duplicate_job_id") is False
+        and report.get("policy_violation_count") == 0
+        and report.get("advisor_approval_anomaly_count") == 0
+        and report.get("approved_for_advisor") is False
+        and len(approved_sources) > 0
+    )
+
+
 def grade_release(*, synthetic=None, canaries=None, human_gold=None):
     """Return actionable blockers. Missing evidence NEVER counts as passed."""
     blockers, warnings, criteria = [], [], {}
@@ -205,7 +281,8 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None):
             raise ValueError("Invalid offline canary scorer report")
         check(
             "two_repeat_canaries",
-            canaries.get("two_round_95pct_gate") is True
+            _canary_report_consistent(canaries)
+            and canaries.get("two_round_95pct_gate") is True
             and canaries.get("source_accounting_complete") is True
             and canaries.get("strict_round_order") is True
             and canaries.get("duplicate_job_id") is False
