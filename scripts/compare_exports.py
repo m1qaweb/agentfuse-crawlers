@@ -350,9 +350,10 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
     # to reattribute an official URL to a different provider/category.
     for source_id, row in current.items():
         expected = known.get(source_id)
-        if row.get('schema_version') == '2.1' and expected and any(
-            row.get(key) != expected.get(key)
-            for key in ('provider', 'category', 'source_url')
+        if row.get('schema_version') == '2.1' and expected and (
+            row.get('provider') != expected['provider']
+            or row.get('category') != expected['category']
+            or row.get('source_url') != expected['url']
         ):
             raise ValueError('Export has a mismatched source identity')
     unknown = set(current) - {s['id'] for s in load_sources()}

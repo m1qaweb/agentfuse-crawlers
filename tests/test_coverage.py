@@ -105,8 +105,9 @@ def test_job_provenance_mismatch_is_an_error_even_with_one_captured_item():
     item.update(source_id="a", status="captured", content_sha256="hash",
                 selection_ids_sha256="different-hash", approved_for_advisor=False)
     audit.item_scraped(item, None, spider)
-    with pytest.raises(CloseSpider, match="agentfuse_incomplete_source_coverage"):
+    with pytest.raises(CloseSpider) as caught:
         audit.spider_idle(spider)
+    assert caught.value.reason == "agentfuse_incomplete_source_coverage"
     assert stats.rows["agentfuse/coverage/provenance_errors"] == 1
 
 
@@ -116,6 +117,7 @@ def test_explicit_approval_in_crawler_is_anomaly():
         "source_id": "a", "status": "captured",
         "approved_for_advisor": True, "content_sha256": "hash",
     }, None, spider)
-    with pytest.raises(CloseSpider, match="agentfuse_incomplete_source_coverage"):
+    with pytest.raises(CloseSpider) as caught:
         audit.spider_idle(spider)
+    assert caught.value.reason == "agentfuse_incomplete_source_coverage"
     assert stats.rows["agentfuse/coverage/advisor_approval_anomalies"] == 1

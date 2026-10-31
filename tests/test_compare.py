@@ -214,3 +214,14 @@ def test_selected_source_id_requires_matching_job_scope_args(tmp_path):
         export({row["source_id"]: row}, {}, tmp_path,
                category="changelog", cohort="all",
                source_ids="openai_api_changelog")
+
+
+
+def test_valid_v21_source_identity_passes_and_wrong_provider_fails(tmp_path):
+    import pytest
+    good = _versioned_row("openai_api_changelog", cohort="proven")
+    summary = export({good["source_id"]: good}, {}, tmp_path, category="changelog")
+    assert summary["run_provenance_validation"] == "verified_against_current_manifest_and_args"
+    bad = dict(good, provider="AnotherCompany")
+    with pytest.raises(ValueError, match="mismatched source identity"):
+        export({bad["source_id"]: bad}, {}, tmp_path / "bad", category="changelog")

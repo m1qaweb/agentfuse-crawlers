@@ -26,7 +26,7 @@ def test_200_page_needs_real_content():
     assert real['review_status'] == 'unverified'
     assert real['schema_version'] == '2.1'
     assert real['requested_cohort'] == 'proven'
-    assert real['selection_source_count'] == 3
+    assert real['selection_source_count'] == 1  # explicit source_id selection
     assert real['manifest_sha256']
     assert real['selection_ids_sha256']
     assert real['spider_name'] == 'official_pricing'
