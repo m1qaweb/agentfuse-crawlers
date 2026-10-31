@@ -166,6 +166,14 @@ def _validate_run_provenance(current, manifest, cohort, categories,
 
 def _healthy(row):
     """A successful HTTP response or legacy 'captured' flag is insufficient."""
+    if row.get('category') == 'pricing' and row.get('pricing_evidence_schema') == '1.0':
+        return bool(
+            row.get('status') == 'captured'
+            and row.get('content_sha256')
+            and row.get('pricing_inventory_complete')
+            and row.get('pricing_comparable_candidate_count', 0) > 0
+            and not row.get('pricing_evidence_lost_to_item_budget')
+        )
     return (
         row.get('status') == 'captured'
         and bool(row.get('content_sha256'))
@@ -211,6 +219,96 @@ def compare(current, previous):
     return changes
 
 
+def _pricing_rate_diffs(current, previous):
+    """Compare only fully scoped same-identity rate observations.
+
+    A vendor's first observed price is NOT necessarily an effective-today
+    price. Missing a price from one page is NOT a price removal or free tier.
+    """
+    candidates = []
+    for source_id, curr in sorted(current.items()):
+        old = previous.get(source_id)
+        if not old or curr.get("category") != "pricing":
+            continue
+        if (curr.get("pricing_evidence_schema") != "1.0"
+                or old.get("pricing_evidence_schema") != "1.0"
+                or not _healthy(curr) or not _healthy(old)
+                or curr.get("source_url") != old.get("source_url")
+                or curr.get("provider") != old.get("provider")):
+            continue
+
+        def comparable_map(row):
+            found = {}
+            for x in row.get("pricing_observations", []):
+                if not x.get("comparable_candidate"):
+                    continue
+                if not x.get("normalized_amount_decimal") or not x.get("observation_id"):
+                    return None
+                key = x["observation_id"]
+                if key in found:
+                    return None  # Ambiguous repeated identity; fail closed.
+                found[key] = x
+            return found
+
+        before = comparable_map(old)
+        after = comparable_map(curr)
+        if before is None or after is None:
+            continue
+        for key, observation in sorted(after.items()):
+            earlier = before.get(key)
+            if earlier and (
+                observation["normalized_amount_decimal"] ==
+                    earlier.get("normalized_amount_decimal")
+                and observation.get("source_evidence_sha256") ==
+                    earlier.get("source_evidence_sha256")
+            ):
+                continue
+            if earlier and (
+                observation["normalized_amount_decimal"] ==
+                    earlier.get("normalized_amount_decimal")
+            ):
+                # Text or footnote changed without an actual comparable rate
+                # change; keep it in the unclassified page review, not alert
+                # a false price increase/decrease.
+                continue
+            kind = ("rate_first_observed_candidate" if earlier is None
+                    else "rate_value_changed_candidate")
+            candidates.append({
+                "source_id": source_id,
+                "provider": curr.get("provider", ""),
+                "category": "pricing",
+                "change_type": kind,
+                "observation_id": key,
+                "model_or_service": observation.get("model_or_service"),
+                "price_dimension": observation.get("price_dimension"),
+                "billing_unit": observation.get("billing_unit"),
+                "currency": observation.get("currency"),
+                "region": observation.get("region"),
+                "tier_or_plan": observation.get("tier_or_plan"),
+                "previous_amount_decimal": (
+                    earlier.get("normalized_amount_decimal") if earlier else None
+                ),
+                "current_amount_decimal": observation.get("normalized_amount_decimal"),
+                "raw_displayed_price": observation.get("raw_displayed_price"),
+                "table_id": observation.get("table_id"),
+                "row_index": observation.get("row_index"),
+                "column_index": observation.get("column_index"),
+                "section_id": "",
+                "heading": observation.get("model_or_service", ""),
+                "date_candidate": "",
+                "section_url": curr.get("source_url", ""),
+                "importance_hint": "review_first",
+                "review_status": "pending_human_verification",
+                "approved_for_advisor": False,
+                "evidence_excerpt": observation.get("raw_displayed_price", "")[:280],
+                "interpretation_warning": (
+                    "Observed official pricing snapshot difference; no "
+                    "vendor effective date or advisor approval is inferred."
+                ),
+            })
+    return candidates
+
+
 def _section_diffs(current, previous):
     """Compare sections only when both complete captures exist.
 
@@ -220,6 +318,12 @@ def _section_diffs(current, previous):
     changes = []
     for source_id, curr in sorted(current.items()):
         old = previous.get(source_id)
+        if curr.get('category') == 'pricing' and (
+            curr.get('pricing_evidence_schema') == '1.0'
+            or (old and old.get('pricing_evidence_schema') == '1.0')
+        ):
+            # Structural price observations supersede generic headings.
+            continue
         if not old or not _healthy(curr) or not _healthy(old):
             continue
         if (old.get('source_url') and curr.get('source_url') and
@@ -266,14 +370,17 @@ def _section_record(record, section, kind):
 
 def review_queue(current, previous, changes):
     """Non-authoritative candidate queue. Never an approved recommendations feed."""
+    pricing_changes = _pricing_rate_diffs(current, previous)
     section_changes = _section_diffs(current, previous)
-    queue = list(section_changes)
-    detailed_sources = {x['source_id'] for x in section_changes}
+    queue = list(pricing_changes) + list(section_changes)
+    detailed_sources = {x['source_id'] for x in queue}
     # Only generate page-level tasks if no section-level diff is available.
     for item in changes:
         if item['change_type'] != 'page_text_changed' or item['source_id'] in detailed_sources:
             continue
         record = current[item['source_id']]
+        # Typed pricing can change text without a comparable numeric price
+        # change. This must be reviewed as a page edit, not a rate alert.
         queue.append({
             'source_id': record['source_id'],
             'provider': record.get('provider', ''),
@@ -401,6 +508,16 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
     with open(out_dir / 'review_queue.jsonl', 'w', encoding='utf-8') as f:
         for entry in queue:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    with open(out_dir / 'pricing_observations.jsonl', 'w', encoding='utf-8') as f:
+        for row in current.values():
+            for observation in row.get('pricing_observations', []):
+                f.write(json.dumps(observation, ensure_ascii=False) + '\n')
+    with open(out_dir / 'pricing_rate_changes.jsonl', 'w', encoding='utf-8') as f:
+        for entry in queue:
+            if entry.get('change_type') in {
+                'rate_first_observed_candidate', 'rate_value_changed_candidate',
+            }:
+                f.write(json.dumps(entry, ensure_ascii=False) + '\n')
     statuses = Counter(x.get('status', 'unknown') for x in current.values())
     summary = {
         'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
@@ -421,6 +538,20 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
         'change_counts': dict(sorted(Counter(c['change_type'] for c in changes).items())),
         'review_candidates': len(queue),
         'approved_for_advisor': 0,
+        'pricing_observation_count': sum(
+            len(row.get('pricing_observations', []))
+            for row in current.values()
+        ),
+        'pricing_inventory_incomplete_sources': sum(
+            row.get('pricing_evidence_schema') == '1.0'
+            and not row.get('pricing_inventory_complete')
+            for row in current.values()
+        ),
+        'pricing_comparable_candidate_count': sum(
+            sum(bool(x.get('comparable_candidate')) for x in
+                row.get('pricing_observations', []))
+            for row in current.values()
+        ),
         'warning': 'All evidence and ranking hints are unverified; baselines are never new announcements.',
     }
     (out_dir / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
