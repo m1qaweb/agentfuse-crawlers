@@ -240,7 +240,12 @@ def _release_diffs(current, previous):
         previous_events = {x['event_id']: x for x in old.get('release_events', [])}
         for event in curr.get('release_events', []):
             former = previous_events.get(event['event_id'])
-            if former is not None and event['body_sha256'] == former.get('body_sha256'):
+            if (former is not None
+                    and event['body_sha256'] == former.get('body_sha256')
+                    and event.get('published_at') == former.get('published_at')
+                    and event.get('published_date_provenance') ==
+                        former.get('published_date_provenance')
+                    and event.get('version') == former.get('version')):
                 continue
             kind = 'release_event_first_seen' if former is None else 'release_event_edited'
             changes.append({

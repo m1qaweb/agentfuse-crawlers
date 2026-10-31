@@ -420,3 +420,21 @@ def test_month_group_year_does_not_leak_into_peer_unrelated_heading():
     assert entries[0]["published_at"] == "2026-10-30"
     assert entries[-1]["published_at"] is None
     assert data["latest_release_date_candidate"] is None
+
+
+
+def test_official_publication_date_correction_on_same_permalink_is_an_edit():
+    old_data = extract("""
+    <h2 id="vendor-release">Model v2.0.0</h2>
+    <time datetime="2026-10-28"></time><p>API release details.</p>
+    """)
+    new_data = extract("""
+    <h2 id="vendor-release">Model v2.0.0</h2>
+    <time datetime="2026-10-30"></time><p>API release details.</p>
+    """)
+    assert old_data["release_events"][0]["event_id"] == new_data["release_events"][0]["event_id"]
+    old, new = snapshot("old", old_data), snapshot("new", new_data)
+    queue = review_queue({SID: new}, {SID: old}, compare({SID: new}, {SID: old}))
+    assert [x["change_type"] for x in queue] == ["release_event_edited"]
+    assert queue[0]["date_candidate"] == "2026-10-30"
+    assert queue[0]["approved_for_advisor"] is False
