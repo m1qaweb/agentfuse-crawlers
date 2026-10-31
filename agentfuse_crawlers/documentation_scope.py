@@ -73,13 +73,16 @@ def load_documentation_profiles():
 
 
 def _same_official_host(url, source_url):
-    target, source = urlsplit(url), urlsplit(source_url)
-    return bool(
-        target.scheme == "https" and target.hostname
-        and target.hostname == source.hostname
-        and target.port in (None, 443)
-        and not target.username and not target.password
-    )
+    try:
+        target, source = urlsplit(url), urlsplit(source_url)
+        return bool(
+            target.scheme == "https" and target.hostname
+            and target.hostname == source.hostname
+            and target.port in (None, 443)
+            and not target.username and not target.password
+        )
+    except ValueError:
+        return False
 
 
 def _normalized_path(path):
@@ -93,9 +96,9 @@ def canonical_relationship(source_url, candidate):
     """Informational canonical triage; never authorize fetching the candidate."""
     if not candidate:
         return {"relation": "missing", "review_url": None}
-    parsed = urlsplit(candidate)
     if not _same_official_host(candidate, source_url):
         return {"relation": "external_or_unsafe_ignored", "review_url": None}
+    parsed = urlsplit(candidate)
     review_url = urlunsplit(("https", parsed.hostname, parsed.path or "/", "", ""))
     expected_path = _normalized_path(urlsplit(source_url).path)
     found_path = _normalized_path(parsed.path)
