@@ -208,7 +208,8 @@ def _compatible_source(row, old):
         "manifest_sha256", "source_registry_sha256",
         "schema_version", "release_events_schema",
         "release_identity_revision",
-        "pricing_evidence_schema", "documentation_evidence_schema",
+        "pricing_evidence_schema", "pricing_parser_revision",
+        "documentation_evidence_schema",
         "documentation_product_scope", "source_format",
     )
     return all(row.get(k) == old.get(k) for k in identity)
