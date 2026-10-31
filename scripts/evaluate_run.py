@@ -38,6 +38,12 @@ def _source_identity(row):
     )
 
 
+def _run_eligible(envelope):
+    """A captured Item cannot cure an incomplete/aborted Zyte job."""
+    scope = envelope.get("source_scope") or {}
+    return bool(scope.get("safe_for_semantic_diff"))
+
+
 def _healthy_for_typed_diffs(row):
     if not _healthy(row):
         return False
@@ -114,6 +120,7 @@ def _release_delta(current, previous, older_healthy=()):
     seen = set()
     result = []
     old_fetch = _date(str(previous.get("fetched_at_utc", ""))[:10])
+    current_fetch = _date(str(current.get("fetched_at_utc", ""))[:10])
     for event in current.get("release_events", []):
         if not isinstance(event, dict):
             continue
@@ -134,9 +141,10 @@ def _release_delta(current, previous, older_healthy=()):
             kind = "edited_event"
         elif identity in earlier:
             kind = "restored_event"
-        elif release_date is None:
+        elif (release_date is None or old_fetch is None
+              or current_fetch is None or release_date > current_fetch):
             kind = "needs_review"
-        elif old_fetch and release_date < old_fetch:
+        elif release_date < old_fetch:
             kind = "backfilled_event"
         else:
             kind = "new_event_candidate"
@@ -151,7 +159,7 @@ def _release_delta(current, previous, older_healthy=()):
             evidence_excerpt=str(event.get("excerpt") or "")[:400],
             current_value=event.get("body_sha256"),
             prior_value=prior.get("body_sha256") if prior else None,
-            reason=("date_missing_or_unknown" if kind == "needs_review"
+            reason=("date_missing_future_or_unverifiable" if kind == "needs_review"
                     else "historic_event_first_observed" if kind == "backfilled_event"
                     else "unverified_release_evidence_delta"),
         ))
@@ -168,6 +176,7 @@ RATE_DIMENSIONS = (
 def _priced_map(row):
     """Require a unique fully scoped typed identity; no imputed USD or units."""
     found = {}
+    seen_ids = set()
     for obs in row.get("pricing_observations", []):
         if not isinstance(obs, dict) or not obs.get("comparable_candidate"):
             continue
@@ -178,12 +187,13 @@ def _priced_map(row):
         )):
             return None
         key = tuple(obs.get(field) for field in RATE_DIMENSIONS)
-        if key in found:
+        if key in found or obs["observation_id"] in seen_ids:
             return None
         try:
             Decimal(obs["normalized_amount_decimal"])
         except (TypeError, ValueError, InvalidOperation):
             return None
+        seen_ids.add(obs["observation_id"])
         found[key] = obs
     return found
 
@@ -298,10 +308,13 @@ def evaluate(current_archive, history=()):
         latest_observed_job = current_env["job"]["job_id"] if current is not None else (
             previous_all[-1][0]["job"]["job_id"] if previous_all else None)
         healthy_history = [(env, row) for env, row in previous_all
-                           if _healthy_for_typed_diffs(row)]
+                           if _run_eligible(env) and _healthy_for_typed_diffs(row)]
         baseline = healthy_history[-1][1] if healthy_history else None
         baseline_job = healthy_history[-1][0]["job"]["job_id"] if healthy_history else None
-        current_healthy = current is not None and _healthy_for_typed_diffs(current)
+        current_healthy = bool(
+            current is not None and _run_eligible(current_env)
+            and _healthy_for_typed_diffs(current)
+        )
         final_healthy = current if current_healthy else baseline
         final_good_job = current_env["job"]["job_id"] if current_healthy else baseline_job
         if current is None:
@@ -309,8 +322,15 @@ def evaluate(current_archive, history=()):
             # They are not outages and do not become item loss alerts.
             continue
         if not current_healthy:
-            changes.append(_change(current, "source_unavailable",
-                                   reason=current.get("error") or current.get("status")))
+            if not _run_eligible(current_env):
+                changes.append(_change(
+                    current, "needs_review", reason="job_scope_or_finish_incomplete"
+                ))
+            else:
+                changes.append(_change(
+                    current, "source_unavailable",
+                    reason=current.get("error") or current.get("status")
+                ))
         elif baseline is None:
             changes.append(_change(current, "historical_baseline",
                                    reason="no_compatible_healthy_previous_capture"))
@@ -356,10 +376,7 @@ def evaluate(current_archive, history=()):
         "metadata_item_count_matches": (
             len(current_rows) == current_env["job"]["expected_item_count"]
         ),
-        "run_scope_consistent": bool(
-            current_env["source_scope"]["metadata_consistent"]
-            and current_env["source_scope"]["scope_count_matches_items"]
-        ),
+        "run_scope_consistent": _run_eligible(current_env),
         "close_reason": current_env["job"]["close_reason"],
         "healthy_current_sources": sum(s["healthy_current_capture"] for s in states),
         "unhealthy_current_sources": sum(not s["healthy_current_capture"] for s in states),
