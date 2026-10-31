@@ -18,6 +18,10 @@ from agentfuse_crawlers.recent_window import compact_changelog_record
 from agentfuse_crawlers.pricing_evidence import compact_pricing_record
 from agentfuse_crawlers.documentation_scope import compact_documentation_record
 from agentfuse_crawlers.run_context import build_run_context
+from agentfuse_crawlers.source_lifecycle import (
+    COLLECTION_MODES, collection_decision, registry_revision_sha256,
+    source_lifecycle,
+)
 from agentfuse_crawlers.quality import (
     HARD_TEXT_LIMIT, assess_capture, response_freshness,
 )
@@ -55,7 +59,8 @@ class OfficialBaseSpider(scrapy.Spider):
 
     def __init__(self, cohort=None, source_ids=None, limit=None, offset=0,
                  confirm_full_inventory=None, expected_manifest_sha256=None,
-                 expected_selection_ids_sha256=None, **kwargs):
+                 expected_selection_ids_sha256=None, collection_mode="validation",
+                 **kwargs):
         super().__init__(**kwargs)
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
@@ -71,6 +76,10 @@ class OfficialBaseSpider(scrapy.Spider):
             raise ValueError("confirm_full_inventory must be 'yes' when provided")
         # Source IDs must exist in the reviewed manifest. Never accept URL args.
         self.selected = select_sources(self.category, cohort, source_ids, limit, offset)
+        if collection_mode not in COLLECTION_MODES:
+            raise ValueError("Invalid collection_mode")
+        self.collection_mode = collection_mode
+        self.source_registry_sha256 = registry_revision_sha256()
         self.cohort = cohort
         self.offset = int(offset)
         self.run_context = build_run_context(
@@ -99,6 +108,22 @@ class OfficialBaseSpider(scrapy.Spider):
             self.run_context["deployment_revision"] or "unknown",
         )
         for source in self.selected:
+            allowed, reason = collection_decision(source, self.collection_mode)
+            if not allowed:
+                record = self._base_record(source)
+                status = ("source_quarantined"
+                          if reason == "policy_unresolved_or_quarantined"
+                          else "source_retired" if reason == "source_retired"
+                          else "source_not_validated_for_monitor")
+                record.update(
+                    status=status, error=reason,
+                    http_status=None, final_url="",
+                    policy_observation="not_fetched_by_lifecycle_guard",
+                )
+                # Preserve one summary Item per selected source. Skipping
+                # a network request must not silently shrink accounting.
+                yield self._emit_status(record)
+                continue
             yield scrapy.Request(
                 source["url"],
                 callback=self.parse_page,
@@ -114,8 +139,17 @@ class OfficialBaseSpider(scrapy.Spider):
             )
 
     def _base_record(self, source):
+        profile = source_lifecycle(source)
+        allowed_monitor, _ = collection_decision(source, "monitor")
         return {
             **self.run_context,
+            "collection_mode": self.collection_mode,
+            "source_registry_sha256": self.source_registry_sha256,
+            "source_lifecycle_state": profile["state"],
+            "source_policy_status": profile["policy_status"],
+            "source_lifecycle_reason": profile["reason_code"],
+            "collection_eligible_for_unattended": allowed_monitor,
+            "policy_observation": "not_yet_observed",
             "schema_version": "2.1",
             "source_id": source["id"],
             "provider": source["provider"],
@@ -189,6 +223,11 @@ class OfficialBaseSpider(scrapy.Spider):
         # same-origin host does not prove this is still the requested doc.
         if not _allowed_redirect(response.url, source):
             record.update(status="rejected_redirect", error="unexpected_final_host")
+            yield self._emit_status(record)
+            return
+        if response.status == 429:
+            record.update(status="source_access_limited", error="HTTP 429",
+                          policy_observation="content_endpoint_rate_limited")
             yield self._emit_status(record)
             return
         if not 200 <= response.status < 300:
@@ -384,6 +423,8 @@ class OfficialBaseSpider(scrapy.Spider):
         name = failure.type.__name__
         record.update(
             status="robots_or_policy_denied" if name == "IgnoreRequest" else "fetch_error",
+            policy_observation=("blocked_by_middleware" if name == "IgnoreRequest"
+                                else "fetch_failure_unknown_policy"),
             final_url="",
             http_status=None,
             error=name,
