@@ -164,6 +164,23 @@ remain same-host/safe-path only; genuine migrations stay review tasks.
 HTML, and Google Cloud's narrower product scope remains unapproved. See
 [PR05_DOCUMENTATION_SCOPE_RUNBOOK.md](docs/PR05_DOCUMENTATION_SCOPE_RUNBOOK.md).
 
+## Source lifecycle and safe collection modes (PR06 draft)
+
+A source's historical proven-cohort label does not verify access permission or
+product facts. The P06 companion lifecycle registry records 460 configured IDs,
+defaults to 'needs_validation', and quarantines the three v0.app URLs because
+the October 31 robots.txt 429 status remains unresolved. It also flags the
+known Kiro documentation and Google Cloud scope issues.
+
+'collection_mode=validation' is the backwards-compatible default for targeted
+test crawls; 'collection_mode=monitor' requires explicit human-approved
+publisher ownership/policy evidence plus two reviewed Zyte runs for each source.
+Unapproved monitor sources and quarantined sources produce a source-summary
+Item **without** any source-page request. All evidence remains unverified and
+excluded from the advisor. A read-only offline source-review generator creates
+460-row triage reports from the original Zyte Items with explicit unknowns.
+See [PR06_SOURCE_LIFECYCLE_RUNBOOK.md](docs/PR06_SOURCE_LIFECYCLE_RUNBOOK.md).
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.
