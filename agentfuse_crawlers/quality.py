@@ -86,6 +86,29 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         return "needs_review", "invalid_future_server_date"
     if evidence.get("word_count", 0) < 45:
         return "needs_review", "insufficient_substantive_text"
+    if category == "changelog" and evidence.get("release_events_schema") == "1.1":
+        events = evidence.get("release_events", [])
+        if (evidence.get("release_recent_body_loss_count", 0)
+                or any(x.get("body_text_truncated") for x in events)):
+            return "partial_capture", "recent_release_body_incomplete"
+        if evidence.get("release_event_identity_collision"):
+            return "needs_review", "release_event_identity_collision"
+        if not evidence.get("release_event_count"):
+            return "needs_review", "no_release_events_detected"
+        if not evidence.get("release_dated_event_count"):
+            return "needs_review", "release_events_missing_publication_dates"
+        if not evidence.get("latest_release_date_candidate"):
+            return "needs_review", "latest_release_date_ambiguous"
+        if not evidence.get("release_window_complete") and (
+            len(text) > HARD_TEXT_LIMIT
+            or evidence.get("sections_truncated")
+            or evidence.get("release_events_truncated")
+        ):
+            return "partial_capture", "recent_release_window_incomplete"
+        # A recent source-window is usable even if historic sections/text
+        # were not retained. This is not verification of vendor fact truth.
+        return "captured", ""
+
     if len(text) > HARD_TEXT_LIMIT:
         return "partial_capture", "text_exceeds_capture_limit"
     if category == "pricing" and evidence.get("tables_truncated"):

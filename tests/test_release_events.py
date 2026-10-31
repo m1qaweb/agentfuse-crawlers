@@ -277,6 +277,8 @@ def snapshot(typ, data):
         "release_events_schema": data["release_events_schema"],
         "release_events": data["release_events"],
         "release_events_truncated": data["release_events_truncated"],
+        "release_window_complete": data["release_window_complete"],
+        "release_recent_body_loss_count": data["release_recent_body_loss_count"],
         "release_event_identity_collision": data["release_event_identity_collision"],
         "fetched_at_utc": typ,
     }
@@ -373,7 +375,7 @@ def test_large_release_body_marks_partial_and_cannot_be_compared():
     assert data["release_events"][0]["excerpt_truncated"] is True
     status, reason = assess_capture("changelog", data, data["text"])
     assert status == "partial_capture"
-    assert reason == "release_event_body_truncated"
+    assert reason == "recent_release_body_incomplete"
     old = snapshot("2026-10-30", data)
     newer = snapshot("2026-10-31", copy.deepcopy(data))
     newer["release_events"][0]["body_sha256"] = "changed-hash"
