@@ -416,3 +416,29 @@ def test_pricing_spider_emits_only_unapproved_source_snapshot():
     assert item["approved_for_advisor"] is False
     assert serialized_size(item) <= MAX_ITEM_BYTES
 
+
+
+
+def test_conflicting_currency_and_region_fails_closed():
+    common = dict(model_label="Model Alpha", column_header="Input price",
+                  row_header="Model Alpha")
+    for ctx, caption in [
+        ("Region: Global; Tier: Standard", "USD EUR per 1M tokens"),
+        ("Region: Global; Region: US East; Tier: Standard", "USD per 1M tokens"),
+        ("Region: Global; Tier: Standard; Tier: Paid", "USD per 1M tokens"),
+        ("Region: Global; Tier: Standard", "USD per 1M tokens; per user/month"),
+    ]:
+        row = analyze_cell("$1.50", table_context=ctx,
+                           table_caption=caption, **common)
+        assert row["normalized_amount_decimal"] is None
+        assert row["comparable_candidate"] is False
+
+
+def test_unrelated_description_containing_price_word_is_not_pricing_table():
+    markup = (
+        "<table><tr><th>Service</th><th>Description</th></tr>"
+        "<tr><td>Analytics</td><td>This is not a price quote.</td></tr></table>"
+        + base_model_rates()
+    )
+    ev = extract(markup)
+    assert ev["pricing_table_relevant"] == 1

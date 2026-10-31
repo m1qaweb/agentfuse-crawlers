@@ -173,11 +173,22 @@ def _is_relevant(table, info, source_id):
         ):
             return False
     sample = clean(table.text_content(), 2600)
-    combined = " ".join((info["heading_context"], info["caption"], info["label"], sample))
+    headers = " ".join(
+        clean(n.text_content(), 150) for n in table.xpath(".//tr[1]//th")[:20]
+    )
+    caption_and_headers = " ".join(
+        (info["caption"], info["label"], headers)
+    )
+    combined = " ".join((info["heading_context"], caption_and_headers, sample))
     if PRICE_MARKER.search(combined):
         return True
-    return bool(PRICE_CELL_HEADER.search(combined)
-                and (re.search(r"\b(?:price|rate|cost|billing|USD|EUR|GBP)\b", combined, re.I)))
+    # "Not a price" in an unrelated description is NOT a priced table.
+    # Only actual labeled column headers/captions make a table worth scanning.
+    return bool(
+        PRICE_CELL_HEADER.search(caption_and_headers)
+        and re.search(r"\b(?:price|rate|cost|billing|USD|EUR|GBP)\b",
+                      caption_and_headers, re.I)
+    )
 
 
 def _model_label(row_label, context, caption):

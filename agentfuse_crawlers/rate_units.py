@@ -88,14 +88,16 @@ def clean(value, limit=500):
 
 
 def detect_unit(*scopes):
-    """Only accept unambiguous units explicitly printed in a relevant scope."""
+    """Reject conflicting billing denominators; prefer specialized hour units."""
+    hits = set()
     for scope in scopes:
-        hits = {name for name, pattern in UNIT_PATTERNS if pattern.search(clean(scope, 1500))}
-        if len(hits) == 1:
-            return next(iter(hits))
-        if len(hits) > 1:
-            return None
-    return None
+        hits.update(name for name, pattern in UNIT_PATTERNS
+                    if pattern.search(clean(scope, 1500)))
+    specialized = hits.intersection({"per_gpu_hour", "per_ocpu_hour", "per_vcpu_hour"})
+    if specialized:
+        # "per OCPU per hour" legitimately also matches "per hour".
+        hits.discard("per_hour")
+    return next(iter(hits)) if len(hits) == 1 else None
 
 
 def detect_dimension(*scopes):
@@ -117,35 +119,27 @@ def detect_dimension(*scopes):
 
 def detect_currency(raw_cell, *scopes):
     raw = clean(raw_cell, 400)
-    explicit_cell = {x.upper() for x in CURRENCY_RE.findall(raw)}
-    if len(explicit_cell) > 1:
-        return None
-    if explicit_cell:
-        return next(iter(explicit_cell))
-    # Euro/pound signs are distinct, while dollar and yen signs alone are not.
+    # Conflicting currencies anywhere in this row/table context must not be
+    # silently resolved by choosing the first one.
+    currencies = {x.upper() for x in CURRENCY_RE.findall(raw)}
     if "€" in raw:
-        return "EUR"
+        currencies.add("EUR")
     if "£" in raw:
-        return "GBP"
+        currencies.add("GBP")
     for scope in scopes:
-        currencies = {x.upper() for x in CURRENCY_RE.findall(clean(scope, 1300))}
-        if len(currencies) == 1:
-            return next(iter(currencies))
-        if len(currencies) > 1:
-            return None
-    return None
+        currencies.update(x.upper() for x in CURRENCY_RE.findall(clean(scope, 1300)))
+    return next(iter(currencies)) if len(currencies) == 1 else None
 
 
 def _extract_one(pattern, scopes):
+    values = []
     for scope in scopes:
-        s = clean(scope, 350)
-        hits = [x.group(1) or x.group(2) for x in pattern.finditer(s)]
-        hits = [clean(x, 80) for x in hits if x]
-        if len(set(hits)) == 1:
-            return hits[0]
-        if len(set(hits)) > 1:
-            return None
-    return None
+        for x in pattern.finditer(clean(scope, 350)):
+            candidate = clean(x.group(1) or x.group(2), 80)
+            if candidate:
+                values.append(candidate)
+    # Values are case-insensitive; inconsistent region/tier means "unknown".
+    return values[0] if values and len({x.lower() for x in values}) == 1 else None
 
 
 def detect_region(*scopes):

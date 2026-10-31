@@ -379,6 +379,14 @@ def review_queue(current, previous, changes):
         if item['change_type'] != 'page_text_changed' or item['source_id'] in detailed_sources:
             continue
         record = current[item['source_id']]
+        prior = previous.get(item['source_id'])
+        if record.get('category') == 'pricing' and (
+            record.get('pricing_evidence_schema') !=
+            (prior or {}).get('pricing_evidence_schema')
+        ):
+            # Parser-schema migration is a new evidence baseline, not a
+            # vendor rate change or a general "price changed" announcement.
+            continue
         # Typed pricing can change text without a comparable numeric price
         # change. This must be reviewed as a page edit, not a rate alert.
         queue.append({
