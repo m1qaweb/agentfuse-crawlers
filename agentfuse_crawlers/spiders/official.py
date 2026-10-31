@@ -16,6 +16,7 @@ from agentfuse_crawlers.markdown_releases import (
 )
 from agentfuse_crawlers.recent_window import compact_changelog_record
 from agentfuse_crawlers.pricing_evidence import compact_pricing_record
+from agentfuse_crawlers.documentation_scope import compact_documentation_record
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.quality import (
     HARD_TEXT_LIMIT, assess_capture, response_freshness,
@@ -226,9 +227,12 @@ class OfficialBaseSpider(scrapy.Spider):
         ):
             status, reason = "needs_review", "source_path_redirected"
         canonical = record.get("canonical_url") or ""
-        if canonical and urlsplit(canonical).path.rstrip("/") != urlsplit(
+        if (canonical and urlsplit(canonical).path.rstrip("/") != urlsplit(
             source["url"]
-        ).path.rstrip("/"):
+        ).path.rstrip("/") and not (
+            source["category"] == "documentation"
+            and record.get("documentation_canonical_relation") == "equivalent_path"
+        )):
             status, reason = "needs_review", "canonical_path_differs"
         record.update(status=status, error=reason)
 
@@ -260,6 +264,8 @@ class OfficialBaseSpider(scrapy.Spider):
                 "canonical_path_differs",
                 "no_price_or_billing_detail_detected",
                 "documentation_link_index_only",
+                "documentation_scope_not_established",
+                "documentation_product_scope_ambiguous",
                 "no_release_events_detected",
                 "release_events_missing_publication_dates",
                 "latest_release_date_ambiguous",
@@ -283,6 +289,19 @@ class OfficialBaseSpider(scrapy.Spider):
                 record.update(
                     status="partial_capture", error="pricing_item_budget_exceeded",
                     pricing_evidence_lost_to_item_budget=True,
+                    content_sha256=evidence.get("content_sha256", ""),
+                    final_url=_visible_url(response.url),
+                    http_status=response.status,
+                )
+        if source["category"] == "documentation":
+            try:
+                record = compact_documentation_record(record, text)
+            except ValueError:
+                record = self._base_record(source)
+                record.update(
+                    status="partial_capture",
+                    error="documentation_item_budget_exceeded",
+                    documentation_item_budget_truncated=True,
                     content_sha256=evidence.get("content_sha256", ""),
                     final_url=_visible_url(response.url),
                     http_status=response.status,
