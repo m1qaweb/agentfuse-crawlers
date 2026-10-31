@@ -168,7 +168,7 @@ def compact_changelog_record(record, text, *, keep_text=True):
     Preserve IDs, run provenance, error state, source URL, and complete hashes.
     A cap is recorded as truncation. When budgets cannot be honored, fail closed.
     """
-    record["text_total_characters"] = len(text)
+    record["text_total_characters"] = max(int(record.get("text_total_characters") or 0), len(text))
     max_text = MAX_SOURCE_TEXT if keep_text else 500
     record["text_retained_characters"] = min(len(text), max_text)
     record["text_truncated"] = len(text) > max_text
