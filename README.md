@@ -119,10 +119,22 @@ This uses Zyte's official Items download endpoint (JSON Lines). It downloads onl
 
 Zyte docs: [Scrapy Cloud deployment](https://docs.zyte.com/web-scraping/tutorials/main/cloud.html) · [Downloading Items](https://docs.zyte.com/scrapy-cloud/usage/items/download.html) · [Periodic jobs](https://docs.zyte.com/scrapy-cloud/usage/reference/http/periodicjobs.html).
 
+## Typed pricing evidence (PR 04 — draft)
+
+The existing `official_pricing` spider now scans relevant pricing tables
+beyond the old first-40 cutoff and emits explicitly unverified typed rate
+observations. Missing currency, model, unit, region, plan, or effective-date
+certainty prevents comparable numeric candidates. Large rate cards produce
+partial/review statuses rather than plausible but incorrect pricing. The
+offline review tool can compare fully specified rates without claiming that
+a newly seen amount is effective today. See
+[PR04_PRICING_EVIDENCE.md](docs/PR04_PRICING_EVIDENCE.md) for limitations,
+output fields, and source-by-source Zyte canary instructions.
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.
-2. Add provider-specific structured pricing extractors with row/header alignment, effective date, currency, units, tier and region validation. Do **not** derive prices from the flattened `text` field.
+2. Validate PR04's structured pricing rate evidence on live source HTML. Add explicit, **source-verified** effective-date intervals and model/region/tier scope mappings before any advisor publication. Do **not** derive prices from flattened `text`.
 3. Add dated release entry extraction and cross-source corroboration; deduplicate repeated announcements.
 4. Introduce a reviewed-fact schema and evidence ledger (source, first seen, source published date, effective date, last verified, expiry and reviewer). Only reviewed facts should inform advisor recommendations.
 5. Build a separate AgentFuse `/intelligence` interface using attributed summaries, searchable provider pages, and source-health indicators. It should read from a reviewed public dataset, **not raw Zyte output**.
