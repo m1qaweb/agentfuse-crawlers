@@ -92,7 +92,7 @@
       "product_scope": "Kiro",
       "expected_page_type": "index",
       "target_topics": [
-        "models",
+        "model_catalog",
         "tools_and_mcp",
         "sdk",
         "limitations"
@@ -109,7 +109,7 @@
       "product_scope": "GitHub Copilot",
       "expected_page_type": "overview",
       "target_topics": [
-        "models",
+        "model_catalog",
         "tool_use",
         "limitations"
       ],
@@ -125,7 +125,7 @@
       "product_scope": "Google Antigravity",
       "expected_page_type": "guide",
       "target_topics": [
-        "models",
+        "model_catalog",
         "tools_and_mcp",
         "authentication"
       ],
@@ -141,7 +141,7 @@
       "product_scope": "Gemini CLI",
       "expected_page_type": "overview",
       "target_topics": [
-        "models",
+        "model_catalog",
         "tools_and_mcp",
         "authentication"
       ],
@@ -157,7 +157,7 @@
       "product_scope": "ChatGPT and Codex documentation portal",
       "expected_page_type": "index",
       "target_topics": [
-        "models",
+        "model_catalog",
         "tool_use",
         "authentication"
       ],
@@ -301,7 +301,7 @@
       "product_scope": "Gemini Enterprise Agent Platform",
       "expected_page_type": "guide",
       "target_topics": [
-        "models",
+        "model_catalog",
         "regions",
         "authentication"
       ],
