@@ -8,6 +8,7 @@ import urllib.request
 import pytest
 
 from agentfuse_crawlers.sources import load_sources
+from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
 from scripts.archive_jobs import (
     _job_details, _request, archive_job, archive_path, load_archive,
 )
@@ -26,8 +27,12 @@ def row(source_id, job_id, ordinal, status="captured"):
         "run_started_at_utc": "2026-10-31T08:00:00+00:00",
         "content_sha256": "sha-123", "schema_version": "2.1",
         "source_cohort": "proven", "requested_cohort": "proven",
-        "selection_source_count": 2, "selection_ids_sha256": "selection",
-        "manifest_sha256": "manifest", "review_status": "unverified",
+        "selection_source_count": 2,
+        "selection_ids_sha256": selection_ids_sha256([
+            SOURCES["openai_api_changelog"], SOURCES["anthropic_api_changelog"]
+        ]),
+        "manifest_sha256": manifest_sha256(), "spider_name": "official_changelogs",
+        "review_status": "unverified",
         "approved_for_advisor": False,
     }
 
@@ -74,6 +79,7 @@ def test_immutable_archive_replay_and_idempotence_without_key(tmp_path, monkeypa
     assert envelope["source_summary_count"] == 2
     assert envelope["approved_for_advisor"] is False
     assert envelope["job"]["expected_item_count"] == 2
+    assert envelope["source_scope"]["safe_for_semantic_diff"] is True
     assert "NEVER_ARCHIVE_THIS_SECRET" not in json.dumps(envelope)
     assert gzip.open(target / "items.jsonl.gz", "rt").read().count("\n") == 2
 
