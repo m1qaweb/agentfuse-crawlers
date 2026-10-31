@@ -46,7 +46,7 @@ def test_kiro_link_only_index_does_not_count_as_complete_technical_docs():
         f'<a href="/docs/guide-{i}/">Guide {i} integration details and topics</a>'
         for i in range(32)
     )
-    ev = html("<h1>Kiro docs</h1><nav>" + links + "</nav>",
+    ev = html("<h1>Kiro docs</h1><div>" + links + "</div>",
               "kiro_docs", "https://kiro.dev/docs/")
     assert ev["documentation_scope_status"] == "index_only"
     assert not ev["documentation_topic_candidates"]
