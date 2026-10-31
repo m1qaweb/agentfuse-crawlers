@@ -16,7 +16,10 @@ from agentfuse_crawlers.spiders.official import ChangelogSpider, DocumentationSp
 ])
 @pytest.mark.parametrize('cohort', ['all', 'proven'])
 def test_spider_starts_with_allowlisted_sources(klass, category, cohort):
-    spider = klass(cohort=cohort)
+    spider = klass(
+        cohort=cohort,
+        confirm_full_inventory="yes" if cohort == "all" else None,
+    )
 
     async def collect():
         return [request async for request in spider.start()]
@@ -64,3 +67,35 @@ def test_later_candidate_batch_schedules_exact_urls(klass, category):
     assert [r.url for r in requests] == [s["url"] for s in expected]
     assert spider.offset == 15
     assert len(requests) == 15
+
+
+
+@pytest.mark.parametrize(("klass", "category"), [
+    (ChangelogSpider, "changelog"),
+    (DocumentationSpider, "documentation"),
+    (PricingSpider, "pricing"),
+])
+def test_implicit_run_is_only_three_historical_proven_urls(klass, category):
+    spider = klass()
+    assert spider.cohort == "proven"
+    assert len(spider.selected) == 3
+    assert spider.run_context["requested_cohort"] == "proven"
+    assert spider.run_context["run_scope_explicit"] is False
+    assert spider.run_context["selection_source_count"] == 3
+
+
+@pytest.mark.parametrize("klass", [ChangelogSpider, DocumentationSpider, PricingSpider])
+def test_full_inventory_requires_explicit_confirmation(klass):
+    with pytest.raises(ValueError, match="confirm_full_inventory=yes"):
+        klass(cohort="all")
+    with pytest.raises(ValueError, match="confirm_full_inventory=yes"):
+        klass(cohort="all", limit="10")
+    with pytest.raises(ValueError, match="confirm_full_inventory"):
+        klass(cohort="all", confirm_full_inventory="true")
+
+
+def test_explicit_source_ids_remain_bounded_without_full_run_confirmation():
+    spider = ChangelogSpider(cohort="all", source_ids="cursor_changelog")
+    assert [s["id"] for s in spider.selected] == ["cursor_changelog"]
+    assert spider.run_context["requested_cohort"] == "all"
+    assert spider.run_context["run_scope_explicit"] is True

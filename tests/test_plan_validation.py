@@ -65,3 +65,30 @@ def test_unbounded_or_invalid_batch_size_rejected(size):
 def test_validation_planner_rejects_unscoped_cohort(cohort):
     with pytest.raises(ValueError):
         plan_validation(cohort=cohort)
+
+
+
+def test_every_pinned_batch_uses_a_manifest_revision_and_exact_selected_ids():
+    from agentfuse_crawlers.sources import load_sources, select_sources
+    from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
+    plan = plan_validation(batch_size=15)
+    assert plan["schema_version"] == 2
+    assert plan["manifest_sha256"] == manifest_sha256(load_sources())
+    for batch in plan["batches"]:
+        assert batch["pinned_cohort"] == "all"
+        assert batch["expected_manifest_sha256"] == plan["manifest_sha256"]
+        ids = batch["source_ids"]
+        assert batch["source_ids_csv"] == ",".join(ids)
+        selected = select_sources(batch["category"], "all", source_ids=ids)
+        assert selection_ids_sha256(selected) == batch["expected_selection_ids_sha256"]
+
+
+def test_pinned_csv_export_has_reproducible_selection_columns(tmp_path):
+    import csv
+    from scripts.plan_validation import write_plan
+    plan = plan_validation(batch_size=15)
+    write_plan(plan, tmp_path)
+    with (tmp_path / "validation_batches.csv").open() as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows[0]["source_ids_csv"] == ",".join(plan["batches"][0]["source_ids"])
+    assert rows[0]["expected_manifest_sha256"] == plan["manifest_sha256"]

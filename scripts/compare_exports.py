@@ -15,7 +15,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agentfuse_crawlers.sources import load_sources, load_proven_source_ids
+from agentfuse_crawlers.sources import load_sources, load_proven_source_ids, select_sources
+from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
 
 STATUS_FIELDS = [
     'source_id', 'provider', 'category', 'source_cohort', 'status',
@@ -70,11 +71,98 @@ def read_jsonl(paths):
                 if not isinstance(item, dict) or not isinstance(item.get('source_id'), str):
                     raise ValueError(f'Invalid item in {path}: no source_id')
                 source_id = item['source_id']
+                old_item = rows.get(source_id)
+                if old_item and item.get('run_started_at_utc'):
+                    # Repeating an Item within one job must be visible rather
+                    # than silently hiding an exporter/crawler duplicate.
+                    same_run_start = (
+                        old_item.get('run_started_at_utc')
+                        == item.get('run_started_at_utc')
+                    )
+                    same_job = (
+                        old_item.get('zyte_job_id')
+                        == item.get('zyte_job_id')
+                    )
+                    if same_run_start and same_job:
+                        raise ValueError(
+                            f'Duplicate source Item in one Zyte job: {source_id}'
+                        )
                 if (source_id not in rows or item.get('fetched_at_utc', '') >=
                         rows[source_id].get('fetched_at_utc', '')):
                     rows[source_id] = item
     return rows
 
+
+
+def _declared_run_cohort(current):
+    """Use actual requested job cohort, never historical source membership."""
+    declarations = {
+        row.get("requested_cohort") for row in current.values()
+        if "requested_cohort" in row
+    }
+    if not declarations:
+        return None
+    if any("requested_cohort" not in row for row in current.values()):
+        raise ValueError("Mixed versioned and legacy Items; separate jobs")
+    if len(declarations) != 1 or not declarations <= {"all", "proven", "candidate"}:
+        raise ValueError("Mixed or invalid requested_cohort; compare jobs separately")
+    return next(iter(declarations))
+
+
+def _validate_run_provenance(current, manifest, cohort, categories,
+                             source_ids=None, limit=None, offset=0):
+    """Fail closed when an exported job does not match this manifest and CLI scope.
+
+    For full multi-spider archives, per-category run IDs may differ. Within a
+    category, every source-summary Item must identify the same specific job.
+    Legacy Items lacking provenance remain readable but are *not* verified.
+    """
+    if not any("manifest_sha256" in row for row in current.values()):
+        return "legacy_unverified"
+    required = (
+        "manifest_sha256", "selection_ids_sha256",
+        "selection_source_count", "requested_cohort",
+        "spider_name", "run_started_at_utc",
+    )
+    for row in current.values():
+        if any(row.get(k) in (None, "") for k in required):
+            raise ValueError("Missing run provenance in versioned Items")
+    actual_manifest = manifest_sha256(manifest)
+    for category in categories:
+        items = [x for x in current.values() if x.get("category") == category]
+        if not items:
+            continue
+        # Every Item in one category must have identical job-level scope.
+        job_keys = (
+            "requested_cohort", "selection_ids_sha256",
+            "selection_source_count", "manifest_sha256",
+            "spider_name", "run_started_at_utc", "zyte_job_id",
+            "deployment_revision",
+        )
+        if any(tuple(row.get(k) for k in job_keys) !=
+               tuple(items[0].get(k) for k in job_keys) for row in items[1:]):
+            raise ValueError(f"Mixed Zyte jobs in {category}; compare separately")
+        row = items[0]
+        if row["requested_cohort"] != cohort:
+            raise ValueError("Requested cohort differs from CLI scope")
+        if row["manifest_sha256"] != actual_manifest:
+            raise ValueError("Manifest fingerprint mismatch: use matching manifest revision")
+        selected = select_sources(
+            category, cohort=cohort, source_ids=source_ids, limit=limit, offset=offset,
+        )
+        if (row["selection_ids_sha256"] != selection_ids_sha256(selected)
+                or row["selection_source_count"] != len(selected)):
+            raise ValueError(
+                "Selection fingerprint mismatch; supply exact --cohort, "
+                "--source-ids, --limit and --offset from the Zyte job"
+            )
+        if row["spider_name"] != {
+            "documentation": "official_documentation",
+            "pricing": "official_pricing",
+            "changelog": "official_changelogs",
+        }[category]:
+            raise ValueError("Spider identity does not match category")
+    return "verified_against_current_manifest_and_args"
 
 def _healthy(row):
     """A successful HTTP response or legacy 'captured' flag is insufficient."""
@@ -85,6 +173,7 @@ def _healthy(row):
         and not (row.get('category') == 'pricing' and row.get('tables_truncated'))
         and not (row.get('category') in {'documentation', 'changelog'}
                  and row.get('sections_truncated'))
+        and not any(x.get('excerpt_truncated') for x in row.get('sections', []))
     )
 
 
@@ -224,10 +313,18 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
     # Never pretend that 26 changelogs failed because 23 were intentionally skipped.
     if cohort not in {'auto', 'all', 'proven', 'candidate'}:
         raise ValueError('Invalid cohort')
+    declared_cohort = _declared_run_cohort(current)
     if cohort == 'auto':
-        observed_cohorts = {x.get('source_cohort') for x in current.values()}
-        cohort = (next(iter(observed_cohorts)) if observed_cohorts in
-                  ({'proven'}, {'candidate'}) else 'all')
+        if declared_cohort is not None:
+            cohort = declared_cohort
+        else:
+            # Legacy Items have only historical source-cohort membership.
+            # Auto-inference here is explicitly unverified, never job proof.
+            observed_cohorts = {x.get('source_cohort') for x in current.values()}
+            cohort = (next(iter(observed_cohorts)) if observed_cohorts in
+                      ({'proven'}, {'candidate'}) else 'all')
+    elif declared_cohort is not None and declared_cohort != cohort:
+        raise ValueError("Explicit cohort contradicts Zyte requested_cohort")
     proven = load_proven_source_ids()
     if source_ids is not None:
         if isinstance(source_ids, str):
@@ -263,13 +360,17 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
     if not manifest:
         raise ValueError('Expected source selection is empty')
     ids = {s['id'] for s in manifest}
+    provenance_validation = _validate_run_provenance(
+        current, catalog, cohort, categories, source_ids, limit, offset,
+    )
     # V2.1 records carry a fixed source identity. Reject files that attempt
     # to reattribute an official URL to a different provider/category.
     for source_id, row in current.items():
         expected = known.get(source_id)
-        if row.get('schema_version') == '2.1' and expected and any(
-            row.get(key) != expected.get(key)
-            for key in ('provider', 'category', 'source_url')
+        if row.get('schema_version') == '2.1' and expected and (
+            row.get('provider') != expected['provider']
+            or row.get('category') != expected['category']
+            or row.get('source_url') != expected['url']
         ):
             raise ValueError('Export has a mismatched source identity')
     unknown = set(current) - {s['id'] for s in load_sources()}
@@ -305,6 +406,9 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
         'generated_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'categories': sorted(categories),
         'cohort_scope': cohort,
+        'cohort_source': 'requested_job' if declared_cohort is not None else 'legacy_inference_or_explicit',
+        'run_provenance_validation': provenance_validation,
+        'manifest_sha256': manifest_sha256(catalog),
         'source_ids_explicit': source_ids is not None,
         'limit_per_category': limit,
         'offset_per_category': offset,
