@@ -336,3 +336,52 @@ def test_future_history_rejected_to_prevent_inverted_time_comparison(tmp_path):
     ), 2)
     with pytest.raises(ValueError, match="must precede"):
         evaluate(earlier, [future])
+
+
+def test_job_ended_in_error_suppresses_false_news_and_preserves_good(tmp_path):
+    old = save_job(tmp_path, release_row(
+        "883514/1/101", [event("a", date="2026-10-20")]
+    ), 1)
+    new = save_job(tmp_path, release_row(
+        "883514/1/102", [
+            event("new", date="2026-10-31"), event("a", date="2026-10-20")
+        ], sha="changed", fetched="2026-10-31T12:00:00Z",
+    ), 2, close_reason="unexpected_runtime_error")
+    result = evaluate(new, [old])
+    assert [c["change_type"] for c in result["changes"]] == ["needs_review"]
+    assert result["changes"][0]["reason"] == "job_scope_or_finish_incomplete"
+    assert result["states"][0]["latest_healthy_job_id"] == "883514/1/101"
+    assert result["summary"]["run_scope_consistent"] is False
+
+
+def test_future_dated_release_is_not_a_new_published_event(tmp_path):
+    prev = save_job(tmp_path, release_row(
+        "883514/1/101", [event("a", date="2026-10-20")]
+    ), 1)
+    cur = save_job(tmp_path, release_row(
+        "883514/1/102", [
+            event("future", date="2035-01-01"), event("a", date="2026-10-20")
+        ], fetched="2026-10-31T12:00:00Z", sha="future",
+    ), 2)
+    result = evaluate(cur, [prev])
+    assert [x["change_type"] for x in result["changes"]] == ["needs_review"]
+    assert result["changes"][0]["reason"] == "date_missing_future_or_unverifiable"
+
+
+def test_last_healthy_pricing_survives_unresolved_new_page(tmp_path):
+    old = save_job(tmp_path, pricing_row(
+        "883514/1/101", [priced("1.50")]
+    ), 1)
+    failed = save_job(tmp_path, pricing_row(
+        "883514/1/102", [priced("100.00")], sha="", status="http_error"
+    ), 2)
+    current = save_job(tmp_path, pricing_row(
+        "883514/1/103", [priced("1.75")], sha="price1"
+    ), 3)
+    changes = evaluate(current, [old, failed])["changes"]
+    assert {x["change_type"] for x in changes} == {
+        "source_restored", "rate_change_candidate"
+    }
+    price = next(x for x in changes if x["change_type"] == "rate_change_candidate")
+    assert price["prior_value"] == "1.50"
+    assert price["current_value"] == "1.75"
