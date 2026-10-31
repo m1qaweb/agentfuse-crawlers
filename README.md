@@ -7,6 +7,7 @@ A conservative, **read-only** Scrapy Cloud project that tracks *official documen
 - **460 configured official-source URL candidates / 194 provider names** (October 30, 2026): 194 documentation, 177 pricing, 89 changelogs. **82** original entries preserved, **378** appended from the owner's expanded JSON file. Only the original **nine** source URLs have previous observed Zyte crawl success; **451 remain candidates** awaiting source-by-source live validation. The uploaded filename saying "verified" is not live extraction evidence.
 - Exactly three Scrapy 2.18 spiders: `official_documentation`, `official_pricing`, `official_changelogs`. Each job requests the current HTML of every selected official URL; the source inventory can be expanded without adding spider types.
 - Fixed offline URL manifest; no arbitrary-URL spider arguments. `cohort=proven|candidate|all`, explicit source-ID selection, and bounded `offset` and `limit` make safe rollout easier.
+- **PR01 operational guard:** omit `cohort` to crawl only 3 historical smoke-test URLs per spider. Any job with `cohort=all` and no `source_ids` now **requires** `confirm_full_inventory=yes`, even when using `limit`. Existing recurring jobs explicitly set to `cohort=all` must be deliberately updated before deploying this change. This is a scope safety control, not an access-permission check.
 - Evidence schema v2: fetch metadata, status, full-text SHA-256, semantic heading sections and dated *candidates*, HTML table cells with row/colspan, canonical link when same-host, length/quality warnings and original source URLs.
 - Offline JSON/JSONL import, snapshots, source health report, page diffs, section diffs, and **unverified review queue**. A first crawl is a baseline, not a new announcement.
 - Optional manual Zyte job exporter to archive data beyond Zyte's retention window. Uses an environment variable; never commits API keys.
@@ -19,6 +20,14 @@ Each triggered run schedules **new network requests**, with Scrapy's HTTP cache 
 The spider only follows bounded (max 3) **same-source-host HTTPS redirects** and flags moved URLs or unexpected canonical paths for review. Global automatic redirects remain enabled to let Scrapy process **robots.txt redirects**; all *source page requests* explicitly opt out and use the stricter per-source policy. A login page, JavaScript-only shell, missing dated release sections, link-only documentation index, or pricing page with no observable billing evidence is `needs_review`, not `captured`. Truncated text/tables/changelog sections are `partial_capture`. The cross-source coverage extension writes job stats `agentfuse/coverage/*` and closes a run with a descriptive reason when expected item records are missing or nothing usable was collected.
 
 **Important boundary:** these spiders fetch the current version of each **configured page**, not every subpage in a provider's entire documentation tree. A changelog includes historical entries; a daily run should identify *changes relative to prior snapshots*, not pretend those old entries were published today. A CDN may serve cached content even when the crawler asks for revalidation. Thus `latest_publication_verified=false` until independently confirmed. A `captured` status means structurally useful source evidence, **never fact verification**. Do not mistake a `finished` job for successful source coverage—inspect the coverage stats.
+
+### Reproducible PR01 job provenance
+
+Each fetched or errored source Item now carries **both** `source_cohort` (historical source membership) and `requested_cohort` (actual Zyte job argument), plus an ordering-sensitive selection-ID SHA-256 and a manifest SHA-256, job start time, spider ID, and optional Zyte job ID / deployment revision. `SHUB_JOBKEY` may provide a real Zyte job ID; `AGENTFUSE_DEPLOY_REVISION` must be set by the deployment environment or it remains empty. Do not invent a revision when unavailable. The exporter refuses to compare modern Items from incompatible job scopes, manifest revisions or mixed job sessions; old Items remain readable but are explicitly labeled `legacy_unverified`.
+
+The separate `agentfuse/run/quality_outcome` and `agentfuse/coverage/*` job metrics show counted source Items, comparable evidence and clipped excerpts. **`finished` + complete source accounting is not proof that the facts or dates are accurate.**
+
+For stable validation jobs, generate `validation_batches.csv` and use `pinned_cohort=all`, `source_ids=<source_ids_csv>`, `expected_manifest_sha256=<hash>` and `expected_selection_ids_sha256=<hash>` from one CSV row. This pins a fixed ID set even if the candidate/proven registry changes. Explicit source-ID scoped jobs do not require `confirm_full_inventory=yes`; that confirmation is for broad unbounded `cohort=all` jobs only. Compare using the *same* `--cohort all --source-ids ...` arguments.
 
 ### Match review exports to periodic-job scope
 
@@ -59,6 +68,8 @@ Scrapy 2.18 requires `async def start()`; it will NOT call the legacy `start_req
 ## Scrapy Cloud rollout (one unit)
 
 The GitHub `main` branch deploys to your existing Zyte project `aidata`. First confirm the **latest commit** shows `SUCCESS` in **Code & Deploys**. Test one spider job at a time; the account has only one concurrent crawl unit. Spiders read the catalog at job start and crawl only their category.
+
+**Existing scheduled-job compatibility warning:** If any live scheduled job currently supplies `cohort=all` without an explicit source ID list, it will fail fast after PR01 is merged. Update its arguments to `cohort=proven` first, or consciously authorize the full job with `confirm_full_inventory=yes`. This protects against the accidental 460-source run observed on October 31.
 
 Recommended validation order:
 

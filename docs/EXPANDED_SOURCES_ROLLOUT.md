@@ -31,13 +31,15 @@ python -m scripts.plan_validation --cohort candidate --batch-size 15 \
 
 Outputs `validation_batches.json` (exact source IDs per batch), `validation_batches.csv` (copyable Zyte args), and `static_review_flags.csv` (non-network hints). For 451 candidates, batch size 15 creates **31 jobs** spread over the three existing spiders. Jobs should run **sequentially**, never on top of each other with a single cloud unit.
 
-In Zyte **Run Spider** manually, select the spider listed in the CSV. Set:
+In Zyte **Run Spider** manually, select the spider listed in the CSV. For a simple cohort-offset test, set:
 
 ```text
 cohort=candidate
 offset=0
 limit=15
 ```
+
+**Preferred reproducible mode after PR01:** read one row from the CSV and run `cohort=all`, `source_ids=<source_ids_csv>`, `expected_manifest_sha256=<expected_manifest_sha256>`, and `expected_selection_ids_sha256=<expected_selection_ids_sha256>`. This constrains the run to only these IDs, so `confirm_full_inventory=yes` is **not** required. It also prevents a changed registry from silently shifting validation batches. Compare the resulting export with `--cohort all --source-ids <source_ids_csv>`, not the legacy candidate-offset arguments.
 
 After its items have been reviewed, run the next batch for the **same spider** with `offset=15`, then `offset=30`, until that category is complete. Repeat for the other two spiders. Offset is applied *after* category and proven/candidate filtering, so the batches are stable as long as the manifest and proven-source registry do not change. Do not promote candidates mid-validation; that would change candidate offsets. To rerun a completed batch, keep the exact same manifest commit and args.
 
