@@ -36,8 +36,8 @@ FOOTNOTE_MARK = re.compile(r"(?:\*|†|‡|\[\d+\])\s*$")
 # More specific units must match before less specific ones.
 UNIT_PATTERNS = [
     ("per_1m_tokens", re.compile(
-        r"(?:\bper\b|/)\s*(?:1\s*m(?:illion)?|one million|million)\s*"
-        r"(?:input |output |cached )?tokens?\b", re.I)),
+        r"(?:\bper\b|/)\s*(?:(?:1\s*m(?:illion)?|one million|million)\s*"
+        r"(?:input |output |cached )?tokens?|m\s*tokens?|mtok(?:ens)?)\b", re.I)),
     ("per_1k_tokens", re.compile(
         r"(?:\bper\b|/)\s*(?:1[, ]?000|1\s*k|thousand)\s*"
         r"(?:input |output )?tokens?\b", re.I)),
@@ -168,7 +168,9 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
     heading = clean(column_header, 500)
     row_name = clean(row_header, 350)
     currency = detect_currency(raw, heading, table_caption, context)
-    unit = detect_unit(heading, row_name, table_caption, context)
+    # A vendor may explicitly print '/ MTok' inside the price cell itself.
+    # This is a stated billing denominator, never inferred from a dollar sign.
+    unit = detect_unit(raw, heading, row_name, table_caption, context)
     dimension = detect_dimension(heading, row_name)
     region = detect_region(heading, row_name, table_caption, context)
     tier = detect_tier(heading, row_name, table_caption, context)
