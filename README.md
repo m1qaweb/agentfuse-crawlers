@@ -181,6 +181,22 @@ excluded from the advisor. A read-only offline source-review generator creates
 460-row triage reports from the original Zyte Items with explicit unknowns.
 See [PR06_SOURCE_LIFECYCLE_RUNBOOK.md](docs/PR06_SOURCE_LIFECYCLE_RUNBOOK.md).
 
+## Immutable Zyte job archives and semantic comparisons (PR07 draft)
+
+Read-only manual archival now retrieves Zyte finished-job metadata and bounded,
+paginated Items; authenticates by HTTP Basic Authorization header, never an
+API-key query parameter. It records per-item SHA256, job scope, metadata
+counts, exact record ordinals and deterministic compressed JSONL. Existing
+archives are independently verified rather than re-downloaded or overwritten.
+Use scripts.archive_jobs or the compatible scripts.download_zyte entrypoint.
+
+The offline scripts.evaluate_run separates the **latest source observation**
+from the **latest healthy comparable baseline** and emits unapproved release,
+pricing, documentation and run-quality reports. Aborted/incomplete jobs and
+parser/product/source-scope migrations must never create false change alerts.
+The first completed baseline is never a new announcement. See
+[PR07_IMMUTABLE_ARCHIVE_RUNBOOK.md](docs/PR07_IMMUTABLE_ARCHIVE_RUNBOOK.md).
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.

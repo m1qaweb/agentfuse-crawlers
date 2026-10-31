@@ -195,6 +195,24 @@ def _healthy(row):
     )
 
 
+def _compatible_source(row, old):
+    """Match official identity, product scope and extractor revisions.
+
+    Backward-readable legacy exports may lack these fields, but revisions
+    to source URL, manifest or typed parser must reset the evidence baseline.
+    """
+    if not old:
+        return False
+    identity = (
+        "source_id", "provider", "category", "source_url",
+        "manifest_sha256", "source_registry_sha256",
+        "schema_version", "release_events_schema",
+        "pricing_evidence_schema", "documentation_evidence_schema",
+        "documentation_product_scope", "source_format",
+    )
+    return all(row.get(k) == old.get(k) for k in identity)
+
+
 def compare(current, previous):
     """Conservative page-level diff, preserving legacy change categories."""
     changes = []
@@ -206,10 +224,9 @@ def compare(current, previous):
             kind = 'not_captured'
         elif not old or not _healthy(old):
             kind = 'new_baseline'
-        elif (old.get('source_url') and item.get('source_url') and
-              old['source_url'] != item['source_url']):
-            # URL migrations start a new baseline: do not call a moved feed
-            # a newly announced feature or a content update.
+        elif not _compatible_source(item, old):
+            # Parser, product, source-registry or URL revision requires a
+            # fresh baseline, not a new vendor event or pricing claim.
             kind = 'new_baseline'
         elif old_hash != new_hash:
             kind = 'page_text_changed'
@@ -274,7 +291,7 @@ def _release_diffs(current, previous):
                 or old.get('release_events_schema') != curr.get('release_events_schema')
                 or not ((_healthy(curr) and _healthy(old)) or version_only)):
             continue
-        if (curr.get('source_url') != old.get('source_url')
+        if (not _compatible_source(curr, old)
                 or (curr.get('release_events_schema') == '1.0'
                     and (curr.get('release_events_truncated')
                          or old.get('release_events_truncated')))
@@ -347,8 +364,7 @@ def _pricing_rate_diffs(current, previous):
         if (curr.get("pricing_evidence_schema") != "1.0"
                 or old.get("pricing_evidence_schema") != "1.0"
                 or not _healthy(curr) or not _healthy(old)
-                or curr.get("source_url") != old.get("source_url")
-                or curr.get("provider") != old.get("provider")):
+                or not _compatible_source(curr, old)):
             continue
 
         def comparable_map(row):
@@ -447,8 +463,7 @@ def _section_diffs(current, previous):
             continue
         if not old or not _healthy(curr) or not _healthy(old):
             continue
-        if (old.get('source_url') and curr.get('source_url') and
-                old['source_url'] != curr['source_url']):
+        if not _compatible_source(curr, old):
             continue
         if any(x.get('sections_truncated') for x in (curr, old)):
             continue
@@ -645,6 +660,17 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
     with open(out_dir / 'review_queue.jsonl', 'w', encoding='utf-8') as f:
         for entry in queue:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    with open(out_dir / 'release_events.jsonl', 'w', encoding='utf-8') as f:
+        for row in current.values():
+            if row.get('category') == 'changelog':
+                for event in row.get('release_events', []):
+                    f.write(json.dumps({
+                        **event, 'archive_source_id': row['source_id'],
+                        'official_source_url': row.get('source_url', ''),
+                        'observation_fetched_at_utc': row.get('fetched_at_utc', ''),
+                        'approved_for_advisor': False,
+                        'review_status': 'unverified',
+                    }, ensure_ascii=False) + '\n')
     with open(out_dir / 'pricing_observations.jsonl', 'w', encoding='utf-8') as f:
         for row in current.values():
             for observation in row.get('pricing_observations', []):
@@ -692,6 +718,9 @@ def export(current, previous, out_dir, category='auto', cohort='auto', source_id
         'warning': 'All evidence and ranking hints are unverified; baselines are never new announcements.',
     }
     (out_dir / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
+    (out_dir / 'run_quality.json').write_text(
+        json.dumps(summary, indent=2) + '\n', encoding='utf-8'
+    )
     return summary
 
 
