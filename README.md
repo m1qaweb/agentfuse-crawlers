@@ -197,6 +197,27 @@ parser/product/source-scope migrations must never create false change alerts.
 The first completed baseline is never a new announcement. See
 [PR07_IMMUTABLE_ARCHIVE_RUNBOOK.md](docs/PR07_IMMUTABLE_ARCHIVE_RUNBOOK.md).
 
+## Offline replay, quality gates, and manual canaries (PR08 draft)
+
+**CI tests are not vendor accuracy certification.** P08 adds 24 short synthetic
+release layouts (including 15 separate GitHub Releases examples), 240 synthetic
+exact Decimal rate cases, negative missing-unit/currency/tier cases, and the
+existing complete Step 1-7 regression suite. GitHub Actions validates both
+Python 3.12 and 3.14, the original Scrapy Cloud egg and **exactly 3 spiders**.
+
+\`python -m scripts.canary_rollout --source-ids openai_api_changelog --out-dir output/canary-plan\`
+creates a **dry-run-only** plan of two explicitly scoped Zyte source-ID jobs.
+It does not trigger, approve, or schedule a crawl. Each real completed
+operator-authorized job must be archived with P07 and verified with
+\`scripts.score_canaries\`.
+
+\`scripts.quality_gates\` requires real reviewed 200+ distinct price rows,
+100+ human-annotated date cases, and two repeat canaries of **reviewed
+collection-eligible** sources. With zero approved collection sources or
+missing real golden evidence it reports **BLOCKED** even when all synthetic
+tests pass. Passing software gates never approves vendor facts or deployments.
+See [PR08 operator runbook](docs/PR08_OFFLINE_REPLAY_CANARY_RUNBOOK.md).
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.
