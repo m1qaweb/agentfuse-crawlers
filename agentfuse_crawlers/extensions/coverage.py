@@ -83,6 +83,11 @@ class SourceCoverageAudit:
         self.documentation_scoped = set()
         self.documentation_unprofiled = set()
         self.documentation_canonical_review = set()
+        self.lifecycle_skipped = set()
+        self.lifecycle_quarantined = set()
+        self.policy_unresolved = set()
+        self.lifecycle_metadata_errors = set()
+        self.collection_monitor_eligible = set()
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -123,6 +128,24 @@ class SourceCoverageAudit:
                     self.documentation_unprofiled.add(source_id)
                 if item.get("documentation_canonical_relation") == "same_host_path_differs":
                     self.documentation_canonical_review.add(source_id)
+            if item.get("status") in {
+                "source_quarantined", "source_retired",
+                "source_not_validated_for_monitor",
+            }:
+                self.lifecycle_skipped.add(source_id)
+            if item.get("source_lifecycle_state") == "quarantined":
+                self.lifecycle_quarantined.add(source_id)
+            if item.get("source_policy_status") in {"unresolved", "prohibited_reviewed"}:
+                self.policy_unresolved.add(source_id)
+            if item.get("collection_eligible_for_unattended") is True:
+                self.collection_monitor_eligible.add(source_id)
+            mode = getattr(spider, "collection_mode", None)
+            if mode is not None and (
+                item.get("collection_mode") != mode
+                or item.get("source_registry_sha256")
+                != getattr(spider, "source_registry_sha256", None)
+            ):
+                self.lifecycle_metadata_errors.add(source_id)
             if any(s.get("excerpt_truncated") for s in item.get("sections", [])):
                 self.clipped_excerpts.add(source_id)
             context = getattr(spider, "run_context", None)
@@ -152,6 +175,7 @@ class SourceCoverageAudit:
         problems = bool(
             missing or extra or self.duplicates or self.context_errors
             or self.advisor_approval_anomalies
+            or self.lifecycle_metadata_errors
         )
         if problems:
             quality = "coverage_or_provenance_failed"
@@ -179,6 +203,11 @@ class SourceCoverageAudit:
             "documentation_scoped_page_sources": len(self.documentation_scoped & expected),
             "documentation_unprofiled_sources": len(self.documentation_unprofiled & expected),
             "documentation_canonical_review_sources": len(self.documentation_canonical_review & expected),
+            "lifecycle_skipped_sources": len(self.lifecycle_skipped & expected),
+            "quarantined_sources": len(self.lifecycle_quarantined & expected),
+            "policy_unresolved_sources": len(self.policy_unresolved & expected),
+            "monitor_eligible_sources": len(self.collection_monitor_eligible & expected),
+            "lifecycle_metadata_errors": len(self.lifecycle_metadata_errors),
             "captured_with_clipped_excerpts": len(self.clipped_excerpts & expected),
             "missing_sources": len(missing),
             "duplicate_sources": len(self.duplicates),
@@ -193,6 +222,10 @@ class SourceCoverageAudit:
         for key, value in self.status_counts.items():
             stats.set_value("agentfuse/coverage/status/" + str(key), value)
         stats.set_value("agentfuse/run/quality_outcome", quality)
+        stats.set_value("agentfuse/run/collection_mode",
+                        getattr(spider, "collection_mode", "legacy_unrecorded"))
+        stats.set_value("agentfuse/run/source_registry_sha256",
+                        getattr(spider, "source_registry_sha256", ""))
         context = getattr(spider, "run_context", None)
         if context:
             for field in CONTEXT_FIELDS:
@@ -224,7 +257,8 @@ class SourceCoverageAudit:
             return
         missing, extra, captured, partial = self.summary(spider)
         if (missing or extra or self.duplicates or self.context_errors
-                or self.advisor_approval_anomalies):
+                or self.advisor_approval_anomalies
+                or self.lifecycle_metadata_errors):
             raise CloseSpider("agentfuse_incomplete_source_coverage")
         if captured == 0 and partial == 0:
             raise CloseSpider("agentfuse_no_usable_sources")
