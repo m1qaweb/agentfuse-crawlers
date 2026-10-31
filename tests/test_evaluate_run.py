@@ -385,3 +385,48 @@ def test_last_healthy_pricing_survives_unresolved_new_page(tmp_path):
     price = next(x for x in changes if x["change_type"] == "rate_change_candidate")
     assert price["prior_value"] == "1.50"
     assert price["current_value"] == "1.75"
+
+
+def test_stale_cdn_cache_and_policy_flags_override_captured_label(tmp_path):
+    old = save_job(tmp_path, release_row(
+        "883514/1/101", [event("a", date="2026-10-20")]
+    ), 1)
+    stale_row = release_row(
+        "883514/1/102", [
+            event("future-looking", date="2026-10-31"),
+            event("a", date="2026-10-20"),
+        ], sha="potentially-stale", fetched="2026-10-31T12:00:00Z",
+    )
+    stale_row["reported_cache_age_seconds"] = 172800
+    stale = save_job(tmp_path, stale_row, 2)
+    result = evaluate(stale, [old])
+    assert [x["change_type"] for x in result["changes"]] == ["source_unavailable"]
+    assert result["states"][0]["latest_healthy_job_id"] == "883514/1/101"
+
+
+def test_policy_quarantine_prevents_releasing_cached_event_claim(tmp_path):
+    prev = save_job(tmp_path, release_row(
+        "883514/1/101", [event("a", date="2026-10-20")]
+    ), 1)
+    item = release_row(
+        "883514/1/102", [event("new", date="2026-10-31")],
+        sha="pretend-success", fetched="2026-10-31T12:00:00Z",
+    )
+    item["source_lifecycle_state"] = "quarantined"
+    item["source_policy_status"] = "unresolved"
+    now = save_job(tmp_path, item, 2)
+    result = evaluate(now, [prev])
+    assert [c["change_type"] for c in result["changes"]] == ["source_unavailable"]
+    assert result["summary"]["advisor_approved_fact_count"] == 0
+
+
+def test_invalid_nonfinite_price_candidate_cannot_generate_rate_alert(tmp_path):
+    old = save_job(tmp_path, pricing_row(
+        "883514/1/101", [priced("1.50")]
+    ), 1)
+    now = save_job(tmp_path, pricing_row(
+        "883514/1/102", [priced("NaN")], sha="changed"
+    ), 2)
+    report = evaluate(now, [old])
+    assert [x["change_type"] for x in report["changes"]] == ["needs_review"]
+    assert report["changes"][0]["reason"] == "pricing_rate_identity_ambiguous"
