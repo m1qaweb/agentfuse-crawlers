@@ -8,7 +8,7 @@ from collections import deque
 import json
 import re
 
-MAX_RECENT_EVENTS = 40
+MAX_RECENT_EVENTS = 80
 MAX_SOURCE_TEXT = 24_000
 MAX_SECTIONS_RETAINED = 16
 MAX_SECTION_EXCERPT = 650
@@ -130,13 +130,14 @@ class WindowAccumulator:
             selected = list(reversed(self.last))
         else:
             selected = list(self.first)
+        recent_loss = sum(bool(e.get("body_text_truncated")) for e in selected)
         # This proves that bounded events from the fetched page were recognized
         # in a consistent date/version order. It is NOT global vendor coverage.
         window_complete = bool(
             self.count >= MIN_RECENT_EVENTS
             and direction in {"newest_first", "oldest_first"}
             and not self.collisions
-            and self.body_loss_count == 0
+            and recent_loss == 0
         )
         return {
             "events": selected,
@@ -147,6 +148,7 @@ class WindowAccumulator:
             "window_complete": window_complete,
             "collision": self.collisions,
             "body_loss_count": self.body_loss_count,
+            "recent_body_loss_count": recent_loss,
         }
 
 
