@@ -153,7 +153,13 @@ def _permalink(node, source_url):
         if safe:
             # Avoid a link to the page root masquerading as an event URL.
             if dest.path != source.path or dest.fragment:
-                return target[:800]
+                # Query parameters can contain tokens, tracking data or
+                # ephemeral signatures; do not use them in event provenance.
+                from urllib.parse import urlunsplit
+                return urlunsplit((
+                    dest.scheme, dest.netloc, dest.path, "",
+                    dest.fragment[:120],
+                ))[:800]
     for ancestor in list(node.iterancestors())[:3]:
         if _tag(ancestor) in {"article", "section", "li", "div"}:
             anchor = ancestor.get("id", "")
@@ -166,11 +172,26 @@ def _signals(main):
     """Ordered semantic tokens; only standalone date text is a date marker."""
     for node in main.iter():
         tag = _tag(node)
+        if tag == "div" and any(
+            _tag(child) in {"div", "p", "li", "section", "article",
+                            "h1", "h2", "h3", "h4", "h5", "pre"}
+            for child in node
+        ):
+            # A wrapper can contain an entire long changelog. Never flatten
+            # its descendants repeatedly merely to inspect its date text.
+            continue
         if tag in HEADING_TAGS:
             title = _normalize(node.text_content())[:250]
             if title:
                 yield "heading", title, node, int(tag[1])
         elif tag in {"time", "relative-time"}:
+            date_role = " ".join(
+                node.get(x, "") for x in
+                ("itemprop", "class", "aria-label", "data-testid")
+            ).lower()
+            if any(x in date_role for x in ("datemodified", "last-modified",
+                                            "updated-at", "last updated")):
+                continue  # Edited time is not a release publication date.
             value = (node.get("datetime") or node.get("dateTime") or "").strip()
             if value and DATE_ISO.fullmatch(value[:10]):
                 yield "timestamp", value[:10], node, 0
@@ -234,6 +255,7 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         "review_status": "unverified",
         "approved_for_advisor": False,
         "_body": [],
+        "_body_length": 0,
         "_level": 2,
         "_date_scope": False,
         "_body_overflow": False,
@@ -261,9 +283,14 @@ def extract_release_events(main, source_url, source_id):
         if current is None:
             return
         body = _normalize(" ".join(current.pop("_body")))
+        current.pop("_body_length", None)
         heading_level = current.pop("_level")
         current.pop("_date_scope")
-        if not body and not current["version"] and not current["published_at"]:
+        # Ordinary page subheadings are not evidence of a release. Preserve
+        # undated candidates only for versions or a real month/day marker
+        # whose year could not be established.
+        unresolved_dateline = "unresolved_month_day" in current["published_date_provenance"]
+        if not (current["published_at"] or current["version"] or unresolved_dateline):
             current = None
             return
         # The entire bounded event text is hashed even when the display
@@ -303,6 +330,11 @@ def extract_release_events(main, source_url, source_id):
                 date_group_active = True
                 pending_date = True
                 continue
+            # Exit a month/year group when a sibling or parent heading changes
+            # topic; no October 2026 inheritance into a later docs section.
+            if (month_group is not None and context_heading_level is not None
+                    and level <= context_heading_level):
+                month_group = None
             title, inline_day, inline_kind, stamp = _inline_heading(text, month_group)
             if current is not None and level > current["_level"] and not date_group_active:
                 # A deeper heading inside a release (e.g. Fixes) is not a
@@ -358,12 +390,13 @@ def extract_release_events(main, source_url, source_id):
         elif typ == "body":
             if current is not None:
                 # Bound live memory per event; preserve clipping honestly.
-                length = sum(len(x) for x in current["_body"])
-                room = MAX_BODY_CHARS - length
+                room = MAX_BODY_CHARS - current["_body_length"]
                 if room < len(text):
                     current["_body_overflow"] = True
                 if room > 0:
-                    current["_body"].append(text[:room])
+                    piece = text[:room]
+                    current["_body"].append(piece)
+                    current["_body_length"] += len(piece)
             elif pending_date and len(text) >= 24:
                 # A date heading followed directly by prose may represent one
                 # dated entry, but must remain an unverified candidate.
@@ -386,7 +419,9 @@ def extract_release_events(main, source_url, source_id):
         seen.add(event["event_id"])
 
     dated = [x["published_at"] for x in events if x["published_at"]]
-    newest_undated = any(not x["published_at"] for x in events[:3])
+    # Strict: an undated version anywhere in the observed event list could
+    # invalidate a guessed "latest". Do not replace unknown with old dates.
+    newest_undated = any(not x["published_at"] for x in events)
     likely_latest = max(dated) if dated and not newest_undated and not collision else None
     return {
         "release_events_schema": "1.0",

@@ -342,3 +342,51 @@ def test_schema_migration_from_legacy_is_not_a_new_vendor_release():
     legacy["content_sha256"] = "old-sha"
     queue = review_queue({SID: now}, {SID: legacy}, compare({SID: now}, {SID: legacy}))
     assert queue == []
+
+
+
+def test_unrelated_undated_page_heading_is_not_release_evidence():
+    data = extract("""
+    <h1>Changelog</h1><h2>Getting started</h2>
+    <p>Documentation for configuration that does not announce a release.</p>
+    """)
+    assert data["release_event_count"] == 0
+    assert data["latest_release_date_candidate"] is None
+
+
+def test_edit_date_is_not_a_publication_date():
+    data = extract("""
+    <h2>Version v2.0.0</h2>
+    <time itemprop="dateModified" datetime="2026-10-30">Updated</time>
+    <p>The notes were corrected without changing their publication date.</p>
+    """)
+    assert data["release_events"][0]["published_at"] is None
+
+
+def test_large_release_body_marks_partial_and_cannot_be_compared():
+    long_body = "Additional official release note context. " * 900
+    data = extract(
+        "<h2>2026-10-30</h2><h3>Release v2.0.0</h3><p>"
+        + escape(long_body) + "</p>"
+    )
+    assert data["release_events"][0]["body_text_truncated"] is True
+    assert data["release_events"][0]["excerpt_truncated"] is True
+    status, reason = assess_capture("changelog", data, data["text"])
+    assert status == "partial_capture"
+    assert reason == "release_event_body_truncated"
+    old = snapshot("2026-10-30", data)
+    newer = snapshot("2026-10-31", copy.deepcopy(data))
+    newer["release_events"][0]["body_sha256"] = "changed-hash"
+    current = {SID: newer}
+    previous = {SID: old}
+    assert review_queue(current, previous, compare(current, previous)) == []
+
+
+def test_official_permalink_omits_suspicious_query_tokens():
+    data = extract("""
+    <h2>2026-10-30</h2>
+    <h3>Release v1.2.3 <a href="/changelog/release-123?token=secret">Read</a></h3>
+    <p>Details linked to the official release URL.</p>
+    """)
+    assert data["release_events"][0]["permalink"] == "https://official.example/changelog/release-123"
+    assert "token" not in data["release_events"][0]["permalink"]

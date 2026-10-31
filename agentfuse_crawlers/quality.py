@@ -97,6 +97,8 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
 
     if category == "changelog":
         if evidence.get("release_events_schema") == "1.0":
+            if any(evt.get("body_text_truncated") for evt in evidence.get("release_events", [])):
+                return "partial_capture", "release_event_body_truncated"
             if evidence.get("release_events_truncated"):
                 return "partial_capture", "release_event_limit_reached"
             if evidence.get("release_event_identity_collision"):

@@ -174,6 +174,9 @@ def _healthy(row):
         and not (row.get('category') in {'documentation', 'changelog'}
                  and row.get('sections_truncated'))
         and not any(x.get('excerpt_truncated') for x in row.get('sections', []))
+        and not row.get('release_events_truncated')
+        and not row.get('release_event_identity_collision')
+        and not any(x.get('body_text_truncated') for x in row.get('release_events', []))
     )
 
 
