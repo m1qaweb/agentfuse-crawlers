@@ -115,7 +115,7 @@ def write_canary_plan(plan, output_dir):
         json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     fields = ["round", "source_id", "spider", "category", "source_url",
-              "cohort", "collection_mode", "expected_manifest_sha256",
+              "cohort", "source_ids", "collection_mode", "expected_manifest_sha256",
               "expected_selection_ids_sha256", "expected_source_registry_sha256",
               "execution_status"]
     with (out / "manual_job_args.csv").open("w", newline="", encoding="utf-8") as handle:
