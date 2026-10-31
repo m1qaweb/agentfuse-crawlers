@@ -141,3 +141,23 @@ def test_promotional_labels_block_numeric_fact_comparability(wording):
     assert value["comparable_candidate"] is False
     assert value["normalized_amount_decimal"] is None
     assert "time_dependent_or_promotional_price" in value["normalization_blockers"]
+
+
+@pytest.mark.parametrize("edit_marker", [
+    "last-updated", "last-modified", "edited-at",
+    "modified-at", "dateModified", "updated-at",
+])
+def test_various_edited_timestamp_roles_never_claim_publication(edit_marker):
+    content = (
+        "<html><body><main><h1>Change log</h1>"
+        "<article><h2 id='v3'>v3.0.0</h2>"
+        f"<time class='{edit_marker}' datetime='2026-10-31T20:55:00-07:00'>"
+        "Edited date</time><p>Only a synthetic release note is present.</p>"
+        "</article></main></body></html>"
+    )
+    observed = extract_evidence(
+        content, "https://cursor.com/changelog",
+        category="changelog", source_id="cursor_changelog",
+    )
+    assert observed["release_events"][0]["published_at"] is None
+    assert observed["release_events"][0]["published_date_precision"] == "unknown"
