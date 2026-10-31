@@ -186,3 +186,58 @@ def test_reordering_distinct_guides_linked_releases_never_generates_new_event():
     }
     assert first["release_event_identity_collision"] is False
     assert reordered["release_event_identity_collision"] is False
+
+
+def _snapshot_from_extraction(source_id, extraction):
+    """Intentionally minimal capture with identical source identity."""
+    return {
+        "source_id": source_id,
+        "provider": "OpenAI", "category": "changelog",
+        "source_url": EXAMPLE_SOURCES[source_id],
+        "status": "captured", "content_sha256": "unchanged-page-hash",
+        "release_events_schema": extraction["release_events_schema"],
+        "release_identity_revision": extraction["release_identity_revision"],
+        "release_window_complete": extraction["release_window_complete"],
+        "release_event_identity_collision": extraction["release_event_identity_collision"],
+        "release_recent_body_loss_count": 0,
+        "release_events": extraction["release_events"],
+        "approved_for_advisor": False,
+    }
+
+
+def test_legacy_old_archive_is_new_baseline_not_hundreds_of_new_events():
+    from copy import deepcopy
+    from scripts.evaluate_run import _release_delta, _source_identity
+
+    data = crawl(
+        "openai_api_changelog",
+        "<h2>October, 2026</h2>"
+        "<div>Oct 30</div><h3>New important feature A</h3>"
+        "<p>Synthetic event A for integrity testing.</p>"
+        "<div>Oct 28</div><h3>Previous important feature B</h3>"
+        "<p>Synthetic event B for integrity testing.</p>",
+    )
+    current = _snapshot_from_extraction("openai_api_changelog", data)
+    previous = deepcopy(current)
+    previous.pop("release_identity_revision")
+    previous["release_events"][0]["event_id"] = "openai_api_changelog:old-id"
+    assert _source_identity(current) != _source_identity(previous)
+    assert _release_delta(current, previous) == []
+    assert compare({"openai_api_changelog": current},
+                   {"openai_api_changelog": previous})[0]["change_type"] == "new_baseline"
+    assert review_queue(
+        {"openai_api_changelog": current},
+        {"openai_api_changelog": previous},
+        compare({"openai_api_changelog": current},
+                {"openai_api_changelog": previous}),
+    ) == []
+
+
+def test_current_identity_revision_is_declared_to_all_release_events():
+    data = crawl(
+        "google_antigravity_changelog",
+        "<h2>v2.28.2</h2><p>Some deployment details.</p>",
+    )
+    assert data["release_events_schema"] == "1.1"
+    assert data["release_identity_revision"] == "release_owned_anchor_v2"
+    assert data["release_events"][0]["identity_basis"] == "stable_title_and_version_no_date"
