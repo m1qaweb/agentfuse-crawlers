@@ -146,3 +146,71 @@ def test_official_url_migration_is_new_baseline_not_fresh_release():
     assert changes[0]["change_type"] == "new_baseline"
     assert review_queue({"google_cloud_ai_changelog": after},
                         {"google_cloud_ai_changelog": before}, changes) == []
+
+
+
+def _versioned_row(source_id, cohort="all"):
+    from agentfuse_crawlers.sources import load_sources, select_sources
+    from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
+    manifest = load_sources()
+    src = next(x for x in manifest if x["id"] == source_id)
+    batch = select_sources(src["category"], cohort=cohort)
+    row = record(source_id, "stable-sha", category=src["category"])
+    row.update({
+        "schema_version": "2.1",
+        "provider": src["provider"],
+        "source_url": src["url"],
+        "requested_cohort": cohort,
+        "selection_source_count": len(batch),
+        "selection_ids_sha256": selection_ids_sha256(batch),
+        "manifest_sha256": manifest_sha256(manifest),
+        "spider_name": {
+            "changelog": "official_changelogs",
+            "documentation": "official_documentation",
+            "pricing": "official_pricing",
+        }[src["category"]],
+        "run_started_at_utc": "2026-10-31T10:00:00+00:00",
+        "zyte_job_id": "883514/1/100",
+        "deployment_revision": "",
+        "source_cohort": "proven",
+    })
+    return row
+
+
+def test_requested_job_cohort_prevents_false_proven_only_scope(tmp_path):
+    from agentfuse_crawlers.sources import select_sources
+    # One historical proven member found in a job that actually requested ALL.
+    row = _versioned_row("openai_api_changelog", cohort="all")
+    summary = export({row["source_id"]: row}, {}, tmp_path, category="changelog")
+    assert summary["cohort_scope"] == "all"
+    assert summary["cohort_source"] == "requested_job"
+    assert summary["run_provenance_validation"] == "verified_against_current_manifest_and_args"
+    assert summary["sources_expected"] == len(select_sources("changelog", "all"))
+    assert summary["sources_captured"] == 1
+
+
+def test_changed_manifest_hash_fails_closed(tmp_path):
+    import pytest
+    row = _versioned_row("openai_api_changelog", cohort="proven")
+    row["manifest_sha256"] = "another-deployment"
+    with pytest.raises(ValueError, match="Manifest fingerprint mismatch"):
+        export({row["source_id"]: row}, {}, tmp_path, category="changelog")
+
+
+def test_mixed_same_category_job_metadata_fails_closed(tmp_path):
+    import pytest
+    one = _versioned_row("openai_api_changelog", cohort="proven")
+    two = _versioned_row("anthropic_api_changelog", cohort="proven")
+    two["run_started_at_utc"] = "2026-10-31T11:00:00+00:00"
+    with pytest.raises(ValueError, match="Mixed Zyte jobs"):
+        export({one["source_id"]: one, two["source_id"]: two},
+               {}, tmp_path, category="changelog")
+
+
+def test_selected_source_id_requires_matching_job_scope_args(tmp_path):
+    import pytest
+    row = _versioned_row("openai_api_changelog", cohort="all")
+    with pytest.raises(ValueError, match="Selection fingerprint mismatch"):
+        export({row["source_id"]: row}, {}, tmp_path,
+               category="changelog", cohort="all",
+               source_ids="openai_api_changelog")
