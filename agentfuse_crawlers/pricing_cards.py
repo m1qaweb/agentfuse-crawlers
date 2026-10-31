@@ -103,22 +103,33 @@ def _is_value(text):
 
 
 def _page_currency_preface(main, first_card):
-    """Only an explicit ALL-prices claim before card content is page-wide."""
-    currencies = []
+    """A page-wide ALL-prices claim must precede cards AND be uncontradicted.
+
+    A conflicting ALL-prices statement after another card makes the entire
+    publisher's page currency scope ambiguous, not globally USD.
+    """
+    if first_card is None:
+        return None, False
+    preface, declared = [], set()
+    before_card = True
     for node in main.iter():
         if node is first_card:
-            break
+            before_card = False
         line = _leaf_statement(node)
-        if line and not EXCLUDED_CONTENT.search(line):
-            match = ALL_CURRENCY.search(line)
-            if match and match.group(1).upper() in CURRENCY_CODES:
-                currencies.append(_citation(
-                    name="currency", value=match.group(1).upper(),
+        if not line or EXCLUDED_CONTENT.search(line):
+            continue
+        match = ALL_CURRENCY.search(line)
+        if match and match.group(1).upper() in CURRENCY_CODES:
+            value = match.group(1).upper()
+            declared.add(value)
+            if before_card:
+                preface.append(_citation(
+                    name="currency", value=value,
                     scope="page_all_prices", text=line,
                 ))
-    if len({x["value"] for x in currencies}) > 1:
+    if len(declared) > 1:
         return None, True
-    return (currencies[-1] if currencies else None), False
+    return (preface[-1] if preface else None), False
 
 
 def _card_declarations(card, *, page_currency=None, page_conflict=False):
