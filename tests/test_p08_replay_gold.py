@@ -122,3 +122,22 @@ def test_fixture_integrity_disallows_unreviewed_truth_claim(tmp_path):
     file.write_text(json.dumps(suite), encoding="utf-8")
     with pytest.raises(ValueError, match="manifest identity"):
         load_suite(file)
+
+
+@pytest.mark.parametrize("wording", [
+    "USD 1.50 promotion", "USD 1.50 promotions",
+    "USD 1.50 promotional", "USD 1.50 promo",
+    "USD 1.50 promos",
+])
+def test_promotional_labels_block_numeric_fact_comparability(wording):
+    from agentfuse_crawlers.rate_units import analyze_cell
+
+    value = analyze_cell(
+        wording, model_label="Model Test", column_header="Input price",
+        row_header="Model Test",
+        table_context="Region: Global Tier: Standard",
+        table_caption="USD per 1M tokens",
+    )
+    assert value["comparable_candidate"] is False
+    assert value["normalized_amount_decimal"] is None
+    assert "time_dependent_or_promotional_price" in value["normalization_blockers"]
