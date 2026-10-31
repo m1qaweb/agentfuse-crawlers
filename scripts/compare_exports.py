@@ -174,6 +174,9 @@ def _healthy(row):
         and not (row.get('category') in {'documentation', 'changelog'}
                  and row.get('sections_truncated'))
         and not any(x.get('excerpt_truncated') for x in row.get('sections', []))
+        and not row.get('release_events_truncated')
+        and not row.get('release_event_identity_collision')
+        and not any(x.get('body_text_truncated') for x in row.get('release_events', []))
     )
 
 
@@ -211,6 +214,69 @@ def compare(current, previous):
     return changes
 
 
+
+
+def _release_diffs(current, previous):
+    """Observations, NEVER claims that a release was published today.
+
+    Both snapshots must use the same event schema and be comparable. An
+    untrusted layout/date or first-ever event scan is only a baseline.
+    """
+    changes = []
+    for source_id, curr in sorted(current.items()):
+        old = previous.get(source_id)
+        if not old or curr.get('category') != 'changelog':
+            continue
+        if (curr.get('release_events_schema') != '1.0'
+                or old.get('release_events_schema') != '1.0'
+                or not _healthy(curr) or not _healthy(old)):
+            continue
+        if (curr.get('source_url') != old.get('source_url')
+                or curr.get('release_events_truncated')
+                or old.get('release_events_truncated')
+                or curr.get('release_event_identity_collision')
+                or old.get('release_event_identity_collision')):
+            continue
+        previous_events = {x['event_id']: x for x in old.get('release_events', [])}
+        for event in curr.get('release_events', []):
+            former = previous_events.get(event['event_id'])
+            if (former is not None
+                    and event['body_sha256'] == former.get('body_sha256')
+                    and event.get('published_at') == former.get('published_at')
+                    and event.get('published_date_provenance') ==
+                        former.get('published_date_provenance')
+                    and event.get('version') == former.get('version')):
+                continue
+            kind = 'release_event_first_seen' if former is None else 'release_event_edited'
+            changes.append({
+                'source_id': source_id,
+                'provider': curr.get('provider', ''),
+                'category': 'changelog',
+                'change_type': kind,
+                'event_id': event['event_id'],
+                'title': event.get('title', ''),
+                'version': event.get('version'),
+                'published_at_candidate': event.get('published_at'),
+                'date_evidence_text': event.get('date_evidence_text', ''),
+                'date_evidence_provenance': event.get('published_date_provenance', 'none'),
+                'section_id': '',
+                'heading': event.get('title', ''),
+                'date_candidate': event.get('published_at') or '',
+                'section_url': event.get('permalink') or curr.get('source_url', ''),
+                'evidence_excerpt': event.get('excerpt', '')[:450],
+                'evidence_excerpt_truncated': bool(event.get('excerpt_truncated')),
+                'importance_hint': 'review_first' if IMPORTANT_TERMS.search(
+                    event.get('title', '') + ' ' + event.get('excerpt', '')[:450]
+                ) else 'normal',
+                'review_status': 'pending_human_verification',
+                'approved_for_advisor': False,
+                'interpretation_warning': (
+                    'First observed by AgentFuse, NOT necessarily first published today'
+                    if former is None else 'Vendor event content changed; review before conclusions'
+                ),
+            })
+    return changes
+
 def _section_diffs(current, previous):
     """Compare sections only when both complete captures exist.
 
@@ -220,6 +286,13 @@ def _section_diffs(current, previous):
     changes = []
     for source_id, curr in sorted(current.items()):
         old = previous.get(source_id)
+        if curr.get('category') == 'changelog' and (
+            curr.get('release_events_schema') == '1.0'
+            or (old and old.get('release_events_schema') == '1.0')
+        ):
+            # Never duplicate or contradict typed release comparisons with
+            # coarse h2/h3 section changes or a parser schema migration.
+            continue
         if not old or not _healthy(curr) or not _healthy(old):
             continue
         if (old.get('source_url') and curr.get('source_url') and
@@ -266,12 +339,20 @@ def _section_record(record, section, kind):
 
 def review_queue(current, previous, changes):
     """Non-authoritative candidate queue. Never an approved recommendations feed."""
+    release_changes = _release_diffs(current, previous)
     section_changes = _section_diffs(current, previous)
-    queue = list(section_changes)
-    detailed_sources = {x['source_id'] for x in section_changes}
+    queue = list(release_changes) + list(section_changes)
+    detailed_sources = {x['source_id'] for x in queue}
+    modern_changelog_sources = {
+        sid for sid, item in current.items()
+        if item.get('category') == 'changelog'
+        and item.get('release_events_schema') == '1.0'
+    }
     # Only generate page-level tasks if no section-level diff is available.
     for item in changes:
-        if item['change_type'] != 'page_text_changed' or item['source_id'] in detailed_sources:
+        if (item['change_type'] != 'page_text_changed'
+                or item['source_id'] in detailed_sources
+                or item['source_id'] in modern_changelog_sources):
             continue
         record = current[item['source_id']]
         queue.append({
