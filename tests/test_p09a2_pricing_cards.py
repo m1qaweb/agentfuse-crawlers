@@ -424,3 +424,18 @@ def test_two_tables_same_rate_identity_require_review_instead_of_false_delta():
     assert ev["pricing_rate_identity_collision_count"] == 1
     assert ev["pricing_inventory_complete"] is False
     assert assess_capture("pricing", ev, ev["text"])[0] == "partial_capture"
+
+
+@pytest.mark.parametrize("first_label", ["USD 25.00", "$25", "100", "1,000"])
+def test_price_or_numeric_table_row_cannot_be_mislabeled_as_a_model(first_label):
+    ev = extract(
+        "<h2>Model pricing</h2><h3>Region: Global</h3>"
+        "<table><caption>Tier: Standard; USD per 1M tokens</caption>"
+        "<tr><th>Descriptor</th><th>Input price</th></tr>"
+        f"<tr><th>{first_label}</th><td>USD 1.00</td></tr></table>"
+    )
+    assert ev["pricing_observation_count"] == 1
+    o = ev["pricing_observations"][0]
+    assert o["model_or_service"] is None
+    assert o["normalized_amount_decimal"] is None
+    assert "missing_model_or_service" in o["normalization_blockers"]
