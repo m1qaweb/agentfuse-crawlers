@@ -190,14 +190,10 @@ def _collect_items(job_id, key, expected, category, page_fetch):
 
 def _scope(items, entries):
     common = (
-        "manifest_sha256", "selection_ids_sha256",
-        "selection_source_count", "requested_cohort",
-        "run_started_at_utc", "source_registry_sha256",
-        "collection_mode", "documentation_evidence_schema",
+        "manifest_sha256", "selection_ids_sha256", "selection_source_count",
+        "requested_cohort", "run_started_at_utc",
+        "source_registry_sha256", "collection_mode", "spider_name",
     )
-    # Ignore per-category schema in the scope; use per-source parser schema
-    # only when deciding whether a diff can be compared.
-    common = tuple(x for x in common if x != "documentation_evidence_schema")
     first = json.loads(items[0]) if items else {}
     consistent = True
     for raw in items[1:]:
@@ -207,9 +203,18 @@ def _scope(items, entries):
             break
     expected = first.get("selection_source_count")
     count_ok = isinstance(expected, int) and expected == len(entries)
+    hashes_recorded = bool(
+        isinstance(first.get("manifest_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", first["manifest_sha256"])
+        and isinstance(first.get("selection_ids_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", first["selection_ids_sha256"])
+    )
     return {
         "metadata_consistent": consistent,
         "scope_count_matches_items": count_ok,
+        "provenance_hashes_recorded": hashes_recorded,
+        "run_start_recorded": bool(first.get("run_started_at_utc")),
+        "spider_name_from_items": first.get("spider_name"),
         "source_identity_mismatches": sum(
             not entry["identity_matches_current_manifest"] for entry in entries
         ),
@@ -258,11 +263,24 @@ def archive_job(job_id, root, *, api_key=None, fetch_metadata=None, fetch_page=N
         job_id, key, job["expected_item_count"], job["category"],
         fetch_page or _items_page,
     )
+    scope = _scope(records, entries)
+    scope["job_spider_matches_items"] = (
+        scope["spider_name_from_items"] == job["spider"]
+    )
+    scope["safe_for_semantic_diff"] = bool(
+        scope["metadata_consistent"]
+        and scope["scope_count_matches_items"]
+        and scope["provenance_hashes_recorded"]
+        and scope["run_start_recorded"]
+        and scope["job_spider_matches_items"]
+        and not scope["source_identity_mismatches"]
+        and job["close_reason"] == "finished"
+    )
     envelope = {
         "archive_schema": ENVELOPE_SCHEMA,
         "job": job,
         "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source_scope": _scope(records, entries),
+        "source_scope": scope,
         "source_summary_count": len(entries),
         "source_evidence_is_unverified": True,
         "approved_for_advisor": False,
