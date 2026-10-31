@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "default_state": "needs_validation",
+  "description": "Explicit source lifecycle annotations, NOT verified publisher permissions or approved advisor facts. The unlisted 454 manifest IDs remain needs_validation.",
+  "overrides": {
+    "v0_docs": {
+      "source_url": "https://v0.app/docs",
+      "state": "quarantined",
+      "policy_status": "unresolved",
+      "reason_code": "robots_429_unresolved_2026_10_31",
+      "next_action": "Manually verify publisher robots/terms and document allowed access before proposing a reviewed lifecycle change; never retry to bypass an unresolved restriction.",
+      "approval": null
+    },
+    "v0_pricing": {
+      "source_url": "https://v0.app/pricing",
+      "state": "quarantined",
+      "policy_status": "unresolved",
+      "reason_code": "robots_429_unresolved_2026_10_31",
+      "next_action": "Manually verify publisher robots/terms and document allowed access before proposing a reviewed lifecycle change; never retry to bypass an unresolved restriction.",
+      "approval": null
+    },
+    "v0_changelog": {
+      "source_url": "https://v0.app/changelog",
+      "state": "quarantined",
+      "policy_status": "unresolved",
+      "reason_code": "robots_429_unresolved_2026_10_31",
+      "next_action": "Manually verify publisher robots/terms and document allowed access before proposing a reviewed lifecycle change; never retry to bypass an unresolved restriction.",
+      "approval": null
+    },
+    "kiro_docs": {
+      "source_url": "https://kiro.dev/docs/",
+      "state": "degraded",
+      "policy_status": "not_reviewed",
+      "reason_code": "historical_zero_substantive_html",
+      "next_action": "Recheck the exact first-party page with a permitted validation crawl; keep empty shell evidence unverified.",
+      "approval": null
+    },
+    "google_cloud_ai_docs": {
+      "source_url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/machine-learning",
+      "state": "degraded",
+      "policy_status": "not_reviewed",
+      "reason_code": "product_scope_migration_needs_review",
+      "next_action": "Verify intended Vertex AI versus Gemini Enterprise Agent Platform scope with official evidence.",
+      "approval": null
+    },
+    "google_cloud_ai_changelog": {
+      "source_url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/release-notes",
+      "state": "degraded",
+      "policy_status": "not_reviewed",
+      "reason_code": "product_scope_migration_needs_review",
+      "next_action": "Verify intended Vertex AI versus Gemini Enterprise Agent Platform changelog ownership and scope.",
+      "approval": null
+    }
+  }
+}
