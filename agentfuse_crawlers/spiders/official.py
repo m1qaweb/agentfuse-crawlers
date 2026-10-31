@@ -11,6 +11,10 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import scrapy
 
 from agentfuse_crawlers.extract import extract_evidence
+from agentfuse_crawlers.markdown_releases import (
+    allowed_markdown_url, parse_markdown_releases,
+)
+from agentfuse_crawlers.recent_window import compact_changelog_record
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.quality import (
     HARD_TEXT_LIMIT, assess_capture, response_freshness,
@@ -227,6 +231,28 @@ class OfficialBaseSpider(scrapy.Spider):
             status, reason = "needs_review", "canonical_path_differs"
         record.update(status=status, error=reason)
 
+        if (source["category"] == "changelog"
+                and allowed_markdown_url(source)
+                and status not in {"blocked", "robots_or_policy_denied"}
+                and (not evidence.get("release_window_complete")
+                     or evidence.get("release_event_count", 0) < 2)
+                and (len(text) > HARD_TEXT_LIMIT
+                     or not evidence.get("release_event_count"))):
+            # Only the single allowlisted publisher-host Markdown URL may be
+            # used; this is a format alternate, never a robot/captcha bypass.
+            primary_record = compact_changelog_record(record, text, keep_text=True)
+            primary_record["markdown_alternate_attempted"] = True
+            yield scrapy.Request(
+                allowed_markdown_url(source),
+                callback=self.parse_official_markdown,
+                errback=self.markdown_fetch_failed,
+                cb_kwargs={"source": source, "primary": primary_record},
+                meta={"handle_httpstatus_all": True, "dont_redirect": True},
+                dont_filter=True,
+                headers={"Accept": "text/markdown,text/plain;q=0.9"},
+            )
+            return
+
         if status in {"captured", "partial_capture"} or (
             status == "needs_review" and reason in {
                 "no_dated_release_section_detected",
@@ -244,7 +270,81 @@ class OfficialBaseSpider(scrapy.Spider):
             # Keep a short diagnostic sample for shells and access challenges.
             # Substantive but undated release evidence is retained above for review.
             record["text_sample"] = text[:500]
+        if source["category"] == "changelog":
+            record = compact_changelog_record(
+                record, text, keep_text="text" in record,
+            )
         yield self._emit_status(record)
+
+    def parse_official_markdown(self, response, source, primary):
+        """Use exact vetted same-domain Markdown only; no generic discovery."""
+        alternate = allowed_markdown_url(source)
+        if (not alternate or response.url != alternate
+                or not _allowed_redirect(response.url, source)):
+            primary["markdown_alternate_result"] = "rejected_url"
+            yield self._emit_status(primary)
+            return
+        if response.status != 200:
+            primary["markdown_alternate_result"] = "http_error"
+            primary["markdown_alternate_http_status"] = response.status
+            yield self._emit_status(primary)
+            return
+        kind = response.headers.get(b"Content-Type", b"").decode(
+            "latin-1", errors="replace",
+        ).lower()
+        if not any(x in kind for x in ("text/markdown", "text/plain", "text/x-markdown")):
+            primary["markdown_alternate_result"] = "unsupported_content_type"
+            yield self._emit_status(primary)
+            return
+        try:
+            evidence = parse_markdown_releases(
+                response.text, source["id"], source["url"], alternate,
+            )
+        except Exception as exc:
+            self.logger.warning("Unable to read official Markdown %s: %s",
+                                source["id"], type(exc).__name__)
+            primary["markdown_alternate_result"] = type(exc).__name__
+            yield self._emit_status(primary)
+            return
+
+        if evidence.get("release_event_count", 0) == 0:
+            primary["markdown_alternate_result"] = "no_structured_versions"
+            yield self._emit_status(primary)
+            return
+
+        record = dict(primary)
+        record.update(evidence)
+        record.update(response_freshness(response.headers))
+        record.update(
+            markdown_alternate_result="structured_version_evidence",
+            final_url=_visible_url(response.url),
+            content_type=kind[:200],
+            markdown_source_url=alternate,
+            markdown_html_source_url=source["url"],
+            markdown_alternate_http_status=200,
+            # The HTML fetch remains an evidence source with different scope.
+            html_source_hash=primary.get("content_sha256", ""),
+            http_status=200,
+            last_modified=response.headers.get(b"Last-Modified", b"").decode(
+                "latin-1", errors="replace")[:150],
+            etag=response.headers.get(b"ETag", b"").decode(
+                "latin-1", errors="replace")[:200],
+        )
+        content = record.pop("text")
+        cached = any("cache" in str(x).lower() for x in response.flags)
+        status, reason = assess_capture(
+            "changelog", evidence, content,
+            cache_warnings=record["freshness_warnings"], cached=cached,
+        )
+        record.update(status=status, error=reason)
+        record = compact_changelog_record(record, content, keep_text=True)
+        yield self._emit_status(record)
+
+    def markdown_fetch_failed(self, failure):
+        """A denied alternate never erases the original source observation."""
+        primary = failure.request.cb_kwargs["primary"]
+        primary["markdown_alternate_result"] = failure.type.__name__
+        yield self._emit_status(primary)
 
     def record_failure(self, failure):
         source = failure.request.cb_kwargs["source"]
