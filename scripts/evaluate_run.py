@@ -126,6 +126,8 @@ def _release_delta(current, previous, older_healthy=()):
     """Explicit event identity and content hashes; never infer removals."""
     if (current.get("release_events_schema") != "1.1"
             or previous.get("release_events_schema") != "1.1"
+            or current.get("release_identity_revision")
+                != previous.get("release_identity_revision")
             or not current.get("release_window_complete")
             or not previous.get("release_window_complete")):
         return []
