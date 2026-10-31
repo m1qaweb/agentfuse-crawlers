@@ -5,6 +5,7 @@ import json
 import pytest
 
 from agentfuse_crawlers.sources import load_sources
+from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
 from scripts.archive_jobs import archive_job
 from scripts.evaluate_run import evaluate, write_evaluation
 
@@ -21,8 +22,15 @@ def fixture_row(sid, job, *, status="captured", category=None, sha="page1",
         "content_sha256": sha,
         "schema_version": "2.1", "fetched_at_utc": fetched,
         "zyte_job_id": job,
-        "manifest_sha256": "same-manifest", "source_registry_sha256": "same-registry",
-        "selection_source_count": 1, "selection_ids_sha256": "same-selection",
+        "manifest_sha256": manifest_sha256(),
+        "source_registry_sha256": "f" * 64,
+        "selection_source_count": 1,
+        "selection_ids_sha256": selection_ids_sha256([s]),
+        "spider_name": {
+            "changelog": "official_changelogs",
+            "pricing": "official_pricing",
+            "documentation": "official_documentation",
+        }[s["category"]],
         "requested_cohort": "all", "run_started_at_utc": fetched,
         "approved_for_advisor": False,
     }
@@ -97,7 +105,7 @@ def doc_section(identity, sha):
     }
 
 
-def save_job(tmp_path, row, ordinal):
+def save_job(tmp_path, row, ordinal, *, close_reason="finished"):
     job = row["zyte_job_id"]
     meta = {
         "state": "finished", "spider": {
@@ -106,7 +114,7 @@ def save_job(tmp_path, row, ordinal):
             "documentation": "official_documentation",
         }[row["category"]],
         "deploy_id": 10, "finished_time": 1793000000000 + ordinal * 100000,
-        "close_reason": "finished", "spider_args": {},
+        "close_reason": close_reason, "spider_args": {},
         "scrapystats": {"item_scraped_count": 1},
     }
     target, _, _ = archive_job(
@@ -205,7 +213,7 @@ def test_missing_date_is_unverified_review_only(tmp_path):
     ), 2)
     result = evaluate(new, [old])
     assert [x["change_type"] for x in result["changes"]] == ["needs_review"]
-    assert result["changes"][0]["reason"] == "date_missing_or_unknown"
+    assert result["changes"][0]["reason"] == "date_missing_future_or_unverifiable"
 
 
 def test_schema_migration_reset_baseline_without_price_release_alert(tmp_path):
