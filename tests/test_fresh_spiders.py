@@ -101,4 +101,4 @@ def test_incomplete_releases_are_not_silently_captured():
     ) + "</p></main>"
     item = list(spider.parse_page(response(source, html=shell), source))[0]
     assert item["status"] == "needs_review"
-    assert item["error"] == "no_dated_release_section_detected"
+    assert item["error"] == "no_release_events_detected"

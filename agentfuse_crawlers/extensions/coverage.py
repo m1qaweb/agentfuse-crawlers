@@ -21,6 +21,16 @@ CONTEXT_FIELDS = (
 
 def _comparable(item):
     """Conservative page completeness, not approval of any vendor fact."""
+    if (item.get("category") == "changelog"
+            and item.get("release_events_schema") == "1.1"):
+        return bool(
+            item.get("status") == "captured"
+            and item.get("content_sha256")
+            and item.get("release_window_complete")
+            and not item.get("release_event_evidence_lost")
+            and not item.get("release_event_identity_collision")
+            and not item.get("release_recent_body_loss_count", 0)
+        )
     if item.get("category") == "pricing" and item.get("pricing_evidence_schema") == "1.0":
         return bool(
             item.get("status") == "captured"
@@ -52,6 +62,9 @@ class SourceCoverageAudit:
         self.comparable = set()
         self.clipped_excerpts = set()
         self.advisor_approval_anomalies = set()
+        self.recent_window_complete = set()
+        self.history_truncated = set()
+        self.item_budget_failed = set()
         self.pricing_incomplete = set()
         self.pricing_comparable = set()
 
@@ -74,6 +87,12 @@ class SourceCoverageAudit:
             self.status_counts[item.get("status", "unknown")] += 1
             if _comparable(item):
                 self.comparable.add(source_id)
+            if item.get("release_window_complete"):
+                self.recent_window_complete.add(source_id)
+            if item.get("historical_text_truncated"):
+                self.history_truncated.add(source_id)
+            if item.get("release_event_evidence_lost"):
+                self.item_budget_failed.add(source_id)
             if item.get("pricing_evidence_schema") == "1.0":
                 if not item.get("pricing_inventory_complete"):
                     self.pricing_incomplete.add(source_id)
@@ -126,6 +145,9 @@ class SourceCoverageAudit:
             "partial_sources": partial,
             "uncaptured_sources": len(expected) - captured,
             "comparable_sources": comparable,
+            "recent_window_complete_sources": len(self.recent_window_complete & expected),
+            "historical_text_truncated_sources": len(self.history_truncated & expected),
+            "item_budget_failure_sources": len(self.item_budget_failed & expected),
             "pricing_inventory_incomplete_sources": len(self.pricing_incomplete & expected),
             "pricing_with_comparable_candidates": len(self.pricing_comparable & expected),
             "captured_with_clipped_excerpts": len(self.clipped_excerpts & expected),

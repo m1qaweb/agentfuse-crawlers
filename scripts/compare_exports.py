@@ -165,23 +165,33 @@ def _validate_run_provenance(current, manifest, cohort, categories,
     return "verified_against_current_manifest_and_args"
 
 def _healthy(row):
-    """A successful HTTP response or legacy 'captured' flag is insufficient."""
+    """Only comparable evidence; a short excerpt is not the full document."""
+    if row.get("status") != "captured" or not row.get("content_sha256"):
+        return False
     if row.get('category') == 'pricing' and row.get('pricing_evidence_schema') == '1.0':
         return bool(
-            row.get('status') == 'captured'
-            and row.get('content_sha256')
-            and row.get('pricing_inventory_complete')
+            row.get('pricing_inventory_complete')
             and row.get('pricing_comparable_candidate_count', 0) > 0
             and not row.get('pricing_evidence_lost_to_item_budget')
         )
-    return (
-        row.get('status') == 'captured'
-        and bool(row.get('content_sha256'))
-        and not row.get('text_truncated')
-        and not (row.get('category') == 'pricing' and row.get('tables_truncated'))
-        and not (row.get('category') in {'documentation', 'changelog'}
-                 and row.get('sections_truncated'))
-        and not any(x.get('excerpt_truncated') for x in row.get('sections', []))
+    if row.get("category") == "changelog" and row.get("release_events_schema") == "1.1":
+        return bool(
+            row.get("release_window_complete")
+            and not row.get("release_event_evidence_lost")
+            and not row.get("release_event_identity_collision")
+            and not row.get("release_recent_body_loss_count", 0)
+            and not any(e.get("body_text_truncated")
+                        for e in row.get("release_events", []))
+        )
+    return bool(
+        not row.get("text_truncated")
+        and not (row.get("category") == "pricing" and row.get("tables_truncated"))
+        and not (row.get("category") in {"documentation", "changelog"}
+                 and row.get("sections_truncated"))
+        and not any(x.get("excerpt_truncated") for x in row.get("sections", []))
+        and not row.get("release_events_truncated")
+        and not row.get("release_event_identity_collision")
+        and not any(x.get("body_text_truncated") for x in row.get("release_events", []))
     )
 
 
@@ -218,6 +228,110 @@ def compare(current, previous):
         })
     return changes
 
+
+
+
+def _official_undated_version_window(row):
+    """Safe to compare version IDs, never to infer publish dates or trust facts."""
+    from agentfuse_crawlers.markdown_releases import MARKDOWN_ALTERNATES
+
+    source_id = row.get("source_id")
+    return bool(
+        source_id in MARKDOWN_ALTERNATES
+        and row.get("source_url")
+        and row.get("markdown_source_url") == MARKDOWN_ALTERNATES[source_id]
+        and row.get("source_format") == "official_markdown"
+        and row.get("release_events_schema") == "1.1"
+        and row.get("status") == "needs_review"
+        and row.get("error") == "release_events_missing_publication_dates"
+        and row.get("release_window_complete")
+        and row.get("release_order_basis") == "numeric_versions_no_date_inference"
+        and row.get("release_dated_event_count") == 0
+        and not row.get("release_event_evidence_lost")
+        and not row.get("release_event_identity_collision")
+        and not row.get("release_recent_body_loss_count", 0)
+        and all(event.get("version") and event.get("published_at") is None
+                for event in row.get("release_events", []))
+    )
+
+
+def _release_diffs(current, previous):
+    """Observations, NEVER claims that a release was published today.
+
+    Both snapshots must use the same event schema and be comparable. An
+    untrusted layout/date or first-ever event scan is only a baseline.
+    """
+    changes = []
+    for source_id, curr in sorted(current.items()):
+        old = previous.get(source_id)
+        if not old or curr.get('category') != 'changelog':
+            continue
+        version_only = (
+            _official_undated_version_window(curr)
+            and _official_undated_version_window(old)
+        )
+        if (curr.get('release_events_schema') not in {'1.0', '1.1'}
+                or old.get('release_events_schema') != curr.get('release_events_schema')
+                or not ((_healthy(curr) and _healthy(old)) or version_only)):
+            continue
+        if (curr.get('source_url') != old.get('source_url')
+                or (curr.get('release_events_schema') == '1.0'
+                    and (curr.get('release_events_truncated')
+                         or old.get('release_events_truncated')))
+                or curr.get('release_event_identity_collision')
+                or old.get('release_event_identity_collision')):
+            continue
+        previous_events = {x['event_id']: x for x in old.get('release_events', [])}
+        for event in curr.get('release_events', []):
+            former = previous_events.get(event['event_id'])
+            if (former is not None
+                    and event['body_sha256'] == former.get('body_sha256')
+                    and event.get('published_at') == former.get('published_at')
+                    and event.get('published_date_provenance') ==
+                        former.get('published_date_provenance')
+                    and event.get('version') == former.get('version')):
+                continue
+            kind = (
+                ('version_first_seen_date_unknown' if former is None
+                 else 'version_notes_edited_date_unknown')
+                if version_only
+                else ('release_event_first_seen' if former is None
+                      else 'release_event_edited')
+            )
+            changes.append({
+                'source_id': source_id,
+                'provider': curr.get('provider', ''),
+                'category': 'changelog',
+                'change_type': kind,
+                'event_id': event['event_id'],
+                'title': event.get('title', ''),
+                'version': event.get('version'),
+                'published_at_candidate': event.get('published_at'),
+                'date_evidence_text': event.get('date_evidence_text', ''),
+                'date_evidence_provenance': event.get('published_date_provenance', 'none'),
+                'section_id': '',
+                'heading': event.get('title', ''),
+                'date_candidate': event.get('published_at') or '',
+                'section_url': event.get('permalink') or curr.get('source_url', ''),
+                'evidence_excerpt': event.get('excerpt', '')[:450],
+                'evidence_excerpt_truncated': bool(event.get('excerpt_truncated')),
+                'importance_hint': 'review_first' if IMPORTANT_TERMS.search(
+                    event.get('title', '') + ' ' + event.get('excerpt', '')[:450]
+                ) else 'normal',
+                'review_status': 'pending_human_verification',
+                'approved_for_advisor': False,
+                'interpretation_warning': (
+                    ('Version first observed on official Markdown; '
+                     'publication date unknown; human review required')
+                    if version_only and former is None else
+                    ('Existing official Markdown version notes edited; '
+                     'publication date unknown; human review required')
+                    if version_only else
+                    'First observed by AgentFuse, NOT necessarily first published today'
+                    if former is None else 'Vendor event content changed; review before conclusions'
+                ),
+            })
+    return changes
 
 def _pricing_rate_diffs(current, previous):
     """Compare only fully scoped same-identity rate observations.
@@ -318,6 +432,13 @@ def _section_diffs(current, previous):
     changes = []
     for source_id, curr in sorted(current.items()):
         old = previous.get(source_id)
+        if curr.get('category') == 'changelog' and (
+            curr.get('release_events_schema') in {'1.0', '1.1'}
+            or (old and old.get('release_events_schema') in {'1.0', '1.1'})
+        ):
+            # Never duplicate or contradict typed release comparisons with
+            # coarse h2/h3 section changes or a parser schema migration.
+            continue
         if curr.get('category') == 'pricing' and (
             curr.get('pricing_evidence_schema') == '1.0'
             or (old and old.get('pricing_evidence_schema') == '1.0')
@@ -370,13 +491,21 @@ def _section_record(record, section, kind):
 
 def review_queue(current, previous, changes):
     """Non-authoritative candidate queue. Never an approved recommendations feed."""
+    release_changes = _release_diffs(current, previous)
     pricing_changes = _pricing_rate_diffs(current, previous)
     section_changes = _section_diffs(current, previous)
-    queue = list(pricing_changes) + list(section_changes)
+    queue = list(release_changes) + list(pricing_changes) + list(section_changes)
     detailed_sources = {x['source_id'] for x in queue}
+    modern_changelog_sources = {
+        sid for sid, item in current.items()
+        if item.get('category') == 'changelog'
+        and item.get('release_events_schema') in {'1.0', '1.1'}
+    }
     # Only generate page-level tasks if no section-level diff is available.
     for item in changes:
-        if item['change_type'] != 'page_text_changed' or item['source_id'] in detailed_sources:
+        if (item['change_type'] != 'page_text_changed'
+                or item['source_id'] in detailed_sources
+                or item['source_id'] in modern_changelog_sources):
             continue
         record = current[item['source_id']]
         prior = previous.get(item['source_id'])
