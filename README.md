@@ -119,6 +119,26 @@ This uses Zyte's official Items download endpoint (JSON Lines). It downloads onl
 
 Zyte docs: [Scrapy Cloud deployment](https://docs.zyte.com/web-scraping/tutorials/main/cloud.html) · [Downloading Items](https://docs.zyte.com/scrapy-cloud/usage/items/download.html) · [Periodic jobs](https://docs.zyte.com/scrapy-cloud/usage/reference/http/periodicjobs.html).
 
+## Dated changelog evidence (stacked PR 02)
+
+The existing `official_changelogs` spider now emits independent `release_events[]`
+with official date candidates, stable event identities, bounded excerpts and
+source permalinks. Unlike the old single date-from-heading heuristic, it
+refuses to guess a missing publication year or to assert that a changed
+template represents a new release. The new event-level review queue is
+unverified and baseline-safe. See [RELEASE_EVENTS_V1.md](docs/RELEASE_EVENTS_V1.md)
+for limitations and a source-by-source canary checklist.
+
+## Bounded recent changelog capture (stacked PR 03)
+
+The existing changelog spider retains a bounded, explicit recent-event
+window instead of exporting large historical text snapshots. Versioned
+events are compared only within compatible, healthy windows, and historical
+truncation is separately reported. Claude Code has a single vetted same-host
+Markdown fallback for version-only release evidence; dates are never guessed.
+Source Items are limited to a conservative byte budget for Zyte.
+See [RECENT_CHANGELOG_CAPTURE_PR03.md](docs/RECENT_CHANGELOG_CAPTURE_PR03.md).
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.

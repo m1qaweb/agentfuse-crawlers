@@ -14,6 +14,8 @@ from urllib.parse import quote, urlsplit
 
 from lxml import etree, html
 
+from agentfuse_crawlers.release_events import extract_release_events
+
 BLOCKS = frozenset({
     'article', 'blockquote', 'div', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3',
     'h4', 'h5', 'h6', 'li', 'ol', 'p', 'pre', 'section', 'table',
@@ -140,7 +142,7 @@ def _date_from_heading(heading):
     return ''
 
 
-def _sections(main, source_url):
+def _sections(main, source_url, *, max_sections=MAX_SECTIONS, max_excerpt=MAX_SECTION_TEXT):
     result, title_counts = [], Counter()
     current = None
     buffer = []
@@ -154,14 +156,18 @@ def _sections(main, source_url):
         if not current['date_candidate']:
             current['date_candidate'] = _date_from_month_group(current['heading'], body)
         # No speculative release classification: even dated sections are unverified.
+        if len(result) >= max_sections:
+            # Only keep a small historic sample for changelog pages;
+            # recent release-event evidence is structured independently.
+            return
         result.append({
             'section_id': current['section_id'],
             'heading': current['heading'],
             'level': current['level'],
             'date_candidate': current['date_candidate'],
             'section_url': current['section_url'],
-            'excerpt': body[:MAX_SECTION_TEXT],
-            'excerpt_truncated': len(body) > MAX_SECTION_TEXT,
+            'excerpt': body[:max_excerpt],
+            'excerpt_truncated': len(body) > max_excerpt,
             'sha256': hashlib.sha256(body.encode('utf-8')).hexdigest(),
         })
 
@@ -211,7 +217,7 @@ def _sections(main, source_url):
                 buffer.append(element.tail)
     flush()
     # Capture recent/top sections first without claiming older release completeness.
-    return result[:MAX_SECTIONS], len(result) > MAX_SECTIONS
+    return result, total > max_sections
 
 
 def _tables(main):
@@ -249,7 +255,7 @@ def _tables(main):
     return tables, truncated
 
 
-def extract_evidence(raw_html, source_url):
+def extract_evidence(raw_html, source_url, category=None, source_id=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
@@ -272,10 +278,16 @@ def extract_evidence(raw_html, source_url):
     links = main.xpath('.//a[@href]')
     link_chars = sum(len(re.sub(r'\s+', ' ', a.text_content()).strip()) for a in links)
     main_link_text_ratio = min(1.0, link_chars / max(len(text), 1))
-    sections, sections_truncated = _sections(main, source_url)
+    if category == 'changelog':
+        sections, sections_truncated = _sections(
+            main, source_url, max_sections=24, max_excerpt=900,
+        )
+        tables, tables_truncated = [], False
+    else:
+        sections, sections_truncated = _sections(main, source_url)
+        tables, tables_truncated = _tables(main)
     dated_sections = [s['date_candidate'] for s in sections if s['date_candidate']]
     leading_date = _leading_release_date(text) if not dated_sections else ''
-    tables, tables_truncated = _tables(main)
     canonical = root.xpath('//link[translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="canonical"]/@href')
     canonical_url = canonical[0].strip() if canonical else ''
     # Don't trust cross-domain canonical links for attribution or fetching.
@@ -284,7 +296,12 @@ def extract_evidence(raw_html, source_url):
         canonical_url = ''
     description = root.xpath('//meta[translate(@name,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="description"]/@content')
     description = re.sub(r'\s+', ' ', description[0]).strip()[:500] if description else ''
+    release_info = (
+        extract_release_events(main, source_url, source_id)
+        if category == 'changelog' and source_id else {}
+    )
     return {
+        **release_info,
         'title': title[:300],
         'text': text,
         'word_count': len(text.split()),
