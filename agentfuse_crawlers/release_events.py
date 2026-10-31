@@ -44,7 +44,6 @@ VERSION = re.compile(
     r"(?<![\w.])v?(\d+\.\d+(?:\.\d+){0,3}(?:-[A-Za-z0-9.-]+)?)\b",
     re.I,
 )
-INLINE_PREFIX = re.compile(r"^(.{6,32}?)\s*[:\-—–|]\s*(.{3,})$")
 MONTHS = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
@@ -117,13 +116,21 @@ def _marker_shape(text):
 
 
 def _inline_heading(text, group):
-    """Recognize year-explicit date at heading boundary, never prose deadlines."""
-    match = INLINE_PREFIX.fullmatch(_normalize(text))
-    if match:
-        stamp, title = match.groups()
+    """Accept a date at the START of a heading, not any date in its body.
+
+    Separator must be outside ISO yyyy-mm-dd; a title about a future
+    deprecation deadline is not an official publication date.
+    """
+    clean = _normalize(text)
+    for separator in (" — ", " – ", " | ", " : ", " - ", ": ", "—", "–", "|"):
+        if separator not in clean:
+            continue
+        stamp, title = clean.split(separator, 1)
+        if not title.strip():
+            continue
         parsed, kind = _date(stamp, group)
         if parsed or kind == "unresolved_month_day":
-            return title, parsed, kind, stamp
+            return title.strip(), parsed, kind, stamp.strip()
     return text, None, "", ""
 
 
@@ -136,9 +143,13 @@ def _permalink(node, source_url):
     for link in node.xpath(".//a[@href]")[:3]:
         target = urljoin(source_url, link.get("href", ""))
         dest = urlsplit(target)
-        if (dest.scheme == "https" and dest.hostname == source.hostname
-                and not dest.username and not dest.password
-                and dest.port in (None, 443)):
+        try:
+            safe = (dest.scheme == "https" and dest.hostname == source.hostname
+                    and not dest.username and not dest.password
+                    and dest.port in (None, 443))
+        except ValueError:
+            safe = False
+        if safe:
             # Avoid a link to the page root masquerading as an event URL.
             if dest.path != source.path or dest.fragment:
                 return target[:800]
@@ -224,6 +235,7 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         "_body": [],
         "_level": 2,
         "_date_scope": False,
+        "_body_overflow": False,
     }
 
 
@@ -260,7 +272,7 @@ def extract_release_events(main, source_url, source_id):
         ).hexdigest()
         current["excerpt"] = body[:MAX_EXCERPT]
         current["excerpt_truncated"] = len(body) > MAX_EXCERPT
-        current["body_text_truncated"] = len(body) > MAX_BODY_CHARS
+        current["body_text_truncated"] = bool(current.pop("_body_overflow", False))
         current["heading_level"] = heading_level
         entries_seen += 1
         if len(events) < MAX_EVENTS:
@@ -342,8 +354,11 @@ def extract_release_events(main, source_url, source_id):
             if current is not None:
                 # Bound live memory per event; preserve clipping honestly.
                 length = sum(len(x) for x in current["_body"])
-                if length < MAX_BODY_CHARS:
-                    current["_body"].append(text[:MAX_BODY_CHARS - length])
+                room = MAX_BODY_CHARS - length
+                if room < len(text):
+                    current["_body_overflow"] = True
+                if room > 0:
+                    current["_body"].append(text[:room])
             elif pending_date and len(text) >= 24:
                 # A date heading followed directly by prose may represent one
                 # dated entry, but must remain an unverified candidate.
