@@ -487,6 +487,10 @@ def extract_release_events(main, source_url, source_id):
     latest = max(dated) if reliable_date else None
     return {
         "release_events_schema": "1.1",
+        # A changed event-ID algorithm requires a NEW baseline compared with
+        # older archived Items. Same schema of event fields is not the same
+        # semantic identity revision. Never issue hundreds of false news.
+        "release_identity_revision": "release_owned_anchor_v2",
         "release_events": events,
         "release_event_count": entries_seen,
         "release_recent_event_count": len(events),
