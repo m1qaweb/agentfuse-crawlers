@@ -217,7 +217,10 @@ def _is_relevant(table, info, source_id):
 
 def _model_label(row_label, context, caption):
     label = clean(row_label, 180)
-    if label and not MODEL_ROW.search(label) and not GENERIC_ROW_LABEL.fullmatch(label):
+    if (label and not MODEL_ROW.search(label)
+            and not GENERIC_ROW_LABEL.fullmatch(label)
+            and not PRICE_MARKER.search(label)
+            and not re.fullmatch(r"[\d.,%/\-\s]+", label)):
         return label
     # For model-by-rate tables, the row identifies INPUT/OUTPUT and a
     # *specific* model must be named in a nearby heading. "Model pricing",
