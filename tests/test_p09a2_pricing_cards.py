@@ -214,14 +214,14 @@ def test_card_scan_ceiling_is_observable_and_stops_rate_promotion():
 
 
 def test_rate_candidate_limit_preserves_exact_overflow_diagnostics():
-    ev = extract("".join(card(model=f"Model {i}", cls="rate-card")
-                        for i in range(115))
-                 + "".join(
-                     "<section class='pricing-card'><h3>Model Extra %d</h3>" % i
-                     + "<p>Input price: USD 1.00 / MTok</p>"
-                     + "<p>Output price: USD 2.00 / MTok</p></section>"
-                     for i in range(40)
-                 ))
+    ev = extract("".join(
+        "<section class='pricing-card'><h3>Model %d</h3>" % i
+        + "<p>Region: Global</p><p>Tier: Standard</p>"
+        + "<p>Input price: USD 1.00 / MTok</p>"
+        + "<p>Output price: USD 2.00 / MTok</p>"
+        + "<p>Cached input price: USD 0.10 / MTok</p></section>"
+        for i in range(105)
+    ))
     assert ev["pricing_observation_count"] == MAX_OBSERVATIONS
     assert ev["pricing_observation_limit_reached"] is True
     assert ev["pricing_inventory_complete"] is False
