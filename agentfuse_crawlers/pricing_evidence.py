@@ -83,6 +83,15 @@ def _grid(table):
                 position += 1
             colspan = _positive_span(cell.get("colspan"), max_span=MAX_COL_SCAN)
             rowspan = _positive_span(cell.get("rowspan"), max_span=MAX_ROW_SCAN)
+            # Invalid, zero and out-of-range HTML spans cannot be silently
+            # treated as single-cell spans in a financial rate table.
+            for attr, maximum in (("colspan", MAX_COL_SCAN),
+                                  ("rowspan", MAX_ROW_SCAN)):
+                declared = cell.get(attr)
+                if declared is not None and (
+                    not declared.isdigit() or not 1 <= int(declared) <= maximum
+                ):
+                    truncated = True
             if position >= MAX_COL_SCAN or position + colspan > MAX_COL_SCAN:
                 truncated = True
                 break
@@ -376,8 +385,9 @@ def compact_pricing_record(record, raw_text):
     # The generic parser's first-40 tables are superseded by scoped evidence;
     # never use its truncated excerpts as proof of price completeness.
     record["tables"] = record.pop("pricing_legacy_table_excerpts", [])
-    record["pricing_raw_table_excerpt_truncated"] = any(
-        x.get("rows_truncated") for x in record["tables"]
+    record["pricing_raw_table_excerpt_truncated"] = bool(
+        record.get("pricing_table_selected", 0) > len(record["tables"])
+        or any(x.get("rows_truncated") for x in record["tables"])
     )
     record["serialized_item_bytes"] = 0
     for _ in range(6):

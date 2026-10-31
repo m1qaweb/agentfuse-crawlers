@@ -492,3 +492,33 @@ def test_any_table_footnote_requires_manual_resolution():
     )
     assert row["normalized_amount_decimal"] is None
     assert "unresolved_footnote" in row["normalization_blockers"]
+
+
+
+@pytest.mark.parametrize("span", ["0", "9999", "many", "-2"])
+def test_invalid_html_spans_are_marked_incomplete_not_normalized_as_complete(span):
+    markup = (
+        "<h2>Region: Global</h2><h3>Tier: Standard</h3>"
+        "<table><caption>USD per 1M tokens</caption>"
+        "<thead><tr><th>Model</th><th>Input price</th></tr></thead>"
+        f'<tbody><tr><th>Model A</th><td colspan="{span}">$1.00</td></tr></tbody>'
+        "</table>"
+    )
+    ev = extract(markup)
+    assert ev["pricing_table_rows_incomplete"] is True
+    assert ev["pricing_inventory_complete"] is False
+
+
+def test_raw_table_excerpt_flag_includes_wholly_omitted_table_snippets():
+    ev = extract("".join(
+        table([(f"Model{i}", "$1.00", "$2.00")])
+        for i in range(20)
+    ))
+    item = dict(ev, source_id=SID, source_url=URL, category="pricing",
+                status="captured", approved_for_advisor=False)
+    item.pop("text")
+    compact = compact_pricing_record(item, "Parsed source text " * 100)
+    assert compact["pricing_table_selected"] == 20
+    assert len(compact["tables"]) < 20
+    assert compact["pricing_raw_table_excerpt_truncated"] is True
+    assert compact["pricing_inventory_complete"] is True
