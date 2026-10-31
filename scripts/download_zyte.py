@@ -1,73 +1,48 @@
 #!/usr/bin/env python3
-"""Download and archive one Zyte Scrapy Cloud job without writing to AgentFuse.
+"""Read-only, verified Zyte Scrapy Cloud job downloader.
 
-Set ZYTE_SCRAPY_CLOUD_API_KEY in the environment, then:
-python -m scripts.download_zyte --job-id 883514/1/9 --out-dir output/archive
+Legacy operator entrypoint retained, but now writes an immutable job archive
+instead of a single unpaginated JSONL download. API keys are passed ONLY
+through the Authorization header, not the URL or exported metadata.
 
-Credentials are not printed or added to Git. No arbitrary URLs are accepted.
+ZYTE_SCRAPY_CLOUD_API_KEY=... python -m scripts.download_zyte \
+  --job-id 883514/1/9 --out-dir output/archive
+
+To verify the stored archive without any key/network:
+  python -m scripts.download_zyte --job-id 883514/1/9 \
+  --out-dir output/archive --verify-only
 """
 
 import argparse
 import json
-import os
-import re
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
-JOB_ID = re.compile(r'^\d+/\d+/\d+$')
-MAX_BYTES = 80_000_000
+from scripts.archive_jobs import archive_job, archive_path, load_archive
 
 
 def download_job(job_id, out_dir, api_key=None):
-    if not JOB_ID.fullmatch(job_id):
-        raise ValueError('job-id must look like 883514/1/9')
-    key = api_key if api_key is not None else os.environ.get('ZYTE_SCRAPY_CLOUD_API_KEY')
-    if not key:
-        raise ValueError('Set ZYTE_SCRAPY_CLOUD_API_KEY (Scrapy Cloud key) before downloading')
-    # Official Zyte Storage endpoint: query API key cannot be logged or echoed.
-    url = ('https://storage.zyte.com/items/' + job_id + '?' +
-           urllib.parse.urlencode({'apikey': key, 'format': 'jl'}))
-    destination = Path(out_dir)
-    destination.mkdir(parents=True, exist_ok=True)
-    target = destination / ('zyte_' + job_id.replace('/', '_') + '.jsonl')
-    temp = target.with_suffix('.jsonl.part')
-    try:
-        request = urllib.request.Request(url, headers={'Accept': 'application/json'})
-        with urllib.request.urlopen(request, timeout=90) as response, temp.open('wb') as writer:
-            downloaded = 0
-            while True:
-                block = response.read(64 * 1024)
-                if not block:
-                    break
-                downloaded += len(block)
-                if downloaded > MAX_BYTES:
-                    raise ValueError('Export larger than 80 MB; investigate before retrying')
-                writer.write(block)
-        count = 0
-        with temp.open(encoding='utf-8') as handle:
-            for line in handle:
-                if line.strip():
-                    obj = json.loads(line)
-                    if not isinstance(obj, dict) or 'source_id' not in obj:
-                        raise ValueError('Invalid Zyte item: missing source_id')
-                    count += 1
-        if count == 0:
-            raise ValueError('Empty job export; check Items tab before archiving')
-        temp.replace(target)
-        return target, count
-    finally:
-        temp.unlink(missing_ok=True)
+    """Compatibility API: return (compressed archive path, official item count)."""
+    target, envelope, _ = archive_job(job_id, out_dir, api_key=api_key)
+    return target / "items.jsonl.gz", envelope["source_summary_count"]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--job-id', required=True)
-    parser.add_argument('--out-dir', default='output/archive', type=Path)
+    parser.add_argument("--job-id", required=True)
+    parser.add_argument("--out-dir", type=Path, default=Path("output/archive"))
+    parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
-    dest, count = download_job(args.job_id, args.out_dir)
-    print(f'Saved {count} source records to {dest}')
+    if args.verify_only:
+        root = archive_path(args.out_dir, args.job_id)
+        metadata, rows = load_archive(root)
+        summary = {"status": "verified_offline", "path": str(root),
+                   "job_id": args.job_id, "items": len(rows)}
+    else:
+        path, count = download_job(args.job_id, args.out_dir)
+        summary = {"status": "archived_or_verified", "path": str(path.parent),
+                   "job_id": args.job_id, "items": count}
+    print(json.dumps(summary, sort_keys=True))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
