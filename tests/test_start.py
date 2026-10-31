@@ -6,6 +6,7 @@ import pytest
 import scrapy
 
 from agentfuse_crawlers.sources import select_sources
+from agentfuse_crawlers.source_lifecycle import collection_decision
 from agentfuse_crawlers.spiders.official import ChangelogSpider, DocumentationSpider, PricingSpider
 
 
@@ -27,9 +28,22 @@ def test_spider_starts_with_allowlisted_sources(klass, category, cohort):
     requests = asyncio.run(collect())
     expected = select_sources(category, cohort=cohort)
     assert len(requests) == len(expected)
-    assert {r.url for r in requests} == {s['url'] for s in expected}
-    assert all(isinstance(r, scrapy.Request) for r in requests)
-    assert all(r.callback == spider.parse_page and r.errback == spider.record_failure for r in requests)
+    for output, source in zip(requests, expected):
+        permitted, reason = collection_decision(source, "validation")
+        if permitted:
+            assert isinstance(output, scrapy.Request)
+            assert output.url == source["url"]
+            assert output.callback == spider.parse_page
+            assert output.errback == spider.record_failure
+        else:
+            # Explicitly skipped sources still account for one Item, without
+            # scheduling an HTTP request to a quarantined publisher.
+            assert isinstance(output, dict)
+            assert output["source_id"] == source["id"]
+            assert output["http_status"] is None
+            assert output["status"] == "source_quarantined"
+            assert output["error"] == reason
+            assert output["approved_for_advisor"] is False
 
 
 def test_limit_one_and_explicit_id():
