@@ -11,6 +11,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import scrapy
 
 from agentfuse_crawlers.extract import extract_evidence
+from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.quality import (
     HARD_TEXT_LIMIT, assess_capture, response_freshness,
 )
@@ -46,18 +47,39 @@ class OfficialBaseSpider(scrapy.Spider):
     category = None
     allowed_domains = ALLOWED_HOSTS
 
-    def __init__(self, cohort="all", source_ids=None, limit=None, offset=0, **kwargs):
+    def __init__(self, cohort=None, source_ids=None, limit=None, offset=0,
+                 confirm_full_inventory=None, **kwargs):
         super().__init__(**kwargs)
-        # Spider args can only select manifest IDs, not append arbitrary URLs.
+        # A missing cohort now means the tiny historical smoke-test scope.
+        # Explicit cohort=all is intentionally disruptive without this guard:
+        # a previously unbounded scheduled job must be consciously updated.
+        explicit_cohort = cohort is not None
+        cohort = "proven" if cohort is None else cohort
+        if cohort == "all" and source_ids is None and confirm_full_inventory != "yes":
+            raise ValueError(
+                "cohort=all requires confirm_full_inventory=yes when "
+                "source_ids is omitted; use cohort=proven for smoke tests"
+            )
+        if confirm_full_inventory not in (None, "yes"):
+            raise ValueError("confirm_full_inventory must be 'yes' when provided")
+        # Source IDs must exist in the reviewed manifest. Never accept URL args.
         self.selected = select_sources(self.category, cohort, source_ids, limit, offset)
         self.cohort = cohort
         self.offset = int(offset)
+        self.run_context = build_run_context(
+            self.name, cohort, self.selected, explicit_cohort=explicit_cohort,
+        )
 
     async def start(self):
         """Required for Scrapy 2.18+; called on every scheduled job."""
         self.logger.info(
-            "Starting %s: %d approved source URLs (cohort=%s, offset=%d)",
+            "Starting %s: %d configured URLs (requested_cohort=%s, offset=%d, "
+            "manifest=%s, selection=%s, job_id=%s, revision=%s)",
             self.category, len(self.selected), self.cohort, self.offset,
+            self.run_context["manifest_sha256"][:12],
+            self.run_context["selection_ids_sha256"][:12],
+            self.run_context["zyte_job_id"] or "unknown",
+            self.run_context["deployment_revision"] or "unknown",
         )
         for source in self.selected:
             yield scrapy.Request(
@@ -74,9 +96,9 @@ class OfficialBaseSpider(scrapy.Spider):
                 dont_filter=True,
             )
 
-    @staticmethod
-    def _base_record(source):
+    def _base_record(self, source):
         return {
+            **self.run_context,
             "schema_version": "2.1",
             "source_id": source["id"],
             "provider": source["provider"],
