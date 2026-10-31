@@ -187,3 +187,29 @@ def test_bounded_documentation_sections_report_truncation():
     assert ev["documentation_source_sections_truncated"] is True
     assert ev["documentation_corpus_coverage"] == "single_url_only"
     assert ev["documentation_all_capabilities_verified"] is False
+
+
+def test_wrong_product_page_cannot_inherit_bedrock_scope_from_profile():
+    url = "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html"
+    ev = html(
+        "<h1>Generic cloud infrastructure</h1><p>" +
+        ("This document describes a separate compute and storage service. " * 10)
+        + "</p>", "aws_bedrock_docs", url,
+    )
+    assert ev["documentation_product_scope_signal"] == "marker_not_found"
+    assert assess_capture("documentation", ev, ev["text"]) == (
+        "needs_review", "documentation_product_scope_not_demonstrated"
+    )
+
+
+def test_canonical_case_and_parameters_are_not_assumed_equivalent():
+    url = "https://docs.example.com/API/docs/"
+    assert canonical_relationship(
+        url, "https://docs.example.com/api/docs/"
+    )["relation"] == "same_host_path_differs"
+    assert canonical_relationship(
+        url, "https://docs.example.com/API/docs/?product=other"
+    )["relation"] == "same_host_parameters_review"
+    assert canonical_relationship(
+        url, "https://docs.example.com:bad/API/docs/"
+    )["relation"] == "external_or_unsafe_ignored"
