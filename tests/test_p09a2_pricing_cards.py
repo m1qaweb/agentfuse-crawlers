@@ -300,3 +300,127 @@ def test_cross_host_and_credentials_not_generated_from_card_attributes():
     assert "evil.invalid" not in str(obs)
     assert "secret" not in str(obs)
     assert obs["source_url"] == URL
+
+
+def test_explicit_page_all_currency_inherited_by_cards_without_guessing_other_dims():
+    ev = extract(
+        "<p>All prices are in USD.</p>"
+        + card("Model Delta", input_rate="$1.20 / MTok",
+               output_rate="$2.40 / MTok")
+    )
+    assert ev["pricing_observation_count"] == 2
+    assert all(o["currency"] == "USD" for o in ev["pricing_observations"])
+    assert all(o["comparable_candidate"] is True for o in ev["pricing_observations"])
+    assert all(any(
+        d["dimension"] == "currency" and d["scope"] == "page_all_prices"
+        for d in o["scope_declarations"]
+    ) for o in ev["pricing_observations"])
+
+
+def test_later_conflicting_all_prices_currency_blocks_entire_page_inference():
+    ev = extract(
+        "<p>All prices are in USD.</p>"
+        + card("Model A", input_rate="$1.20 / MTok")
+        + "<p>All prices are in EUR.</p>"
+        + card("Model B", input_rate="$3.20 / MTok")
+    )
+    assert ev["pricing_card_total"] == 2
+    assert all(o["card_scope_conflict"] for o in ev["pricing_observations"])
+    assert all(o["comparable_candidate"] is False for o in ev["pricing_observations"])
+
+
+def test_nested_span_is_not_duplicate_price_statement():
+    ev = extract(
+        "<section class='pricing-card'><h3>Model Delta</h3>"
+        "<p>Region: Global</p><p>Tier: Standard</p>"
+        "<p>Input price: <span class='price-amount'>USD 1.00 / MTok</span></p>"
+        "</section>"
+    )
+    assert ev["pricing_card_price_entries_examined"] == 1
+    assert ev["pricing_observation_count"] == 1
+    assert ev["pricing_observations"][0]["price_dimension"] == "input"
+
+
+def test_subscriber_price_dimension_from_explicit_per_seat_per_month_text():
+    ev = extract(
+        "<div class='plan-card'><h3>Business plan</h3>"
+        "<p>Region: Global</p><p>Plan: Business</p>"
+        "<p class='price-amount'>USD 20 per seat/month</p></div>"
+    )
+    assert ev["pricing_observation_count"] == 1
+    o = ev["pricing_observations"][0]
+    assert o["price_dimension"] == "subscription"
+    assert o["billing_unit"] == "per_user_month"
+    assert o["normalized_amount_decimal"] == "20"
+    assert o["model_label_provenance"] == "single_card_heading"
+    assert o["approved_for_advisor"] is False
+
+
+def test_bare_amount_without_explicit_rate_dimension_remains_uncomparable():
+    ev = extract(
+        "<div class='price-card'><h3>Business plan</h3>"
+        "<p>Region: Global</p><p>Tier: Standard</p>"
+        "<span class='price-amount'>USD 20/month</span></div>"
+    )
+    o = ev["pricing_observations"][0]
+    assert o["price_dimension"] is None
+    assert o["comparable_candidate"] is False
+    assert "missing_price_dimension" in o["normalization_blockers"]
+
+
+def test_oversized_price_card_reports_explicit_evidence_loss_not_clean_capture():
+    huge = "A pricing note for example product users. " * 140
+    ev = extract(
+        "<section class='pricing-card'><h3>Model Huge</h3>"
+        "<p>Input price: USD 1.00 / MTok</p>"
+        "<p>" + huge + "</p></section>"
+    )
+    assert ev["pricing_card_total"] == 1
+    assert ev["pricing_card_selected"] == 0
+    assert ev["pricing_card_oversized_count"] == 1
+    assert ev["pricing_card_omitted"] == 1
+    assert ev["pricing_card_scan_truncated"] is True
+    assert ev["pricing_inventory_complete"] is False
+    assert assess_capture("pricing", ev, ev["text"])[0] == "partial_capture"
+
+
+def test_generic_models_pricing_section_cannot_supply_a_specific_model_identity():
+    ev = extract(
+        "<h2>Model pricing</h2><p>Region: Global</p>"
+        "<table><caption>Tier: Standard; USD per 1M tokens</caption>"
+        "<tr><th>Type</th><th>Input price</th></tr>"
+        "<tr><th>Input price</th><td>USD 1.00</td></tr></table>"
+    )
+    assert ev["pricing_observation_count"] == 1
+    o = ev["pricing_observations"][0]
+    assert o["model_or_service"] is None
+    assert o["model_label_provenance"] == "unresolved"
+    assert o["comparable_candidate"] is False
+
+
+def test_specific_gemini_heading_can_still_attribute_model_by_rate_table():
+    ev = extract(
+        "<h2>Gemini 3.0 Flash</h2><p>Region: Global</p>"
+        "<table><caption>Tier: Paid; USD per 1M tokens</caption>"
+        "<tr><th>Dimension</th><th>Price</th></tr>"
+        "<tr><th>Input price</th><td>USD 1.00</td></tr></table>"
+    )
+    assert ev["pricing_observation_count"] == 1
+    assert ev["pricing_observations"][0]["model_or_service"] == "Gemini 3.0 Flash"
+    assert ev["pricing_observations"][0]["model_label_provenance"] == "scoped_heading"
+
+
+def test_two_tables_same_rate_identity_require_review_instead_of_false_delta():
+    ev = extract(
+        "<h2>Region: Global</h2><h3>Tier: Standard</h3>"
+        "<table><caption>USD per 1M tokens</caption>"
+        "<tr><th>Model</th><th>Input price</th></tr>"
+        "<tr><th>Model Atlas</th><td>USD 1.20</td></tr></table>"
+        "<table><caption>USD per 1M tokens</caption>"
+        "<tr><th>Model</th><th>Input price</th></tr>"
+        "<tr><th>Model Atlas</th><td>USD 2.00</td></tr></table>"
+    )
+    assert ev["pricing_observation_count"] == 2
+    assert ev["pricing_rate_identity_collision_count"] == 1
+    assert ev["pricing_inventory_complete"] is False
+    assert assess_capture("pricing", ev, ev["text"])[0] == "partial_capture"
