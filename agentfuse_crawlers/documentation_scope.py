@@ -140,7 +140,7 @@ def extract_documentation_evidence(
     # A curated source ID cannot prove that the returned body is about the
     # expected product. Require known identity signals for higher-risk URLs.
     markers = profile.get("required_scope_markers", []) if profile else []
-    lead = re.sub(r"\\s+", " ", (title + " " + text[:1600])).lower()
+    lead = re.sub(r"\s+", " ", (title + " " + text[:1600])).lower()
     product_signal = (
         "no_marker_policy" if not markers
         else "explicit_marker_found" if any(m.lower() in lead for m in markers)
