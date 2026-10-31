@@ -225,6 +225,30 @@ def compare(current, previous):
 
 
 
+def _official_undated_version_window(row):
+    """Safe to compare version IDs, never to infer publish dates or trust facts."""
+    from agentfuse_crawlers.markdown_releases import MARKDOWN_ALTERNATES
+
+    source_id = row.get("source_id")
+    return bool(
+        source_id in MARKDOWN_ALTERNATES
+        and row.get("source_url")
+        and row.get("markdown_source_url") == MARKDOWN_ALTERNATES[source_id]
+        and row.get("source_format") == "official_markdown"
+        and row.get("release_events_schema") == "1.1"
+        and row.get("status") == "needs_review"
+        and row.get("error") == "release_events_missing_publication_dates"
+        and row.get("release_window_complete")
+        and row.get("release_order_basis") == "numeric_versions_no_date_inference"
+        and row.get("release_dated_event_count") == 0
+        and not row.get("release_event_evidence_lost")
+        and not row.get("release_event_identity_collision")
+        and not row.get("release_recent_body_loss_count", 0)
+        and all(event.get("version") and event.get("published_at") is None
+                for event in row.get("release_events", []))
+    )
+
+
 def _release_diffs(current, previous):
     """Observations, NEVER claims that a release was published today.
 
@@ -236,13 +260,18 @@ def _release_diffs(current, previous):
         old = previous.get(source_id)
         if not old or curr.get('category') != 'changelog':
             continue
+        version_only = (
+            _official_undated_version_window(curr)
+            and _official_undated_version_window(old)
+        )
         if (curr.get('release_events_schema') not in {'1.0', '1.1'}
                 or old.get('release_events_schema') != curr.get('release_events_schema')
-                or not _healthy(curr) or not _healthy(old)):
+                or not ((_healthy(curr) and _healthy(old)) or version_only)):
             continue
         if (curr.get('source_url') != old.get('source_url')
-                or curr.get('release_events_truncated')
-                or old.get('release_events_truncated')
+                or (curr.get('release_events_schema') == '1.0'
+                    and (curr.get('release_events_truncated')
+                         or old.get('release_events_truncated')))
                 or curr.get('release_event_identity_collision')
                 or old.get('release_event_identity_collision')):
             continue
@@ -256,7 +285,13 @@ def _release_diffs(current, previous):
                         former.get('published_date_provenance')
                     and event.get('version') == former.get('version')):
                 continue
-            kind = 'release_event_first_seen' if former is None else 'release_event_edited'
+            kind = (
+                ('version_first_seen_date_unknown' if former is None
+                 else 'version_notes_edited_date_unknown')
+                if version_only
+                else ('release_event_first_seen' if former is None
+                      else 'release_event_edited')
+            )
             changes.append({
                 'source_id': source_id,
                 'provider': curr.get('provider', ''),
@@ -280,6 +315,12 @@ def _release_diffs(current, previous):
                 'review_status': 'pending_human_verification',
                 'approved_for_advisor': False,
                 'interpretation_warning': (
+                    ('Version first observed on official Markdown; '
+                     'publication date unknown; human review required')
+                    if version_only and former is None else
+                    ('Existing official Markdown version notes edited; '
+                     'publication date unknown; human review required')
+                    if version_only else
                     'First observed by AgentFuse, NOT necessarily first published today'
                     if former is None else 'Vendor event content changed; review before conclusions'
                 ),
