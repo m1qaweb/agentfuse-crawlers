@@ -84,6 +84,19 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         return "needs_review", "server_cached_response_over_one_day"
     if "server_date_in_future" in cache_warnings:
         return "needs_review", "invalid_future_server_date"
+    if category == "documentation" and evidence.get("documentation_evidence_schema") == "1.0":
+        if evidence.get("documentation_profile_status") == "profile_url_mismatch":
+            return "needs_review", "documentation_source_profile_url_mismatch"
+        if evidence.get("documentation_requires_product_review"):
+            return "needs_review", "documentation_product_scope_ambiguous"
+        scope = evidence.get("documentation_scope_status")
+        if scope == "insufficient_content":
+            return "needs_review", "documentation_insufficient_content"
+        if scope == "index_only":
+            return "needs_review", "documentation_link_index_only"
+        if scope == "scope_not_established":
+            return "needs_review", "documentation_scope_not_established"
+
     if evidence.get("word_count", 0) < 45:
         return "needs_review", "insufficient_substantive_text"
     if category == "pricing" and evidence.get("pricing_evidence_schema") == "1.0":
@@ -130,6 +143,8 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         return "partial_capture", "changelog_sections_truncated"
     if category == "documentation" and evidence.get("sections_truncated"):
         return "partial_capture", "documentation_sections_truncated"
+    if category == "documentation" and evidence.get("tables_truncated"):
+        return "partial_capture", "documentation_tables_truncated"
 
     if category == "changelog":
         if evidence.get("release_events_schema") == "1.0":
