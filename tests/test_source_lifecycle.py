@@ -64,7 +64,7 @@ def test_unresolved_v0_is_quarantined_even_when_id_is_explicit(id):
         "pricing": PricingSpider,
         "changelog": ChangelogSpider,
     }[source["category"]]
-    spider = spider_type(source_ids=id, collection_mode="validation")
+    spider = spider_type(cohort="all", source_ids=id, collection_mode="validation")
     emitted = asyncio.run(_run_start(spider))
     assert len(emitted) == 1
     assert isinstance(emitted[0], dict)
