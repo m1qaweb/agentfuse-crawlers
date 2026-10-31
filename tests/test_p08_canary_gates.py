@@ -244,6 +244,7 @@ def _human_gold_template():
             "case_id": f"rate-{i}", "source_id": pricing_src["id"],
             "source_url": pricing_src["url"], "evidence_url": pricing_src["url"],
             "job_id": "883514/1/200", "approved_for_advisor": False,
+            "observation_id": f"{i:032x}",
             "expected": copy.deepcopy(dims),
             "observed": dict(dims, comparable_candidate=True),
         })
@@ -251,6 +252,7 @@ def _human_gold_template():
         "case_id": f"date-{i}", "source_id": release_src["id"],
         "source_url": release_src["url"], "evidence_url": release_src["url"],
         "job_id": "883514/1/201", "approved_for_advisor": False,
+        "event_id": release_src["id"] + ":" + f"{i:024x}",
         "expected_day": "2026-10-31", "observed_day": "2026-10-31",
     } for i in range(100)]
     return {
