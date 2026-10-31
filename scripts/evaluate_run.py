@@ -7,6 +7,7 @@ comparable source baseline. No job scheduling, DB writes or vendor facts.
 import argparse
 import csv
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -72,8 +73,9 @@ def _safe_locator(locator, official):
                 not b.hostname):
             return ""
         # Preserve a bounded fragment for heading navigation but no tokens.
+        fragment = a.fragment if re.fullmatch(r"[A-Za-z0-9_-]{1,100}", a.fragment) else ""
         return urlunsplit(("https", a.hostname, a.path[:800] or "/",
-                           "", a.fragment[:160]))
+                           "", fragment))
     except (TypeError, ValueError):
         return ""
 
@@ -95,7 +97,7 @@ def _change(row, kind, *, locator="", **extra):
 
 
 def _date(value):
-    if not isinstance(value, str) or len(value) != 10:
+    if not isinstance(value, str) or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", value):
         return None
     try:
         return date.fromisoformat(value)
@@ -190,7 +192,9 @@ def _priced_map(row):
         if key in found or obs["observation_id"] in seen_ids:
             return None
         try:
-            Decimal(obs["normalized_amount_decimal"])
+            amount = Decimal(obs["normalized_amount_decimal"])
+            if not amount.is_finite() or amount < 0:
+                return None
         except (TypeError, ValueError, InvalidOperation):
             return None
         seen_ids.add(obs["observation_id"])
@@ -218,6 +222,18 @@ def _pricing_delta(current, previous):
                     price["normalized_amount_decimal"]
                 ) != Decimal(prev["normalized_amount_decimal"]) else None)
         if kind is None:
+            if (prev and price.get("source_evidence_sha256")
+                    and prev.get("source_evidence_sha256")
+                    and price["source_evidence_sha256"]
+                        != prev["source_evidence_sha256"]):
+                changes.append(_change(
+                    current, "needs_review", locator=price.get("source_url"),
+                    observation_id=price["observation_id"],
+                    reason="pricing_evidence_changed_but_numeric_rate_unchanged",
+                    rate_dimensions=dict(zip(RATE_DIMENSIONS, key)),
+                    raw_current_price=price.get("raw_displayed_price"),
+                    raw_prior_price=prev.get("raw_displayed_price"),
+                ))
             continue
         changes.append(_change(
             current, kind, locator=price.get("source_url"),
