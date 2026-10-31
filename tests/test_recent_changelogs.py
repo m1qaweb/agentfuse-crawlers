@@ -79,7 +79,7 @@ def test_mixed_date_and_unknown_year_disables_complete_window():
     assert info["window_complete"] is False
     assert info["basis"] == "numeric_versions_no_date_inference" or \
         info["basis"] == "mixed_or_undated_entries"
-    assert info["order"] == "mixed"
+    assert info["order"] == "unknown"
 
 
 def test_old_historical_body_loss_does_not_mislabel_recent_evidence():

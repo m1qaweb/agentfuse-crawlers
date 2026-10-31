@@ -277,6 +277,8 @@ def snapshot(typ, data):
         "release_events_schema": data["release_events_schema"],
         "release_events": data["release_events"],
         "release_events_truncated": data["release_events_truncated"],
+        "release_window_complete": data["release_window_complete"],
+        "release_recent_body_loss_count": data["release_recent_body_loss_count"],
         "release_event_identity_collision": data["release_event_identity_collision"],
         "fetched_at_utc": typ,
     }
