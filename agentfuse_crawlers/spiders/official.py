@@ -48,7 +48,8 @@ class OfficialBaseSpider(scrapy.Spider):
     allowed_domains = ALLOWED_HOSTS
 
     def __init__(self, cohort=None, source_ids=None, limit=None, offset=0,
-                 confirm_full_inventory=None, **kwargs):
+                 confirm_full_inventory=None, expected_manifest_sha256=None,
+                 expected_selection_ids_sha256=None, **kwargs):
         super().__init__(**kwargs)
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
@@ -69,6 +70,16 @@ class OfficialBaseSpider(scrapy.Spider):
         self.run_context = build_run_context(
             self.name, cohort, self.selected, explicit_cohort=explicit_cohort,
         )
+        # A validation plan pins both the complete source-registry revision and
+        # the exact selected IDs. Prevent silently shifted offset/cohort batches.
+        for provided, field in (
+            (expected_manifest_sha256, "manifest_sha256"),
+            (expected_selection_ids_sha256, "selection_ids_sha256"),
+        ):
+            if provided is not None and provided != self.run_context[field]:
+                raise ValueError(
+                    f"Run scope mismatch: {field} differs from pinned validation plan"
+                )
 
     async def start(self):
         """Required for Scrapy 2.18+; called on every scheduled job."""

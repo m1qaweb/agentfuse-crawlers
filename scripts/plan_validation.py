@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from agentfuse_crawlers.sources import load_proven_source_ids, load_sources, select_sources
+from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
 
 SPIDERS = {
     "changelog": "official_changelogs",
@@ -48,6 +49,7 @@ def plan_validation(cohort="candidate", batch_size=15):
     manifest = load_sources()
     all_ids = {entry["id"] for entry in manifest}
     proven = load_proven_source_ids()
+    manifest_fingerprint = manifest_sha256(manifest)
     batches = []
     expected_ids = set()
     seen = set()
@@ -69,6 +71,12 @@ def plan_validation(cohort="candidate", batch_size=15):
                 "limit": batch_size,
                 "requested_count": len(batch),
                 "source_ids": ids,
+                # Stable over promotions: explicitly select these IDs under
+                # cohort=all, with expected manifest+selection fingerprints.
+                "pinned_cohort": "all",
+                "source_ids_csv": ",".join(ids),
+                "expected_manifest_sha256": manifest_fingerprint,
+                "expected_selection_ids_sha256": selection_ids_sha256(batch),
                 "first_source_id": ids[0],
                 "last_source_id": ids[-1],
             })
@@ -85,7 +93,8 @@ def plan_validation(cohort="candidate", batch_size=15):
     if seen != expected_ids or not expected_ids <= all_ids:
         raise ValueError("Validation plan did not cover expected manifest IDs")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "manifest_sha256": manifest_fingerprint,
         "cohort": cohort,
         "batch_size": batch_size,
         "manifest_sources": len(manifest),
@@ -111,12 +120,15 @@ def write_plan(plan, out_dir):
         json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     with (output / "validation_batches.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=[
+        fields = [
             "spider", "category", "cohort", "offset", "limit", "requested_count",
-            "first_source_id", "last_source_id",
-        ])
+            "first_source_id", "last_source_id", "pinned_cohort",
+            "source_ids_csv", "expected_manifest_sha256",
+            "expected_selection_ids_sha256",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
-        writer.writerows({k: v for k, v in item.items() if k != "source_ids"}
+        writer.writerows({k: item.get(k, "") for k in fields}
                          for item in plan["batches"])
     with (output / "static_review_flags.csv").open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
