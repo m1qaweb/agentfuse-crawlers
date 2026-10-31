@@ -17,7 +17,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "openai"
+      ]
     },
     "anthropic_api_docs": {
       "source_url": "https://platform.claude.com/docs/en/api/overview",
@@ -68,7 +71,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "claude code"
+      ]
     },
     "cursor_docs": {
       "source_url": "https://cursor.com/docs",
@@ -101,7 +107,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": "2026-10-31 Zyte export contained no substantive documentation text; revalidate capture before approval."
+      "known_capture_issue": "2026-10-31 Zyte export contained no substantive documentation text; revalidate capture before approval.",
+      "required_scope_markers": [
+        "kiro"
+      ]
     },
     "github_copilot_docs": {
       "source_url": "https://docs.github.com/en/copilot",
@@ -229,7 +238,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "workers ai"
+      ]
     },
     "vercel_ai_gateway_docs": {
       "source_url": "https://vercel.com/docs/ai-gateway",
@@ -261,7 +273,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "supabase"
+      ]
     },
     "aws_bedrock_docs": {
       "source_url": "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html",
@@ -277,7 +292,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "bedrock"
+      ]
     },
     "huggingface_docs": {
       "source_url": "https://huggingface.co/docs/hub/index",
@@ -309,7 +327,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": true,
       "scope_review_reason": "Manifest provider is broad Google Cloud AI Platform while the configured URL refers to Gemini Enterprise Agent Platform; verify intended product before accepting evidence.",
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "gemini enterprise agent platform"
+      ]
     },
     "oracle_oci_generative_ai_docs": {
       "source_url": "https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm",
@@ -325,7 +346,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "generative ai"
+      ]
     },
     "aws_sagemaker_ai_docs": {
       "source_url": "https://docs.aws.amazon.com/sagemaker/latest/dg/whatis.html",
