@@ -218,6 +218,23 @@ missing real golden evidence it reports **BLOCKED** even when all synthetic
 tests pass. Passing software gates never approves vendor facts or deployments.
 See [PR08 operator runbook](docs/PR08_OFFLINE_REPLAY_CANARY_RUNBOOK.md).
 
+## P09A: evidence-scoped pricing repair (draft)
+
+The October 31 live Zyte audit accounted for all 177 pricing source Items but
+produced zero structurally comparable rates, despite 3,011 recorded price
+observations. P09A adds **explicit, source-cited** currency and unit
+inheritance, safeguards against cross-table scope leakage, and a read-only
+diagnostic report; missing geography and pricing tier are **never guessed**.
+
+Review the [P09A validation/runbook](docs/PR09A_PRICING_SCOPE_VALIDATION.md).
+To audit a private export locally without external requests:
+
+    python -m scripts.audit_pricing_items --items /path/to/items_official_pricing_6.json --out-dir output/pricing-audit --expect-all
+
+No real vendor price becomes approved by passing a synthetic regression test.
+Use exact-source permitted validation canaries after code review; avoid all-460
+production repeats until the issue triage is complete.
+
 ## Next phase (not implemented yet)
 
 1. Validate each candidate URL and publisher access policy. Replace unsupported pages with official feeds/APIs where possible.
