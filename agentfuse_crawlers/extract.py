@@ -15,6 +15,7 @@ from urllib.parse import quote, urlsplit
 from lxml import etree, html
 
 from agentfuse_crawlers.release_events import extract_release_events
+from agentfuse_crawlers.pricing_evidence import extract_pricing_evidence
 
 BLOCKS = frozenset({
     'article', 'blockquote', 'div', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3',
@@ -278,6 +279,7 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
     links = main.xpath('.//a[@href]')
     link_chars = sum(len(re.sub(r'\s+', ' ', a.text_content()).strip()) for a in links)
     main_link_text_ratio = min(1.0, link_chars / max(len(text), 1))
+    pricing_details = {}
     if category == 'changelog':
         sections, sections_truncated = _sections(
             main, source_url, max_sections=24, max_excerpt=900,
@@ -285,7 +287,12 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
         tables, tables_truncated = [], False
     else:
         sections, sections_truncated = _sections(main, source_url)
-        tables, tables_truncated = _tables(main)
+        if category == 'pricing' and source_id:
+            pricing_details = extract_pricing_evidence(main, source_url, source_id)
+            tables = pricing_details['pricing_legacy_table_excerpts']
+            tables_truncated = not pricing_details['pricing_inventory_complete']
+        else:
+            tables, tables_truncated = _tables(main)
     dated_sections = [s['date_candidate'] for s in sections if s['date_candidate']]
     leading_date = _leading_release_date(text) if not dated_sections else ''
     canonical = root.xpath('//link[translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="canonical"]/@href')
@@ -302,6 +309,7 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
     )
     return {
         **release_info,
+        **pricing_details,
         'title': title[:300],
         'text': text,
         'word_count': len(text.split()),

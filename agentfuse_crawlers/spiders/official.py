@@ -15,6 +15,7 @@ from agentfuse_crawlers.markdown_releases import (
     allowed_markdown_url, parse_markdown_releases,
 )
 from agentfuse_crawlers.recent_window import compact_changelog_record
+from agentfuse_crawlers.pricing_evidence import compact_pricing_record
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.quality import (
     HARD_TEXT_LIMIT, assess_capture, response_freshness,
@@ -274,6 +275,18 @@ class OfficialBaseSpider(scrapy.Spider):
             record = compact_changelog_record(
                 record, text, keep_text="text" in record,
             )
+        if source["category"] == "pricing":
+            try:
+                record = compact_pricing_record(record, text)
+            except ValueError:
+                record = self._base_record(source)
+                record.update(
+                    status="partial_capture", error="pricing_item_budget_exceeded",
+                    pricing_evidence_lost_to_item_budget=True,
+                    content_sha256=evidence.get("content_sha256", ""),
+                    final_url=_visible_url(response.url),
+                    http_status=response.status,
+                )
         yield self._emit_status(record)
 
     def parse_official_markdown(self, response, source, primary):

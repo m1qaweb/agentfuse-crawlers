@@ -86,6 +86,19 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         return "needs_review", "invalid_future_server_date"
     if evidence.get("word_count", 0) < 45:
         return "needs_review", "insufficient_substantive_text"
+    if category == "pricing" and evidence.get("pricing_evidence_schema") == "1.0":
+        if evidence.get("pricing_product_scope_unresolved"):
+            return "needs_review", "pricing_product_scope_unresolved"
+        if not evidence.get("pricing_inventory_complete"):
+            return "partial_capture", "pricing_table_inventory_incomplete"
+        if not evidence.get("pricing_observation_count"):
+            return "needs_review", "pricing_no_structured_rate_evidence"
+        if not evidence.get("pricing_comparable_candidate_count"):
+            return "needs_review", "pricing_rate_dimensions_unresolved"
+        # Captured means a bounded source snapshot contains structurally
+        # comparable *candidates*. It never authorizes financial claims.
+        return "captured", ""
+
     if category == "changelog" and evidence.get("release_events_schema") == "1.1":
         events = evidence.get("release_events", [])
         if (evidence.get("release_recent_body_loss_count", 0)

@@ -22,7 +22,8 @@ def test_200_page_needs_real_content():
     assert short['status'] == 'needs_review'
     real = list(spider.parse_page(response('<main><h1>Pricing</h1><p>' +
         ('Model pricing $1.50 input and $4.50 output per million tokens. ' * 20) + '</p></main>'), SOURCE))[0]
-    assert real['status'] == 'captured'
+    assert real['status'] == 'needs_review'
+    assert real['error'] == 'pricing_no_structured_rate_evidence'
     assert real['review_status'] == 'unverified'
     assert real['schema_version'] == '2.1'
     assert real['requested_cohort'] == 'proven'

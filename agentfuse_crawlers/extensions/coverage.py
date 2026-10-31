@@ -31,6 +31,14 @@ def _comparable(item):
             and not item.get("release_event_identity_collision")
             and not item.get("release_recent_body_loss_count", 0)
         )
+    if item.get("category") == "pricing" and item.get("pricing_evidence_schema") == "1.0":
+        return bool(
+            item.get("status") == "captured"
+            and item.get("content_sha256")
+            and item.get("pricing_inventory_complete")
+            and item.get("pricing_comparable_candidate_count", 0) > 0
+            and not item.get("pricing_evidence_lost_to_item_budget")
+        )
     return bool(
         item.get("status") == "captured"
         and item.get("content_sha256")
@@ -57,6 +65,8 @@ class SourceCoverageAudit:
         self.recent_window_complete = set()
         self.history_truncated = set()
         self.item_budget_failed = set()
+        self.pricing_incomplete = set()
+        self.pricing_comparable = set()
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -83,6 +93,11 @@ class SourceCoverageAudit:
                 self.history_truncated.add(source_id)
             if item.get("release_event_evidence_lost"):
                 self.item_budget_failed.add(source_id)
+            if item.get("pricing_evidence_schema") == "1.0":
+                if not item.get("pricing_inventory_complete"):
+                    self.pricing_incomplete.add(source_id)
+                if item.get("pricing_comparable_candidate_count", 0) > 0:
+                    self.pricing_comparable.add(source_id)
             if any(s.get("excerpt_truncated") for s in item.get("sections", [])):
                 self.clipped_excerpts.add(source_id)
             context = getattr(spider, "run_context", None)
@@ -133,6 +148,8 @@ class SourceCoverageAudit:
             "recent_window_complete_sources": len(self.recent_window_complete & expected),
             "historical_text_truncated_sources": len(self.history_truncated & expected),
             "item_budget_failure_sources": len(self.item_budget_failed & expected),
+            "pricing_inventory_incomplete_sources": len(self.pricing_incomplete & expected),
+            "pricing_with_comparable_candidates": len(self.pricing_comparable & expected),
             "captured_with_clipped_excerpts": len(self.clipped_excerpts & expected),
             "missing_sources": len(missing),
             "duplicate_sources": len(self.duplicates),
