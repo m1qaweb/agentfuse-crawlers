@@ -60,6 +60,12 @@ UNIT_PATTERNS = [
     ("per_minute", re.compile(r"(?:\bper\b|/)\s*minute\b", re.I)),
 ]
 DIMENSION_PATTERNS = [
+    ("ultrafast_input", re.compile(r"\b(?:ultra[- ]?fast|ultrafast)\b.*\binput\b", re.I)),
+    ("ultrafast_output", re.compile(r"\b(?:ultra[- ]?fast|ultrafast)\b.*\boutput\b", re.I)),
+    ("fast_input", re.compile(r"\bfast\b.*\binput\b", re.I)),
+    ("fast_output", re.compile(r"\bfast\b.*\boutput\b", re.I)),
+    ("long_context_input", re.compile(r"\b(?:long[- ]context|extended context)\b.*\binput\b", re.I)),
+    ("long_context_output", re.compile(r"\b(?:long[- ]context|extended context)\b.*\boutput\b", re.I)),
     ("batch_cached_input", re.compile(r"\bbatch\b.*\bcach(?:ed|ing)?\b.*\binput\b", re.I)),
     ("batch_output", re.compile(r"\bbatch\b.*\boutput\b", re.I)),
     ("batch_input", re.compile(r"\bbatch\b.*\binput\b", re.I)),
@@ -108,8 +114,12 @@ def detect_dimension(*scopes):
             # A column with combined input/output or overlapping billing
             # modes is not a single independent rate.
             found = list(dict.fromkeys(found))
-            if found[0] in {"batch_cached_input", "batch_input", "batch_output", "cache_write",
-                            "cached_input", "subscription"}:
+            if found[0] in {
+                "ultrafast_input", "ultrafast_output", "fast_input", "fast_output",
+                "long_context_input", "long_context_output", "batch_cached_input",
+                "batch_input", "batch_output", "cache_write", "cached_input",
+                "subscription",
+            }:
                 return found[0]
             if "input" in found and "output" in found:
                 return None
@@ -191,12 +201,12 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
             reasons.append("missing_explicit_tier_or_plan")
         if not model:
             reasons.append("missing_model_or_service")
-        if TEMPORAL.search(raw) or TEMPORAL.search(heading):
+        contextual = " ".join((raw, heading, row_name, table_caption, context))
+        if TEMPORAL.search(contextual):
             reasons.append("time_dependent_or_promotional_price")
-        if CONDITIONAL.search(raw) or CONDITIONAL.search(heading):
+        if CONDITIONAL.search(contextual):
             reasons.append("conditional_or_tiered_price")
-        if FOOTNOTE_MARK.search(raw) or (footnotes and
-                ("*" in raw or "†" in raw or "‡" in raw)):
+        if FOOTNOTE_MARK.search(raw) or footnotes:
             reasons.append("unresolved_footnote")
         if not reasons:
             try:

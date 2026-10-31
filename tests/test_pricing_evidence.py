@@ -442,3 +442,53 @@ def test_unrelated_description_containing_price_word_is_not_pricing_table():
     )
     ev = extract(markup)
     assert ev["pricing_table_relevant"] == 1
+
+
+
+@pytest.mark.parametrize("header,expected", [
+    ("Fast input price", "fast_input"),
+    ("Fast output price", "fast_output"),
+    ("Ultra-fast input price", "ultrafast_input"),
+    ("Ultrafast output price", "ultrafast_output"),
+    ("Long-context input price", "long_context_input"),
+    ("Extended context output price", "long_context_output"),
+    ("Batch input price", "batch_input"),
+    ("Batch output price", "batch_output"),
+    ("Cached input price", "cached_input"),
+    ("Cache write price", "cache_write"),
+])
+def test_special_pricing_modes_have_distinct_rate_dimensions(header, expected):
+    row = analyze_cell(
+        "$1.50", model_label="Model Alpha", column_header=header,
+        row_header="Model Alpha", table_context="Region: Global",
+        table_caption="USD per 1M tokens; Tier: Standard",
+    )
+    assert row["price_dimension"] == expected
+    assert row["normalized_amount_decimal"] == "1.50"
+
+
+@pytest.mark.parametrize("caption", [
+    "USD per 1M tokens; Tier: Standard; effective November 30, 2026",
+    "USD per 1M tokens; Tier: Standard; promotional pricing",
+    "USD per 1M tokens; Tier: Standard; discounted rate",
+])
+def test_caption_effective_dates_and_promotions_block_rate_comparability(caption):
+    row = analyze_cell(
+        "$1.50", model_label="Model Alpha",
+        column_header="Input price", row_header="Model Alpha",
+        table_context="Region: Global", table_caption=caption,
+    )
+    assert row["normalized_amount_decimal"] is None
+    assert "time_dependent_or_promotional_price" in row["normalization_blockers"]
+
+
+def test_any_table_footnote_requires_manual_resolution():
+    row = analyze_cell(
+        "$1.50", model_label="Model Alpha",
+        column_header="Input price", row_header="Model Alpha",
+        table_context="Region: Global",
+        table_caption="USD per 1M tokens; Tier: Standard",
+        footnotes="* Volume discounts apply to some prices",
+    )
+    assert row["normalized_amount_decimal"] is None
+    assert "unresolved_footnote" in row["normalization_blockers"]
