@@ -12,6 +12,7 @@ import re
 from agentfuse_crawlers.rate_units import (
     PRICE_MARKER, analyze_cell, clean,
 )
+from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
 
 MAX_SCAN_TABLES = 700
 MAX_SELECTED_TABLES = 64
@@ -215,6 +216,9 @@ def _model_label(row_label, context, caption):
 def extract_pricing_evidence(main, source_url, source_id):
     all_tables = main.xpath(".//table[not(ancestor::table)]")
     table_context = _contexts(main)
+    # P09A: strictly bounded declarations with original text provenance.
+    # Never assume publisher-wide USD, a global region, or a default tier.
+    table_scope = table_declarations(main)
     selected = []
     scoped = 0
     scan_truncated = len(all_tables) > MAX_SCAN_TABLES
@@ -283,7 +287,10 @@ def extract_pricing_evidence(main, source_url, source_id):
                     raw, model_label=model, column_header=header,
                     row_header=row_label,
                     table_context=info["heading_context"],
-                    table_caption=" ".join((info["caption"], row_unit)),
+                    table_caption=" ".join((
+                        info["caption"], row_unit,
+                        scoped_text(table_scope.get(id(table), ())),
+                    )),
                     footnotes=info["footnotes"],
                 )
                 if candidate["price_state"] == "unparsed":
@@ -306,6 +313,10 @@ def extract_pricing_evidence(main, source_url, source_id):
                 ).hexdigest()[:32]
                 candidate["source_id"] = source_id
                 candidate["source_url"] = source_url
+                candidate["scope_declarations"] = list(
+                    table_scope.get(id(table), ())
+                )
+                candidate["scope_provenance_verified"] = False
                 candidate["table_id"] = info["table_id"]
                 candidate["row_index"] = row_num
                 candidate["column_index"] = col
@@ -358,6 +369,12 @@ def extract_pricing_evidence(main, source_url, source_id):
         "pricing_comparable_candidate_count": len(comparable),
         "pricing_non_numeric_states": states,
         "pricing_unparsed_candidate_count": ambiguous_table_cells,
+        "pricing_scoped_table_count": sum(
+            bool(table_scope.get(id(table))) for table, _ in selected
+        ),
+        "pricing_scope_declaration_count": sum(
+            len(table_scope.get(id(table), ())) for table, _ in selected
+        ),
         "pricing_observations": observations,
         "pricing_table_evidence": [
             {k: v for k, v in info.items() if k != "label"}
