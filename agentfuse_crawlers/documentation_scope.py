@@ -64,6 +64,12 @@ def load_documentation_profiles():
             raise ValueError("Documentation profiles cannot approve facts")
         if profile.get("review_status") != "pending_live_validation":
             raise ValueError("Documentation profiles must remain unverified")
+        markers = profile.get("required_scope_markers", [])
+        if (not isinstance(markers, list) or any(
+            not isinstance(value, str) or not (2 <= len(value) <= 70)
+            for value in markers
+        )):
+            raise ValueError("Invalid product markers: " + source_id)
         topics = profile.get("target_topics")
         if not isinstance(topics, list) or not topics or (
             set(topics) - set(TOPIC_PATTERNS)
@@ -89,7 +95,7 @@ def _normalized_path(path):
     # Safe structural equivalences, not guesses that two products are the same.
     path = re.sub(r"/(?:index\.html?|index/)$", "/", path or "/",
                   flags=re.IGNORECASE)
-    return (path.rstrip("/") or "/").casefold()
+    return path.rstrip("/") or "/"
 
 
 def canonical_relationship(source_url, candidate):
@@ -100,6 +106,9 @@ def canonical_relationship(source_url, candidate):
         return {"relation": "external_or_unsafe_ignored", "review_url": None}
     parsed = urlsplit(candidate)
     review_url = urlunsplit(("https", parsed.hostname, parsed.path or "/", "", ""))
+    if parsed.query or parsed.fragment:
+        return {"relation": "same_host_parameters_review",
+                "review_url": review_url}
     expected_path = _normalized_path(urlsplit(source_url).path)
     found_path = _normalized_path(parsed.path)
     return {
@@ -127,6 +136,15 @@ def extract_documentation_evidence(
         "unprofiled" if profile is None
         else "profile_url_mismatch" if profile["source_url"] != source_url
         else "curated_pending_live_validation"
+    )
+    # A curated source ID cannot prove that the returned body is about the
+    # expected product. Require known identity signals for higher-risk URLs.
+    markers = profile.get("required_scope_markers", []) if profile else []
+    lead = re.sub(r"\\s+", " ", (title + " " + text[:1600])).lower()
+    product_signal = (
+        "no_marker_policy" if not markers
+        else "explicit_marker_found" if any(m.lower() in lead for m in markers)
+        else "marker_not_found"
     )
     candidates = []
     total = 0
@@ -187,6 +205,7 @@ def extract_documentation_evidence(
         "documentation_product_scope": (
             profile.get("product_scope") if profile else None
         ),
+        "documentation_product_scope_signal": product_signal,
         "documentation_expected_page_type": expected or "unknown",
         "documentation_observed_page_type": page_type,
         "documentation_scope_status": scope,
