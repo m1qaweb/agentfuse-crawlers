@@ -195,7 +195,10 @@ class OfficialBaseSpider(scrapy.Spider):
             return
 
         try:
-            evidence = extract_evidence(response.text, source["url"])
+            evidence = extract_evidence(
+                response.text, source["url"], category=source["category"],
+                source_id=source["id"],
+            )
         except Exception as exc:
             self.logger.warning("Failed extracting %s: %s", source["id"], exc)
             record.update(status="extraction_error", error=type(exc).__name__)
@@ -230,6 +233,10 @@ class OfficialBaseSpider(scrapy.Spider):
                 "canonical_path_differs",
                 "no_price_or_billing_detail_detected",
                 "documentation_link_index_only",
+                "no_release_events_detected",
+                "release_events_missing_publication_dates",
+                "latest_release_date_ambiguous",
+                "release_event_identity_collision",
             }
         ):
             record["text"] = text[:HARD_TEXT_LIMIT]

@@ -96,9 +96,21 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         return "partial_capture", "documentation_sections_truncated"
 
     if category == "changelog":
-        # No date is NOT necessarily proof of staleness, but it prevents claiming
-        # that a release feed was accurately identified as a timeline.
-        if not evidence.get("visible_latest_date_candidate"):
+        if evidence.get("release_events_schema") == "1.0":
+            if evidence.get("release_events_truncated"):
+                return "partial_capture", "release_event_limit_reached"
+            if evidence.get("release_event_identity_collision"):
+                return "needs_review", "release_event_identity_collision"
+            if not evidence.get("release_event_count"):
+                return "needs_review", "no_release_events_detected"
+            if not evidence.get("release_dated_event_count"):
+                return "needs_review", "release_events_missing_publication_dates"
+            # A dated old release is not proof that a newer undated release
+            # was not skipped. Refuse to label this a comparable timeline.
+            if not evidence.get("latest_release_date_candidate"):
+                return "needs_review", "latest_release_date_ambiguous"
+        elif not evidence.get("visible_latest_date_candidate"):
+            # Legacy parser/test contract retained for backwards compatibility.
             return "needs_review", "no_dated_release_section_detected"
     elif category == "pricing":
         if not PRICE_NUMBER.search(text) and not (

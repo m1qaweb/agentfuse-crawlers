@@ -14,6 +14,8 @@ from urllib.parse import quote, urlsplit
 
 from lxml import etree, html
 
+from agentfuse_crawlers.release_events import extract_release_events
+
 BLOCKS = frozenset({
     'article', 'blockquote', 'div', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3',
     'h4', 'h5', 'h6', 'li', 'ol', 'p', 'pre', 'section', 'table',
@@ -249,7 +251,7 @@ def _tables(main):
     return tables, truncated
 
 
-def extract_evidence(raw_html, source_url):
+def extract_evidence(raw_html, source_url, category=None, source_id=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
@@ -284,7 +286,12 @@ def extract_evidence(raw_html, source_url):
         canonical_url = ''
     description = root.xpath('//meta[translate(@name,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="description"]/@content')
     description = re.sub(r'\s+', ' ', description[0]).strip()[:500] if description else ''
+    release_info = (
+        extract_release_events(main, source_url, source_id)
+        if category == 'changelog' and source_id else {}
+    )
     return {
+        **release_info,
         'title': title[:300],
         'text': text,
         'word_count': len(text.split()),
