@@ -71,6 +71,22 @@ def read_jsonl(paths):
                 if not isinstance(item, dict) or not isinstance(item.get('source_id'), str):
                     raise ValueError(f'Invalid item in {path}: no source_id')
                 source_id = item['source_id']
+                old_item = rows.get(source_id)
+                if old_item and item.get('run_started_at_utc'):
+                    # Repeating an Item within one job must be visible rather
+                    # than silently hiding an exporter/crawler duplicate.
+                    same_run_start = (
+                        old_item.get('run_started_at_utc')
+                        == item.get('run_started_at_utc')
+                    )
+                    same_job = (
+                        old_item.get('zyte_job_id')
+                        == item.get('zyte_job_id')
+                    )
+                    if same_run_start and same_job:
+                        raise ValueError(
+                            f'Duplicate source Item in one Zyte job: {source_id}'
+                        )
                 if (source_id not in rows or item.get('fetched_at_utc', '') >=
                         rows[source_id].get('fetched_at_utc', '')):
                     rows[source_id] = item
@@ -157,6 +173,7 @@ def _healthy(row):
         and not (row.get('category') == 'pricing' and row.get('tables_truncated'))
         and not (row.get('category') in {'documentation', 'changelog'}
                  and row.get('sections_truncated'))
+        and not any(x.get('excerpt_truncated') for x in row.get('sections', []))
     )
 
 

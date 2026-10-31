@@ -121,3 +121,23 @@ def test_explicit_approval_in_crawler_is_anomaly():
         audit.spider_idle(spider)
     assert caught.value.reason == "agentfuse_incomplete_source_coverage"
     assert stats.rows["agentfuse/coverage/advisor_approval_anomalies"] == 1
+
+
+
+def test_missing_unverified_flag_in_modern_spider_is_detected():
+    audit, spider, stats = setup(("a",))
+    spider.run_context = {
+        "spider_name": "official_changelogs", "requested_cohort": "proven",
+        "run_scope_explicit": True, "selection_source_count": 1,
+        "selection_ids_sha256": "hash", "manifest_sha256": "manifest",
+        "run_started_at_utc": "2026-10-31T10:00:00+00:00",
+        "zyte_job_id": "", "deployment_revision": "",
+    }
+    # Fields agree, but an explicit refusal to approve MUST be present.
+    item = dict(spider.run_context, source_id="a", status="captured",
+                content_sha256="a-hash")
+    audit.item_scraped(item, None, spider)
+    with pytest.raises(CloseSpider) as caught:
+        audit.spider_idle(spider)
+    assert caught.value.reason == "agentfuse_incomplete_source_coverage"
+    assert stats.rows["agentfuse/coverage/advisor_approval_anomalies"] == 1

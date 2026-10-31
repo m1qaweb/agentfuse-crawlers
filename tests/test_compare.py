@@ -225,3 +225,23 @@ def test_valid_v21_source_identity_passes_and_wrong_provider_fails(tmp_path):
     bad = dict(good, provider="AnotherCompany")
     with pytest.raises(ValueError, match="mismatched source identity"):
         export({bad["source_id"]: bad}, {}, tmp_path / "bad", category="changelog")
+
+
+
+def test_clipped_sections_must_not_generate_false_section_changes():
+    old = record("a", "old", sections=[section("release", "s1")])
+    newer_section = section("release", "s2")
+    newer_section["excerpt_truncated"] = True
+    new = record("a", "new", sections=[newer_section])
+    changes = compare({"a": new}, {"a": old})
+    assert changes[0]["change_type"] == "not_captured"
+    assert review_queue({"a": new}, {"a": old}, changes) == []
+
+
+def test_duplicate_items_in_same_job_are_rejected_at_import(tmp_path):
+    import pytest
+    row = _versioned_row("openai_api_changelog", cohort="proven")
+    data = tmp_path / "duplicate_items.jl"
+    data.write_text(json.dumps(row) + "\n" + json.dumps(row) + "\n")
+    with pytest.raises(ValueError, match="Duplicate source Item"):
+        read_jsonl([data])
