@@ -41,6 +41,19 @@ def _visible_url(raw_url):
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
+def _safe_redirect_review_target(raw_url):
+    """A rejected redirect is review evidence, never a new fetch target."""
+    try:
+        parts = urlsplit(raw_url)
+        if (parts.scheme != "https" or not parts.hostname or
+                parts.username or parts.password or
+                parts.port not in (None, 443)):
+            return ""
+        return urlunsplit(("https", parts.hostname, parts.path[:600] or "/", "", ""))
+    except (TypeError, ValueError):
+        return ""
+
+
 def _allowed_redirect(raw_url, source):
     """Only follow HTTPS redirects on this source's exact trusted host."""
     parts = urlsplit(raw_url)
@@ -199,7 +212,8 @@ class OfficialBaseSpider(scrapy.Spider):
                 return
             target = urljoin(response.url, raw_location)
             if not _allowed_redirect(target, source):
-                record.update(status="rejected_redirect", error="cross_host_or_non_https_redirect")
+                record.update(status="rejected_redirect", error="cross_host_or_non_https_redirect",
+                              redirect_review_target=_safe_redirect_review_target(target))
                 yield self._emit_status(record)
                 return
             depth = int(meta.get("source_redirect_depth", 0))
