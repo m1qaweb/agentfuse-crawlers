@@ -9,7 +9,7 @@ import argparse
 import hashlib
 import json
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -25,6 +25,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 RATE_ID = re.compile(r"^[0-9a-f]{32}$")
 MAX_ARCHIVES = 60
 MAX_REVIEW_PER_CATEGORY = 1200
+MAX_REVIEW_PER_SOURCE = 40
 KNOWN = {s["id"]: s for s in load_sources()}
 
 
@@ -383,6 +384,16 @@ def prepare_review_candidates(paths, *, full_inventory_plan=None):
     results = {"pricing": [], "release_dates": [], "documentation": []}
     omitted = Counter()
     seen = set()
+    groups = {key: defaultdict(list) for key in results}
+
+    def queue_candidate(kind, sid, row):
+        # Do not let one large pricing table or long release timeline crowd
+        # every other provider out of the real-world human review queue.
+        if len(groups[kind][sid]) < MAX_REVIEW_PER_SOURCE:
+            groups[kind][sid].append(row)
+        else:
+            omitted[kind] += 1
+
     for (sid, job_id), item in sorted(by_job.items()):
         base = {
             "source_id": sid, "job_id": job_id,
@@ -406,10 +417,7 @@ def prepare_review_candidates(paths, *, full_inventory_plan=None):
                            normalization_blockers=(obs.get("normalization_blockers") or [])[:12],
                            evidence_url=item["source_url"])
                 kind = "pricing"
-                if len(results[kind]) < MAX_REVIEW_PER_CATEGORY:
-                    results[kind].append(row)
-                else:
-                    omitted[kind] += 1
+                queue_candidate(kind, sid, row)
         elif item["category"] == "changelog":
             for evt in item.get("release_events", []):
                 if not isinstance(evt, dict) or not evt.get("event_id"):
@@ -426,10 +434,7 @@ def prepare_review_candidates(paths, *, full_inventory_plan=None):
                            excerpt=str(evt.get("excerpt") or "")[:360],
                            evidence_url=evt.get("permalink") or item["source_url"])
                 kind = "release_dates"
-                if len(results[kind]) < MAX_REVIEW_PER_CATEGORY:
-                    results[kind].append(row)
-                else:
-                    omitted[kind] += 1
+                queue_candidate(kind, sid, row)
         elif item["category"] == "documentation":
             for sec in item.get("documentation_topic_candidates", []):
                 if not isinstance(sec, dict) or not sec.get("candidate_id"):
@@ -445,13 +450,29 @@ def prepare_review_candidates(paths, *, full_inventory_plan=None):
                            section_sha256=sec.get("section_sha256"),
                            excerpt=str(sec.get("excerpt") or "")[:360])
                 kind = "documentation"
+                queue_candidate(kind, sid, row)
+    # Deterministic breadth-first sampling: one distinct candidate per
+    # source, then a second per source, and so on. This is a review workload
+    # balance, NOT statistical representativeness or fact verification.
+    for kind, per_source in groups.items():
+        depth_limit = max((len(rows) for rows in per_source.values()), default=0)
+        for depth in range(depth_limit):
+            for sid in sorted(per_source):
+                if depth >= len(per_source[sid]):
+                    continue
                 if len(results[kind]) < MAX_REVIEW_PER_CATEGORY:
-                    results[kind].append(row)
+                    results[kind].append(per_source[sid][depth])
                 else:
                     omitted[kind] += 1
     return {
         "schema_version": "1.0",
         "kind": "unreviewed_offline_publisher_evidence_candidates_not_gold",
+        "sampling_strategy": "bounded_source_round_robin_unreviewed",
+        "per_source_candidate_limit": MAX_REVIEW_PER_SOURCE,
+        "source_diversity_counts": {
+            kind: len({entry["source_id"] for entry in values})
+            for kind, values in results.items()
+        },
         "package_sha256": package_sha,
         "verified_immutable_archive_count": len(jobs),
         "samples": results,

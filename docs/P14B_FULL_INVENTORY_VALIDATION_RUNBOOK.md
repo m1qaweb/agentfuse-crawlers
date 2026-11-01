@@ -209,3 +209,17 @@ in inventory diagnostics but are excluded from gold observations.
 
 This saves re-crawling hundreds of sites while preserving a high-trust,
 source-indexed audit trail and case-level human truth verification.
+
+
+### Representative review sampling across multiple providers
+
+The P14A review packet now uses **bounded source-round-robin sampling**.
+Rather than taking the first 1,200 pricing rows from one giant table/source,
+it selects one candidate from each represented source ID first, then a
+second per source, and so on, with at most 40 source-local candidates and
+1,200 per category. The report shows source diversity counts and omitted
+candidates explicitly. This is **not** a statistical random sample and
+does not automatically verify a vendor claim; it prevents easy crowding
+out of less verbose providers. The human operator should ensure that
+small, challenging, negative, ambiguous, stale and high-impact provider
+cases are included in independently reviewed gold.
