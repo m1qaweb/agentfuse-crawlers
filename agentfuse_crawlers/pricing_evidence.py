@@ -239,24 +239,43 @@ def _model_label(row_label, context, caption):
     return ""
 
 
-def extract_pricing_evidence(main, source_url, source_id):
+def extract_pricing_evidence(main, source_url, source_id, *,
+                             table_offset=0, table_limit=MAX_SELECTED_TABLES):
+    """Scan relevant table inventory and capture one explicitly bounded window.
+
+    A window with omitted relevant tables is ALWAYS partial, even if all
+    retained numeric cells have clear dimensions. Adjacent windows must be
+    assembled offline from the same immutable page hash and extractor revision.
+    """
+    if (type(table_offset) is not int or table_offset < 0
+            or table_offset > MAX_SCAN_TABLES
+            or type(table_limit) is not int
+            or not 1 <= table_limit <= MAX_SELECTED_TABLES):
+        raise ValueError("pricing table window must be offset=0..700, limit=1..64")
     all_tables = main.xpath(".//table[not(ancestor::table)]")
     table_context = _contexts(main)
     # P09A: strictly bounded declarations with original text provenance.
     # Never assume publisher-wide USD, a global region, or a default tier.
     table_scope = table_declarations(main)
-    card_evidence = extract_card_evidence(main, source_url, source_id)
-    selected = []
-    scoped = 0
     scan_truncated = len(all_tables) > MAX_SCAN_TABLES
-    relevant_total = 0
+    relevant = []
     for index, table in enumerate(all_tables[:MAX_SCAN_TABLES]):
         info = _table_info(table, index, table_context.get(id(table), ()))
         if _is_relevant(table, info, source_id):
-            relevant_total += 1
-            if len(selected) < MAX_SELECTED_TABLES:
-                selected.append((table, info))
-                scoped += 1
+            relevant.append((table, info))
+    relevant_total = len(relevant)
+    selected = relevant[table_offset:table_offset + table_limit]
+    # Only the first window includes non-table pricing cards. Repeating them
+    # across windows would create duplicate independent price observations.
+    if table_offset == 0:
+        card_evidence = extract_card_evidence(main, source_url, source_id)
+    else:
+        card_evidence = {
+            "card_total": 0, "card_selected": 0, "card_omitted": 0,
+            "card_oversized": 0, "card_entries_examined": 0,
+            "card_entries_omitted": 0, "card_scan_truncated": False,
+            "card_observations": [], "card_evidence_excerpts": [],
+        }
 
     observations = []
     legacy_tables = []
@@ -400,7 +419,8 @@ def extract_pricing_evidence(main, source_url, source_id):
     ]
     rate_id_collision_count = len(ids) - len(set(ids))
     inventory_complete = bool(
-        not scan_truncated and relevant_total == len(selected)
+        table_offset == 0
+        and not scan_truncated and relevant_total == len(selected)
         and not rows_incomplete and not obs_overflow
         and not card_incomplete and not card_conflict
         and not rate_id_collision_count
@@ -426,7 +446,14 @@ def extract_pricing_evidence(main, source_url, source_id):
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "evidence_quote_v3",
+        "pricing_parser_revision": "evidence_quote_v3_windows",
+        "pricing_table_window_start": table_offset,
+        "pricing_table_window_limit": table_limit,
+        "pricing_table_window_end": table_offset + len(selected),
+        "pricing_table_window_selected_indices": [
+            info["table_index"] for _, info in selected
+        ],
+        "pricing_table_window_cards_included": table_offset == 0,
         "pricing_table_total": len(all_tables),
         "pricing_table_scanned": min(len(all_tables), MAX_SCAN_TABLES),
         "pricing_table_relevant": relevant_total,
