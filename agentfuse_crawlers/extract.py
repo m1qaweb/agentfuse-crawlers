@@ -267,7 +267,8 @@ def _tables(main):
     return tables, truncated
 
 
-def extract_evidence(raw_html, source_url, category=None, source_id=None):
+def extract_evidence(raw_html, source_url, category=None, source_id=None,
+                     pricing_table_window=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
@@ -305,7 +306,10 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
     else:
         sections, sections_truncated = _sections(main, source_url)
         if category == 'pricing' and source_id:
-            pricing_details = extract_pricing_evidence(main, source_url, source_id)
+            pricing_details = extract_pricing_evidence(
+                main, source_url, source_id,
+                **(pricing_table_window or {}),
+            )
             tables = pricing_details['pricing_legacy_table_excerpts']
             tables_truncated = not pricing_details['pricing_inventory_complete']
         else:
