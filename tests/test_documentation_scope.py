@@ -24,7 +24,7 @@ def test_profiles_are_pinned_without_growing_or_rewriting_460_urls():
     profiles = load_documentation_profiles()
     sources = load_sources()
     assert len(sources) == 460
-    assert len(profiles) == 22
+    assert len(profiles) == 64
     manifest = {x["id"]: x for x in sources}
     assert all(manifest[sid]["url"] == p["source_url"] for sid, p in profiles.items())
     assert all(p["approved_for_advisor"] is False for p in profiles.values())

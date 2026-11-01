@@ -39,6 +39,8 @@ def _source_identity(row):
         row.get("pricing_table_window_start"),
         row.get("pricing_table_window_limit"),
         row.get("documentation_evidence_schema"),
+        row.get("documentation_parser_revision"),
+        row.get("documentation_profile_sha256"),
         row.get("documentation_product_scope"),
         row.get("source_format"),
     )
@@ -75,6 +77,15 @@ def _healthy_for_typed_diffs(row):
             row.get("documentation_scope_status") == "scoped_page"
             and row.get("documentation_profile_status")
             == "curated_pending_live_validation"
+            and (row.get("documentation_parser_revision") != "docs_scope_v2_review_links"
+                 or (
+                     row.get("documentation_product_scope_signal") == "explicit_marker_found"
+                     and not row.get("documentation_requires_product_review")
+                     and row.get("documentation_canonical_relation")
+                         in {"missing", "equivalent_path"}
+                     and row.get("documentation_static_capture_status")
+                         == "substantive_static_text_observed"
+                 ))
             and not row.get("documentation_source_sections_truncated")
             and not row.get("documentation_item_budget_truncated")
             and not row.get("documentation_topic_candidate_omitted")

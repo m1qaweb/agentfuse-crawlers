@@ -211,6 +211,7 @@ def _compatible_source(row, old):
         "pricing_evidence_schema", "pricing_parser_revision",
         "pricing_table_window_start", "pricing_table_window_limit",
         "documentation_evidence_schema",
+        "documentation_parser_revision", "documentation_profile_sha256",
         "documentation_product_scope", "source_format",
     )
     return all(row.get(k) == old.get(k) for k in identity)

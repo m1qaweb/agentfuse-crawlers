@@ -85,10 +85,14 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
     if "server_date_in_future" in cache_warnings:
         return "needs_review", "invalid_future_server_date"
     if category == "documentation" and evidence.get("documentation_evidence_schema") == "1.0":
+        if evidence.get("documentation_static_capture_status") == "javascript_shell_suspected":
+            return "needs_review", "documentation_javascript_shell_suspected"
         if evidence.get("documentation_profile_status") == "profile_url_mismatch":
             return "needs_review", "documentation_source_profile_url_mismatch"
         if evidence.get("documentation_product_scope_signal") == "marker_not_found":
             return "needs_review", "documentation_product_scope_not_demonstrated"
+        if evidence.get("documentation_product_scope_signal") == "body_only_marker_requires_review":
+            return "needs_review", "documentation_product_marker_only_in_body"
         if evidence.get("documentation_requires_product_review"):
             return "needs_review", "documentation_product_scope_ambiguous"
         scope = evidence.get("documentation_scope_status")

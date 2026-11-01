@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "note": "Curation metadata and expected scope, not audited vendor capability facts. Exact source URLs are pinned to the existing manifest; profiles do not authorize crawls of additional URLs.",
+  "note": "Curated expected page/product metadata pending live publisher validation; not product capability facts. All 460 manifest URLs and permissions are unchanged. Required identity markers are exact page-visible words, not verified feature support. Child links are review-only and never automatically fetched.",
   "profiles": {
     "openai_api_docs": {
       "source_url": "https://developers.openai.com/api/docs",
@@ -37,7 +37,11 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "anthropic",
+        "claude"
+      ]
     },
     "gemini_api_docs": {
       "source_url": "https://ai.google.dev/gemini-api/docs",
@@ -54,7 +58,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "gemini"
+      ]
     },
     "claude_code_docs": {
       "source_url": "https://code.claude.com/docs/en/overview",
@@ -90,7 +97,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "cursor"
+      ]
     },
     "kiro_docs": {
       "source_url": "https://kiro.dev/docs/",
@@ -126,7 +136,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "copilot"
+      ]
     },
     "google_antigravity_docs": {
       "source_url": "https://antigravity.google/docs/getting-started",
@@ -142,7 +155,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "antigravity"
+      ]
     },
     "gemini_cli_docs": {
       "source_url": "https://geminicli.com/docs/",
@@ -158,7 +174,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "gemini cli"
+      ]
     },
     "chatgpt_codex_docs": {
       "source_url": "https://learn.chatgpt.com/docs",
@@ -174,7 +193,11 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "chatgpt",
+        "codex"
+      ]
     },
     "devin_docs": {
       "source_url": "https://docs.devin.ai/get-started/devin-intro",
@@ -190,7 +213,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "devin"
+      ]
     },
     "xai_docs": {
       "source_url": "https://docs.x.ai/overview",
@@ -206,7 +232,11 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "xai",
+        "grok"
+      ]
     },
     "perplexity_docs": {
       "source_url": "https://docs.perplexity.ai/docs/getting-started/overview",
@@ -222,7 +252,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "perplexity"
+      ]
     },
     "cloudflare_workers_ai_docs": {
       "source_url": "https://developers.cloudflare.com/workers-ai/",
@@ -257,7 +290,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "ai gateway"
+      ]
     },
     "supabase_docs": {
       "source_url": "https://supabase.com/docs",
@@ -311,7 +347,11 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "hugging face",
+        "huggingface"
+      ]
     },
     "google_cloud_ai_docs": {
       "source_url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/machine-learning",
@@ -365,7 +405,10 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "sagemaker"
+      ]
     },
     "azure_ai_search_docs": {
       "source_url": "https://learn.microsoft.com/en-us/azure/search/search-what-is-azure-search",
@@ -381,7 +424,873 @@
       "approved_for_advisor": false,
       "requires_scope_review": false,
       "scope_review_reason": null,
-      "known_capture_issue": null
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "azure ai search"
+      ]
+    },
+    "replit_docs": {
+      "source_url": "https://docs.replit.com/welcome",
+      "provider": "Replit",
+      "product_scope": "Replit",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "replit"
+      ]
+    },
+    "lovable_docs": {
+      "source_url": "https://docs.lovable.dev/introduction/welcome",
+      "provider": "Lovable",
+      "product_scope": "Lovable",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "lovable"
+      ]
+    },
+    "deepseek_docs": {
+      "source_url": "https://api-docs.deepseek.com/",
+      "provider": "DeepSeek",
+      "product_scope": "DeepSeek API",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "deepseek"
+      ]
+    },
+    "mistral_docs": {
+      "source_url": "https://docs.mistral.ai/",
+      "provider": "Mistral",
+      "product_scope": "Mistral API",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "mistral"
+      ]
+    },
+    "together_ai_docs": {
+      "source_url": "https://docs.together.ai/intro",
+      "provider": "Together AI",
+      "product_scope": "Together AI",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "together"
+      ]
+    },
+    "fireworks_ai_docs": {
+      "source_url": "https://docs.fireworks.ai/getting-started/introduction",
+      "provider": "Fireworks AI",
+      "product_scope": "Fireworks AI",
+      "expected_page_type": "guide",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "fireworks"
+      ]
+    },
+    "openrouter_docs": {
+      "source_url": "https://openrouter.ai/docs/quickstart",
+      "provider": "OpenRouter",
+      "product_scope": "OpenRouter",
+      "expected_page_type": "guide",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "openrouter"
+      ]
+    },
+    "groqcloud_docs": {
+      "source_url": "https://console.groq.com/docs/overview",
+      "provider": "GroqCloud",
+      "product_scope": "GroqCloud",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "groq"
+      ]
+    },
+    "ollama_docs": {
+      "source_url": "https://docs.ollama.com/",
+      "provider": "Ollama",
+      "product_scope": "Ollama",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "ollama"
+      ]
+    },
+    "pinecone_docs": {
+      "source_url": "https://docs.pinecone.io/",
+      "provider": "Pinecone",
+      "product_scope": "Pinecone",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "pinecone"
+      ]
+    },
+    "weaviate_docs": {
+      "source_url": "https://docs.weaviate.io/weaviate",
+      "provider": "Weaviate",
+      "product_scope": "Weaviate",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "weaviate"
+      ]
+    },
+    "qdrant_docs": {
+      "source_url": "https://qdrant.tech/documentation/",
+      "provider": "Qdrant",
+      "product_scope": "Qdrant",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "qdrant"
+      ]
+    },
+    "chroma_docs": {
+      "source_url": "https://docs.trychroma.com/",
+      "provider": "Chroma",
+      "product_scope": "Chroma",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "chroma"
+      ]
+    },
+    "lancedb_docs": {
+      "source_url": "https://docs.lancedb.com/",
+      "provider": "LanceDB",
+      "product_scope": "LanceDB",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "lancedb"
+      ]
+    },
+    "llamaindex_docs": {
+      "source_url": "https://developers.llamaindex.ai/python/framework/",
+      "provider": "LlamaIndex",
+      "product_scope": "LlamaIndex",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "llamaindex"
+      ]
+    },
+    "tavily_docs": {
+      "source_url": "https://docs.tavily.com/",
+      "provider": "Tavily",
+      "product_scope": "Tavily",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "rate_limits",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "tavily"
+      ]
+    },
+    "exa_docs": {
+      "source_url": "https://exa.ai/docs",
+      "provider": "Exa",
+      "product_scope": "Exa",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "rate_limits",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "exa"
+      ]
+    },
+    "composio_docs": {
+      "source_url": "https://docs.composio.dev/",
+      "provider": "Composio",
+      "product_scope": "Composio",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "composio"
+      ]
+    },
+    "arcade_docs": {
+      "source_url": "https://docs.arcade.dev/",
+      "provider": "Arcade",
+      "product_scope": "Arcade",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "arcade"
+      ]
+    },
+    "pipedream_docs": {
+      "source_url": "https://pipedream.com/docs/",
+      "provider": "Pipedream",
+      "product_scope": "Pipedream",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "pipedream"
+      ]
+    },
+    "flowise_docs": {
+      "source_url": "https://docs.flowiseai.com/",
+      "provider": "Flowise",
+      "product_scope": "Flowise",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "flowise"
+      ]
+    },
+    "litellm_docs": {
+      "source_url": "https://docs.litellm.ai/",
+      "provider": "LiteLLM",
+      "product_scope": "LiteLLM",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "model_catalog",
+        "authentication",
+        "tool_use",
+        "rate_limits",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "litellm"
+      ]
+    },
+    "promptfoo_docs": {
+      "source_url": "https://www.promptfoo.dev/docs/",
+      "provider": "Promptfoo",
+      "product_scope": "Promptfoo",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "promptfoo"
+      ]
+    },
+    "mem0_docs": {
+      "source_url": "https://docs.mem0.ai/",
+      "provider": "Mem0",
+      "product_scope": "Mem0",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "mem0"
+      ]
+    },
+    "letta_docs": {
+      "source_url": "https://docs.letta.com/",
+      "provider": "Letta",
+      "product_scope": "Letta",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "letta"
+      ]
+    },
+    "agno_docs": {
+      "source_url": "https://docs.agno.com/",
+      "provider": "Agno",
+      "product_scope": "Agno",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "agno"
+      ]
+    },
+    "mastra_docs": {
+      "source_url": "https://mastra.ai/docs",
+      "provider": "Mastra",
+      "product_scope": "Mastra",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "tools_and_mcp",
+        "authentication",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "mastra"
+      ]
+    },
+    "mintlify_docs": {
+      "source_url": "https://mintlify.com/docs",
+      "provider": "Mintlify",
+      "product_scope": "Mintlify",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "mintlify"
+      ]
+    },
+    "coderabbit_docs": {
+      "source_url": "https://docs.coderabbit.ai/",
+      "provider": "CodeRabbit",
+      "product_scope": "CodeRabbit",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "coderabbit"
+      ]
+    },
+    "continue_docs": {
+      "source_url": "https://docs.continue.dev/",
+      "provider": "Continue",
+      "product_scope": "Continue",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "continue"
+      ]
+    },
+    "aider_docs": {
+      "source_url": "https://aider.chat/docs/",
+      "provider": "Aider",
+      "product_scope": "Aider",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "aider"
+      ]
+    },
+    "assemblyai_docs": {
+      "source_url": "https://www.assemblyai.com/docs",
+      "provider": "AssemblyAI",
+      "product_scope": "AssemblyAI",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "modalities",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "assemblyai"
+      ]
+    },
+    "deepgram_docs": {
+      "source_url": "https://developers.deepgram.com/docs/",
+      "provider": "Deepgram",
+      "product_scope": "Deepgram",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "modalities",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "deepgram"
+      ]
+    },
+    "vapi_docs": {
+      "source_url": "https://docs.vapi.ai/",
+      "provider": "Vapi",
+      "product_scope": "Vapi",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "modalities",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "vapi"
+      ]
+    },
+    "livekit_docs": {
+      "source_url": "https://docs.livekit.io/",
+      "provider": "LiveKit",
+      "product_scope": "LiveKit",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "modalities",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "livekit"
+      ]
+    },
+    "apify_docs": {
+      "source_url": "https://docs.apify.com/",
+      "provider": "Apify",
+      "product_scope": "Apify",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "apify"
+      ]
+    },
+    "zyte_docs": {
+      "source_url": "https://docs.zyte.com/",
+      "provider": "Zyte",
+      "product_scope": "Zyte",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "zyte"
+      ]
+    },
+    "browserless_docs": {
+      "source_url": "https://docs.browserless.io/",
+      "provider": "Browserless",
+      "product_scope": "Browserless",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "browserless"
+      ]
+    },
+    "serpapi_docs": {
+      "source_url": "https://serpapi.com/search-api",
+      "provider": "SerpApi",
+      "product_scope": "SerpApi",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "rate_limits",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "serpapi"
+      ]
+    },
+    "unstructured_docs": {
+      "source_url": "https://docs.unstructured.io/",
+      "provider": "Unstructured",
+      "product_scope": "Unstructured",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "sdk",
+        "regions",
+        "limitations",
+        "rate_limits"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "unstructured"
+      ]
+    },
+    "temporal_docs": {
+      "source_url": "https://docs.temporal.io/",
+      "provider": "Temporal",
+      "product_scope": "Temporal",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "temporal"
+      ]
+    },
+    "inngest_docs": {
+      "source_url": "https://www.inngest.com/docs",
+      "provider": "Inngest",
+      "product_scope": "Inngest",
+      "expected_page_type": "overview",
+      "target_topics": [
+        "authentication",
+        "tools_and_mcp",
+        "sdk",
+        "limitations"
+      ],
+      "review_status": "pending_live_validation",
+      "approved_for_advisor": false,
+      "requires_scope_review": false,
+      "scope_review_reason": null,
+      "known_capture_issue": null,
+      "required_scope_markers": [
+        "inngest"
+      ]
     }
   }
 }

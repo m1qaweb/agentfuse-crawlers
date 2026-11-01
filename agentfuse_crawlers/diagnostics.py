@@ -134,6 +134,9 @@ def derive_diagnostics(record):
         if signal == "marker_not_found":
             add("documentation_product_scope_not_demonstrated")
             product_review = True
+        if signal == "body_only_marker_requires_review":
+            add("documentation_product_marker_only_in_body")
+            product_review = True
         if record.get("documentation_profile_status") == "profile_url_mismatch":
             add("documentation_source_profile_url_mismatch")
             product_review = True
@@ -141,6 +144,16 @@ def derive_diagnostics(record):
             add("canonical_path_differs")
         if record.get("documentation_topic_candidate_omitted", 0):
             add("documentation_topic_candidates_omitted")
+        if record.get("documentation_static_capture_status") == "javascript_shell_suspected":
+            add("documentation_javascript_shell_suspected")
+        if record.get("documentation_nav_candidates"):
+            add("documentation_child_links_not_approved_for_crawl")
+        if record.get("documentation_nav_candidate_omitted"):
+            add("documentation_review_links_omitted")
+        if record.get("documentation_nav_links_scan_truncated"):
+            add("documentation_navigation_scan_truncated")
+        if record.get("documentation_canonical_migration_status") == "review_required_never_auto_follow":
+            add("documentation_canonical_migration_requires_review")
         if scope == "overview_only":
             add("documentation_overview_not_full_corpus")
     elif category == "pricing" and record.get("pricing_evidence_schema"):

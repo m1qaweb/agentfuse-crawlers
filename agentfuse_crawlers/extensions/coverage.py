@@ -41,6 +41,15 @@ def _comparable(item):
             and item.get("content_sha256")
             and item.get("documentation_scope_status") == "scoped_page"
             and item.get("documentation_profile_status") == "curated_pending_live_validation"
+            and (item.get("documentation_parser_revision") != "docs_scope_v2_review_links"
+                 or (
+                     item.get("documentation_product_scope_signal") == "explicit_marker_found"
+                     and not item.get("documentation_requires_product_review")
+                     and item.get("documentation_canonical_relation")
+                         in {"missing", "equivalent_path"}
+                     and item.get("documentation_static_capture_status")
+                         == "substantive_static_text_observed"
+                 ))
             and item.get("documentation_topic_candidates")
             and not item.get("documentation_topic_candidate_omitted")
             and not item.get("documentation_source_sections_truncated")

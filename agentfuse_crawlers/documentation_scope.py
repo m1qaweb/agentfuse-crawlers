@@ -9,11 +9,19 @@ import json
 import re
 from functools import lru_cache
 from importlib.resources import files
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from agentfuse_crawlers.sources import load_sources
 
 SCHEMA_VERSION = "1.0"
+PARSER_REVISION = "docs_scope_v2_review_links"
+MAX_NAV_LINKS_INSPECTED = 450
+MAX_NAV_CANDIDATES = 24
+NAV_EXCLUDED_TEXT = frozenset({
+    "home", "pricing", "login", "log in", "sign in", "sign up",
+    "contact", "privacy", "terms", "cookies", "download", "github",
+    "twitter", "x", "join", "back", "next", "previous",
+})
 MAX_CANDIDATES = 16
 MAX_EXCERPT = 520
 ALLOWED_PAGE_TYPES = frozenset({"overview", "guide", "reference", "index"})
@@ -125,9 +133,132 @@ def _topics_for_heading(heading):
     ]
 
 
+def _profile_digest(source_id, profile):
+    """Per-source registry identity: other providers' edits don't reset it."""
+    return hashlib.sha256(json.dumps(
+        {"source_id": source_id, "profile": profile},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
+
+
+def _trusted_page_family(source_url):
+    """Narrow sibling path family, never an allowlist for automatic fetching."""
+    p = urlsplit(source_url).path
+    if not p or p == "/":
+        return None  # Root documentation portals need manual product boundaries.
+    if p.rstrip("/").endswith("/docs"):
+        return p.rstrip("/") + "/"
+    if p.endswith("/"):
+        return p
+    parent = p.rsplit("/", 1)[0] + "/"
+    if parent == "/":
+        return None
+    return parent
+
+
+def inspect_documentation_dom(root, source_url, source_id):
+    """Read source-present navigation; NEVER fetch or approve any discovered URL.
+
+    Uses the raw document before nav/aside cleanup, for diagnostic/review
+    purposes only. No <base> retargeting, cross-host targets or URL secrets.
+    """
+    family = _trusted_page_family(source_url)
+    anchors = root.xpath(".//a[@href]")
+    examined = min(len(anchors), MAX_NAV_LINKS_INSPECTED)
+    candidates = []
+    discovered = set()
+    source_path = urlsplit(source_url).path.rstrip("/")
+    for node in anchors[:MAX_NAV_LINKS_INSPECTED]:
+        href = node.get("href", "")
+        if (not isinstance(href, str) or not href or len(href) > 650
+                or href.startswith(("#", "?", "//"))
+                or "%" in href):
+            continue
+        try:
+            target = urljoin(source_url, href)
+            parsed = urlsplit(target)
+            if (not family or not _same_official_host(target, source_url)
+                    or parsed.query or parsed.fragment
+                    or not parsed.path.startswith(family)
+                    or parsed.path.rstrip("/") == source_path
+                    or "//" in parsed.path):
+                continue
+            clean_target = urlunsplit((
+                "https", parsed.hostname, parsed.path, "", "",
+            ))
+        except (ValueError, TypeError):
+            continue
+        label = re.sub(r"\s+", " ", node.text_content()).strip()
+        if (not 3 <= len(label) <= 125 or label.casefold() in NAV_EXCLUDED_TEXT
+                or not re.search(r"[A-Za-z]{3}", label)):
+            continue
+        if clean_target in discovered:
+            continue
+        discovered.add(clean_target)
+        if len(candidates) < MAX_NAV_CANDIDATES:
+            origin = (
+                "navigation_or_sidebar"
+                if node.xpath("ancestor::nav|ancestor::aside")
+                else "page_body_or_index"
+            )
+            candidates.append({
+                "candidate_id": hashlib.sha256(
+                    (source_id + "|docs-child|" + clean_target).encode("utf-8")
+                ).hexdigest()[:24],
+                "source_id": source_id,
+                "candidate_url": clean_target[:800],
+                "anchor_text": label[:125],
+                "found_in": origin,
+                "relationship": "same_host_path_family_unverified",
+                "review_status": "pending_human_url_and_policy_review",
+                "approved_for_crawl": False,
+                "approved_for_advisor": False,
+            })
+    scripts = len(root.xpath(".//script"))
+    mount = bool(root.xpath(
+        ".//*[@id='root' or @id='__next' or @id='app']"
+    ))
+    return {
+        "documentation_nav_path_family": family,
+        "documentation_nav_links_examined": examined,
+        "documentation_nav_links_scan_truncated": len(anchors) > examined,
+        "documentation_nav_candidate_total_detected": len(discovered),
+        "documentation_nav_candidate_omitted": max(
+            0, len(discovered) - len(candidates)
+        ),
+        "documentation_nav_candidates": candidates,
+        "documentation_raw_script_element_count": scripts,
+        "documentation_raw_app_mount_seen": mount,
+    }
+
+
+def _scope_marker_evidence(title, text, markers):
+    """A body mention is NOT strong enough to identify a pinned product.
+
+    E.g. a competing product can say 'not Bedrock' in introductory prose.
+    We only accept a lexical marker from the visible H1/page title, never
+    imply a capability or independent publisher ownership from it.
+    """
+    if not markers:
+        return "no_marker_policy"
+
+    def matches(value):
+        return any(re.search(
+            r"(?<![a-z0-9])" + re.escape(marker.lower()) + r"(?![a-z0-9])",
+            value.lower(),
+        ) for marker in markers)
+
+    if matches(title):
+        return "explicit_marker_found"
+    if matches(text[:1600]):
+        return "body_only_marker_requires_review"
+    return "marker_not_found"
+
+
 def extract_documentation_evidence(
     source_url, source_id, *, sections, title, text, prose_paragraphs,
     link_text_ratio, sections_truncated=False, canonical_candidate="",
+    document_dom=None,
 ):
     """Emit typed *topics* with exact snippets, never 'feature_supported=true'."""
     profiles = load_documentation_profiles()
@@ -140,12 +271,17 @@ def extract_documentation_evidence(
     # A curated source ID cannot prove that the returned body is about the
     # expected product. Require known identity signals for higher-risk URLs.
     markers = profile.get("required_scope_markers", []) if profile else []
-    lead = re.sub(r"\s+", " ", (title + " " + text[:1600])).lower()
-    product_signal = (
-        "no_marker_policy" if not markers
-        else "explicit_marker_found" if any(m.lower() in lead for m in markers)
-        else "marker_not_found"
-    )
+    product_signal = _scope_marker_evidence(title, text, markers)
+    dom = document_dom or {}
+    words = len(text.split())
+    if words >= 45:
+        static_status = "substantive_static_text_observed"
+    elif (dom.get("documentation_raw_script_element_count", 0) >= 6
+          or (dom.get("documentation_raw_app_mount_seen")
+              and dom.get("documentation_raw_script_element_count", 0) >= 1)):
+        static_status = "javascript_shell_suspected"
+    else:
+        static_status = "insufficient_static_text"
     candidates = []
     total = 0
     for section in sections:
@@ -154,7 +290,14 @@ def extract_documentation_evidence(
         # Navigation link labels and headings alone are not capability facts.
         if not heading or len(excerpt.split()) < 12:
             continue
+        # Only same-section prose can corroborate a topic heading. Other
+        # paragraphs on a long landing page are not evidence for this section.
+        local_prose = section.get("local_substantive_paragraph_count", 0)
+        if not isinstance(local_prose, int) or local_prose < 1:
+            continue
         for topic in _topics_for_heading(heading):
+            if profile and topic not in profile["target_topics"]:
+                continue
             total += 1
             if len(candidates) >= MAX_CANDIDATES:
                 continue
@@ -173,6 +316,8 @@ def extract_documentation_evidence(
                 "source_url": locator,
                 "section_id": section.get("section_id"),
                 "section_sha256": section.get("sha256"),
+                "same_section_substantive_paragraph_count": local_prose,
+                "topic_evidence_basis": "topic_heading_with_local_prose_unverified",
                 "excerpt": excerpt[:MAX_EXCERPT],
                 "excerpt_truncated": bool(
                     section.get("excerpt_truncated") or len(excerpt) > MAX_EXCERPT
@@ -182,12 +327,16 @@ def extract_documentation_evidence(
                 "approved_for_advisor": False,
             })
 
-    words = len(text.split())
     url_path = urlsplit(source_url).path.rstrip("/").lower()
     expected = profile.get("expected_page_type") if profile else None
     # Classification is page-level only. A reference-looking overview is not
     # evidence that all relevant reference URLs have been crawled.
-    if words < 45:
+    if (words < 45 and dom.get("documentation_nav_candidate_total_detected", 0)
+            and static_status != "javascript_shell_suspected"):
+        # A static navigation-only HTML page is a reviewable INDEX, not proof
+        # of technical corpus coverage. The nav may be stripped from prose.
+        page_type, scope = "index", "index_only"
+    elif words < 45:
         page_type, scope = "insufficient_content", "insufficient_content"
     elif link_text_ratio > 0.65 and prose_paragraphs < 2:
         page_type, scope = "index", "index_only"
@@ -201,6 +350,8 @@ def extract_documentation_evidence(
     canonical = canonical_relationship(source_url, canonical_candidate)
     return {
         "documentation_evidence_schema": SCHEMA_VERSION,
+        "documentation_parser_revision": PARSER_REVISION,
+        "documentation_profile_sha256": _profile_digest(source_id, profile),
         "documentation_profile_status": profile_status,
         "documentation_product_scope": (
             profile.get("product_scope") if profile else None
@@ -219,12 +370,25 @@ def extract_documentation_evidence(
             profile.get("known_capture_issue") if profile else None
         ),
         "documentation_corpus_coverage": "single_url_only",
+        "documentation_static_capture_status": static_status,
+        "documentation_substantive_section_count": sum(
+            bool(s.get("local_substantive_paragraph_count"))
+            for s in sections
+        ),
+        "documentation_nav_candidate_status": "review_only_no_fetch",
+        "documentation_child_pages_automatically_fetched": 0,
+        **dom,
         "documentation_topic_candidates": candidates,
         "documentation_topic_candidate_count": total,
         "documentation_topic_candidate_omitted": max(0, total - len(candidates)),
         "documentation_source_sections_truncated": bool(sections_truncated),
         "documentation_canonical_relation": canonical["relation"],
         "documentation_canonical_review_url": canonical["review_url"],
+        "documentation_canonical_migration_status": (
+            "review_required_never_auto_follow"
+            if canonical["relation"] not in {"missing", "equivalent_path"}
+            else "no_migration_requested"
+        ),
         "documentation_all_capabilities_verified": False,
     }
 
