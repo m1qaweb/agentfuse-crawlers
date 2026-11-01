@@ -258,6 +258,25 @@ def _permalink(node, source_url):
                 return target
     return source_url
 
+MODIFIED_DATE_MARKERS = (
+    "datemodified", "date-modified", "last-modified",
+    "last-updated", "updated-at", "last updated",
+    "last edited", "edited-at", "modified-at",
+)
+
+
+def _date_is_edit_metadata(node):
+    """Reject edit timestamps even when the date is inside a nested span."""
+    for owner in [node, *list(node.iterancestors())[:2]]:
+        role = " ".join(
+            owner.get(key, "") for key in
+            ("itemprop", "class", "aria-label", "data-testid", "role")
+        ).lower()
+        if any(marker in role for marker in MODIFIED_DATE_MARKERS):
+            return True
+    return False
+
+
 def _signals(main):
     """Ordered semantic tokens; only standalone date text is a date marker."""
     for node in main.iter():
@@ -275,29 +294,38 @@ def _signals(main):
             if title:
                 yield "heading", title, node, int(tag[1])
         elif tag in {"time", "relative-time"}:
-            date_role = " ".join(
-                node.get(x, "") for x in
-                ("itemprop", "class", "aria-label", "data-testid")
-            ).lower()
-            if any(x in date_role for x in (
-                "datemodified", "date-modified", "last-modified",
-                "last-updated", "updated-at", "last updated",
-                "last edited", "edited-at", "modified-at",
-            )):
+            if _date_is_edit_metadata(node):
                 continue  # Edited time is not a release publication date.
             value = (node.get("datetime") or node.get("dateTime") or "").strip()
-            if value and DATE_ISO.fullmatch(value[:10]) and _date(value[:10])[0]:
-                yield "timestamp", value[:10], node, 0
+            visible = _normalize(node.text_content())
+            direct = (
+                visible if _marker_shape(visible)
+                else _explicit_publication_dateline(visible)
+            )
+            visible_day = _date(direct)[0] if direct else None
+            attr_day = _date(value[:10])[0] if (
+                value and DATE_ISO.fullmatch(value[:10])
+            ) else None
+            # A conflicting printed date and machine datetime is ambiguous.
+            # Reject both rather than choosing a date by convenience.
+            if attr_day and visible_day and attr_day != visible_day:
+                continue
+            if attr_day:
+                yield "timestamp", attr_day, node, 0
                 continue
             # Many official article cards display <time>Oct 28, 2026</time>
             # without machine-readable datetime. The ENTIRE visible value
             # must still be an explicit day; do not use parent prose or year
             # inference. If datetime attribute exists but conflicts, refuse.
-            visible = _normalize(node.text_content())
-            direct = visible if _marker_shape(visible) else _explicit_publication_dateline(visible)
-            if direct and _date(direct)[0] and not value:
+            if visible_day and not value:
                 yield "date", direct, node, 0
         elif tag in {"p", "div", "span", "small", "strong", "b"}:
+            # Nested <span> of an edited <time> cannot become an independent
+            # publication dateline after the parent timestamp was rejected.
+            if (_date_is_edit_metadata(node)
+                    or any(_tag(a) in {"time", "relative-time"}
+                           for a in node.iterancestors())):
+                continue
             # Only parse a date when the entire node text is the dateline.
             # Skip wrapper nodes that simply repeat a child dateline.
             value = _normalize(node.text_content())

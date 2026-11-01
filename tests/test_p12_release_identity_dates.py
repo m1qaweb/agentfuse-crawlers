@@ -235,3 +235,37 @@ def test_markdown_identity_revision_explicit_without_publication_date():
     )
     assert data["latest_release_date_candidate"] is None
     assert data["approved_for_advisor"] is False
+
+def test_nested_last_updated_span_never_becomes_published_at():
+    item = crawl(
+        "<article><header><h3>Version v3.0.0</h3>"
+        "<time itemprop='dateModified'><span>Oct 30, 2026</span></time>"
+        "</header><p>Notes were edited later.</p></article>"
+    )
+    assert item["release_events"][0]["published_at"] is None
+
+
+def test_standalone_last_updated_badge_is_not_release_dateline():
+    item = crawl(
+        "<span class='last-updated'>Oct 30, 2026</span>"
+        "<h2>Version v3.1.0</h2><p>Version description.</p>"
+    )
+    assert item["release_events"][0]["published_at"] is None
+
+
+def test_conflicting_time_datetime_and_visible_date_fail_closed():
+    item = crawl(
+        "<article><header><h2>Version v3.1.0</h2>"
+        "<time datetime='2026-10-30'>Oct 28, 2026</time></header>"
+        "<p>Source markup gave conflicting publication dates.</p></article>"
+    )
+    assert item["release_events"][0]["published_at"] is None
+
+
+def test_concordant_visible_and_machine_date_remains_accepted():
+    item = crawl(
+        "<article><header><h2>Release A</h2>"
+        "<time datetime='2026-10-30T12:00:00Z'>Oct 30, 2026</time>"
+        "</header><p>Source markup agrees on the day.</p></article>"
+    )
+    assert item["release_events"][0]["published_at"] == "2026-10-30"
