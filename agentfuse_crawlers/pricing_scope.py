@@ -33,7 +33,7 @@ LOCAL_UNIT = re.compile(
     re.I,
 )
 LOCAL_CURRENCY = re.compile(
-    rf"^(?:prices?|rates?|pricing|costs?)\s+(?:are|is\s+)?"
+    rf"^(?:prices?|rates?|pricing|costs?)\s+(?:(?:are|is)\s+)?"
     rf"(?:(?:shown|listed|quoted|denominated)\s+)?in\s+({CODES})\s*\.?$",
     re.I,
 )

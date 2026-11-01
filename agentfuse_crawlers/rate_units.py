@@ -53,6 +53,8 @@ UNIT_PATTERNS = [
     ("per_image", re.compile(r"(?:\bper\b|/)\s*image\b", re.I)),
     ("per_user_month", re.compile(
         r"(?:\bper\b|/)\s*(?:user|seat)\s*(?:per|/)?\s*month\b", re.I)),
+    ("per_month", re.compile(
+        r"(?:\bper\b|/)\s*month\b", re.I)),
     ("per_gpu_hour", re.compile(
         r"(?:\bper\b|/)\s*(?:GPU|GPU[- ]hour)\s*(?:per|/)?\s*hour\b|/\s*GPU[- ]hour\b", re.I)),
     ("per_ocpu_hour", re.compile(
@@ -84,7 +86,9 @@ DIMENSION_PATTERNS = [
     ("cached_input", re.compile(r"\b(?:cached input|input cach(?:ed|ing)?|context caching)\b", re.I)),
     ("input", re.compile(r"\binput\b", re.I)),
     ("output", re.compile(r"\boutput\b", re.I)),
-    ("subscription", re.compile(r"\b(?:seat|user)\b.*\bmonth\b", re.I)),
+    ("subscription", re.compile(
+        r"\b(?:seat|user)\b.*\bmonth\b|"
+        r"\b(?:monthly price|plan price|monthly subscription)\b", re.I)),
     ("usage", re.compile(
         r"\b(?:unit price|usage price|request price|hourly rate|rate|"
         r"price per (?:1[, ]?000 |1k |query|request))\b", re.I)),
@@ -112,6 +116,8 @@ def detect_unit(*scopes):
     for scope in scopes:
         hits.update(name for name, pattern in UNIT_PATTERNS
                     if pattern.search(clean(scope, 1500)))
+    if "per_user_month" in hits:
+        hits.discard("per_month")
     specialized = hits.intersection({"per_gpu_hour", "per_ocpu_hour", "per_vcpu_hour"})
     if specialized:
         # "per OCPU per hour" legitimately also matches "per hour".

@@ -15,6 +15,7 @@ from agentfuse_crawlers.pricing_scope import (
 )
 from agentfuse_crawlers.rate_units import (
     CURRENCY_CODES, PRICE_MARKER, NON_NUMERIC, analyze_cell, clean,
+    detect_unit,
 )
 
 MAX_CARDS = 120
@@ -44,6 +45,20 @@ GENERIC_CARD_TITLES = frozenset({
     "monthly pricing", "subscriptions", "plans and pricing",
 })
 BANNED_ANCESTORS = "ancestor::nav|ancestor::footer|ancestor::header|ancestor::aside|ancestor::form|ancestor::table"
+# A classless card is accepted only for a narrow named subscription tier,
+# with one explicit local monetary price and billing-period label. Marketing
+# sections, navigation and feature comparisons must not become price cards.
+PLAN_HEADING = re.compile(
+    r"^(?:(?:[A-Za-z][A-Za-z0-9+_.-]{1,24})\s+)?"
+    r"(?:free|starter|basic|plus|pro\+?|pro\s+max|premium|"
+    r"ultra|power|project|researcher|pay\s+as\s+you\s+go|"
+    r"team|teams|business|enterprise)$", re.I,
+)
+BILLING_PERIOD = re.compile(
+    r"^(?:per|/)\s*(?:(?:user|seat)\s*(?:/|per)\s*)?"
+    r"(?:month|hour|year|annum)$",
+    re.I,
+)
 EXCLUDED_CONTENT = re.compile(
     r"\b(?:free trial for \d+ days|save \d+%|discount|promo(?:tion)?|"
     r"customer story|our customers)\b", re.I,
@@ -64,9 +79,31 @@ def _is_card(node):
     if _tag(node) not in {"article", "section", "div"}:
         return False
     value = _attr_text(node)
-    return any(re.search(
+    if any(re.search(
         r"(?<![a-z0-9])" + re.escape(word) + r"(?![a-z0-9])", value
-    ) for word in CARD_MARKERS)
+    ) for word in CARD_MARKERS):
+        return True
+    # Precisely scoped structural fallback, never an arbitrary $-sign scan.
+    if node.xpath(".//table|ancestor::nav|ancestor::footer|ancestor::header"):
+        return False
+    if len(node.text_content()) > 2200:
+        return False
+    headings = node.xpath(".//h2|.//h3")
+    if len(headings) != 1 or not PLAN_HEADING.fullmatch(
+        clean(headings[0].text_content(), 130)
+    ):
+        return False
+    return any(
+        _tag(child) in {"div", "p", "span", "small", "strong"}
+        and PRICE_MARKER.search(clean(child.text_content(), 120))
+        and not any(_tag(sub) in {"h2", "h3", "h4", "p", "li"}
+                    for sub in child.iterdescendants())
+        for child in node.iterdescendants()
+    ) and any(
+        BILLING_PERIOD.fullmatch(clean(child.text_content(), 90))
+        for child in node.iterdescendants()
+        if _tag(child) in {"p", "span", "small", "div"}
+    )
 
 
 def _eligible(node):
@@ -224,6 +261,43 @@ def _pairs(card):
             used.update(id(child) for child in row.iterdescendants())
             yield label, value, row
 
+    # One price and one *adjacent exact* billing denominator within the same
+    # parent: e.g. <span>USD 20</span><span>per user / month</span>.
+    # Do not join prices with distant text or infer a term from an ad banner.
+    for parent in card.xpath(".//div|.//p|.//li"):
+        if id(parent) in used or parent.xpath("ancestor::table|ancestor::nav|ancestor::footer"):
+            continue
+        children = [
+            child for child in parent if _tag(child) in {
+                "span", "strong", "b", "small",
+            } and not list(child)
+        ]
+        if len(children) != 2 or len(parent) != 2:
+            continue
+        texts = [clean(x.text_content(), 150) for x in children]
+        price_positions = [i for i, t in enumerate(texts) if PRICE_MARKER.search(t)]
+        period_positions = [
+            i for i, t in enumerate(texts)
+            if BILLING_PERIOD.fullmatch(t) and detect_unit(t)
+        ]
+        if len(price_positions) != 1 or len(period_positions) != 1:
+            continue
+        rate = texts[price_positions[0]]
+        period = texts[period_positions[0]]
+        if (len(rate) > 85 or len(rate.split()) > 6
+                or EXCLUDED_CONTENT.search(rate) or EXCLUDED_CONTENT.search(period)):
+            continue
+        label = (
+            "Price per seat/month" if "user" in period.lower()
+            or "seat" in period.lower() else "Monthly price"
+            if "month" in period.lower() else "Price"
+        )
+        if label == "Price":
+            continue  # Do not invent hourly/annual dimensions.
+        used.add(id(parent))
+        used.update(id(child) for child in children)
+        yield label, rate + " " + period, parent
+
     for node in card.xpath(".//li|.//p|.//div|.//span|.//small"):
         if id(node) in used:
             continue
@@ -264,15 +338,34 @@ def _pairs(card):
 
 
 def _card_rate(source_id, source_url, heading, cid, idx, label, raw,
-               declarations, scope_conflict):
+               declarations, scope_conflict, *, plan_heading=False):
     scoped = scoped_text(declarations)
     obs = analyze_cell(
         raw, model_label=heading, column_header=label,
         row_header=heading or "", table_context=scoped,
         table_caption="", footnotes="",
     )
+    if (plan_heading and heading and not obs.get("tier_or_plan")
+            and obs.get("price_dimension") == "subscription"):
+        # An explicitly printed named PLAN heading is a tier label, not a
+        # guessed provider default or model name. Even then region/currency
+        # remain unknown until the publisher states them.
+        obs["tier_or_plan"] = heading
+        obs["tier_applicability"] = "explicit_plan_heading"
+        obs["model_or_service"] = "subscription_plan:" + heading
+        obs["normalized_amount_decimal"] = None
+        obs["comparable_candidate"] = False
+        obs["review_quote_amount_decimal"] = None
+        obs["review_quote_candidate"] = False
+        # A plan is not an API model. Keep it review-only until supported
+        # subscription comparison modes have their own identity rules.
+        obs["normalization_blockers"] = list(dict.fromkeys([
+            *obs["normalization_blockers"], "subscription_plan_needs_review",
+        ]))
     if scope_conflict:
         obs["normalized_amount_decimal"] = None
+        obs["review_quote_amount_decimal"] = None
+        obs["review_quote_candidate"] = False
         obs["comparable_candidate"] = False
         obs["normalization_blockers"] = list(dict.fromkeys([
             *obs["normalization_blockers"], "card_scope_conflict",
@@ -296,6 +389,7 @@ def _card_rate(source_id, source_url, heading, cid, idx, label, raw,
         "card_id": cid,
         "card_label": heading,
         "card_price_label": label,
+        "card_plan_heading": bool(plan_heading),
         "table_id": None,
         "row_index": None,
         "column_index": None,
@@ -333,6 +427,10 @@ def extract_card_evidence(main, source_url, source_id):
     examined, row_omitted = 0, 0
     for i, card in enumerate(selected):
         title = _heading(card)
+        plan_heading = bool(
+            title and PLAN_HEADING.fullmatch(title)
+            and (_tag(card) in {"div", "article", "section"})
+        )
         raw_id = clean(card.get("id"), 110)
         cid = raw_id if re.fullmatch(r"[a-zA-Z0-9_.:-]{1,100}", raw_id) else (
             f"card-{i+1}"
@@ -348,7 +446,7 @@ def extract_card_evidence(main, source_url, source_id):
             if len(observations) < MAX_CARD_OBSERVATIONS:
                 observations.append(_card_rate(
                     source_id, source_url, title, cid, j, label,
-                    raw, declarations, conflict,
+                    raw, declarations, conflict, plan_heading=plan_heading,
                 ))
             else:
                 row_omitted += 1
