@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from agentfuse_crawlers.run_context import manifest_sha256
+from agentfuse_crawlers.run_context import manifest_sha256, selection_ids_sha256
 from agentfuse_crawlers.source_lifecycle import registry_revision_sha256
 from agentfuse_crawlers.sources import load_sources
 from scripts.archive_jobs import load_archive
@@ -70,6 +70,28 @@ def load_bound_archives(paths):
                 or envelope.get("source_evidence_is_unverified") is not True
                 or envelope.get("source_scope", {}).get("safe_for_semantic_diff") is not True):
             raise ValueError("Archive is not a complete, unverified finished-job snapshot")
+        if len(rows) != 1 or envelope.get("source_summary_count") != 1:
+            raise ValueError("Archive-bound gold requires one explicitly scoped source per job")
+        only = rows[0]
+        sid = only["source_id"]
+        src = KNOWN.get(sid)
+        if src is None:
+            raise ValueError("Unknown source ID in gold canary job")
+        expected_args = {
+            "cohort": "all", "source_ids": sid, "collection_mode": "validation",
+            "expected_manifest_sha256": current_manifest,
+            "expected_selection_ids_sha256": selection_ids_sha256([src]),
+            "expected_source_registry_sha256": current_registry,
+        }
+        observed_args = job.get("spider_args") or {}
+        if (any(observed_args.get(k) != v for k, v in expected_args.items())
+                or job.get("spider") != only.get("spider_name")
+                or only.get("selection_source_count") != 1
+                or only.get("selection_ids_sha256") !=
+                   expected_args["expected_selection_ids_sha256"]
+                or only.get("requested_cohort") != "all"
+                or only.get("collection_mode") != "validation"):
+            raise ValueError("Gold archive job arguments not pinned to the exact source")
         jobs[job_id] = {
             "job_id": job_id, "category": job["category"],
             "finished_time_ms": job.get("finished_time_ms"),
@@ -87,7 +109,12 @@ def load_bound_archives(paths):
                     or row.get("approved_for_advisor") is not False
                     or row.get("source_policy_status") in {"unresolved", "prohibited_reviewed"}
                     or row.get("source_lifecycle_state") in {"quarantined", "retired"}
-                    or row.get("http_status") != 200):
+                    or row.get("http_status") != 200
+                    or row.get("status") not in {
+                        "captured", "needs_review", "partial_capture"
+                    }
+                    or not isinstance(row.get("content_sha256"), str)
+                    or not SHA256.fullmatch(row["content_sha256"])):
                 raise ValueError("Archive Item cannot be used as live gold evidence: " + sid)
             kind = row.get("deployment_revision_kind")
             fingerprint = row.get("deployment_revision")

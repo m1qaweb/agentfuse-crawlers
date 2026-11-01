@@ -124,6 +124,9 @@ def make_archive(root, sid, jobid, *, version=1, reverse=False):
         "spider_args": {
             "cohort": "all", "source_ids": sid,
             "collection_mode": "validation",
+            "expected_manifest_sha256": manifest_sha256(),
+            "expected_selection_ids_sha256": selection_ids_sha256([SOURCES[sid]]),
+            "expected_source_registry_sha256": registry_revision_sha256(),
         },
         "scrapystats": {
             "item_scraped_count": 1, "memusage/max": 140000000,
@@ -323,3 +326,47 @@ def test_reorder_cases_require_real_second_job_and_no_false_new_alert(
     gold["change_safety_rows"][0]["previous_job_id"] = "883514/1/902"
     with pytest.raises(ValueError):
         bind_human_gold(gold, [*fake_verified_job_paths, newer])
+
+def test_unpinned_source_metadata_cannot_be_used_as_gold_canary(tmp_path):
+    sid, jid = PRICING, "883514/3/999"
+    source = item(sid, jid)
+    meta = {
+        "state": "finished", "spider": "official_pricing",
+        "close_reason": "finished", "finished_time": 1793550200000,
+        "spider_args": {
+            "cohort": "all", "source_ids": sid,
+            "collection_mode": "validation",
+            # Deliberately OMIT all three pinned expected SHA values.
+        },
+        "scrapystats": {"item_scraped_count": 1},
+    }
+    path, _, _ = archive_job(
+        jid, tmp_path, api_key="TEST-ONLY",
+        fetch_metadata=lambda *_: meta,
+        fetch_page=lambda *_: [source],
+    )
+    with pytest.raises(ValueError, match="not pinned"):
+        load_bound_archives([path])
+
+
+def test_gold_rejects_non_successful_source_status_even_if_http_200(tmp_path):
+    jid, sid = "883514/3/998", PRICING
+    row = item(sid, jid)
+    row["status"] = "redirect_needs_review"
+    meta = {
+        "state": "finished", "spider": "official_pricing",
+        "close_reason": "finished", "finished_time": 1793550200000,
+        "spider_args": {
+            "cohort": "all", "source_ids": sid, "collection_mode": "validation",
+            "expected_manifest_sha256": manifest_sha256(),
+            "expected_selection_ids_sha256": selection_ids_sha256([SOURCES[sid]]),
+            "expected_source_registry_sha256": registry_revision_sha256(),
+        },
+        "scrapystats": {"item_scraped_count": 1},
+    }
+    path, _, _ = archive_job(
+        jid, tmp_path, api_key="TEST-ONLY",
+        fetch_metadata=lambda *_: meta, fetch_page=lambda *_: [row],
+    )
+    with pytest.raises(ValueError, match="cannot be used"):
+        load_bound_archives([path])

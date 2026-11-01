@@ -40,8 +40,13 @@ v0 sources or run a full-inventory unattended spider.
 
 Manually run the preflight jobs in Zyte with explicit \`cohort=all\`,
 \`collection_mode=validation\`, exact \`source_ids\` and pinned manifest
-and registry hashes. Use **distinct job IDs**, two repetitions if evaluating
-stable capture. Inspect Items, Requests, Logs and robots/policy decisions.
+and registry hashes. P14A requires these exact six job arguments in
+archived Zyte metadata for every case: `cohort=all`,
+`source_ids=<one exact ID>`, `collection_mode=validation`,
+`expected_manifest_sha256`, `expected_selection_ids_sha256` and
+`expected_source_registry_sha256`. An old broad batch or an unpinned
+default job is NOT an accuracy canary. Use **distinct job IDs**, two
+repetitions if evaluating stable capture. Inspect Items, Requests, Logs and robots/policy decisions.
 Never confuse successful deployment with a successful crawl.
 
 ## 2 — Archive the finished jobs (read-only)
