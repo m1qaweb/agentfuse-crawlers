@@ -10,7 +10,7 @@ import json
 import pytest
 
 from agentfuse_crawlers.sources import load_sources, select_sources
-from agentfuse_crawlers.source_lifecycle import collection_decision
+from agentfuse_crawlers.source_lifecycle import collection_decision, source_lifecycle
 from scripts.archive_jobs import archive_job, load_archive
 from scripts.real_gold_binding import (
     load_bound_archives, prepare_review_candidates, bind_human_gold,
@@ -53,12 +53,8 @@ def fake_job_archive(tmp_path, job, *, job_num, package_sha=PACKAGE_SHA,
             "policy_observation": (
                 "not_fetched_by_lifecycle_guard" if skipped else "fetched"
             ),
-            "source_policy_status": (
-                "unresolved" if skipped else "not_reviewed"
-            ),
-            "source_lifecycle_state": (
-                "quarantined" if skipped else "needs_validation"
-            ),
+            "source_policy_status": source_lifecycle(src)["policy_status"],
+            "source_lifecycle_state": source_lifecycle(src)["state"],
             "content_sha256": "a" * 64 if eligible else "",
             "schema_version": "2.1",
             "approved_for_advisor": False,
@@ -533,3 +529,27 @@ def test_batch_gold_binding_rejects_forged_plan_package(
     plan["expected_package_sha256"] = "f" * 64
     with pytest.raises(ValueError):
         load_bound_archives(full_fake_archives, full_inventory_plan=plan)
+
+
+def test_forged_policy_state_in_an_archived_item_is_rejected(
+        planned_shards, tmp_path):
+    sid = "kiro_docs"  # current registry: degraded, not needs_validation
+    job = next(job for job in planned_shards["jobs"]
+               if sid in job["source_ids"])
+    path = fake_job_archive(tmp_path, job, job_num=79)
+    envelope, rows = load_archive(path)
+    assert next(x for x in rows if x["source_id"] == sid)[
+        "source_lifecycle_state"
+    ] == "degraded"
+
+    # We cannot corrupt immutable on-disk archives without their checksums
+    # failing, so fake an Items-only input: it stays preliminary/unverified.
+    bad = deepcopy(rows)
+    next(x for x in bad if x["source_id"] == sid)[
+        "source_lifecycle_state"
+    ] = "validated_for_collection"
+    raw = tmp_path / "forged-dashboard.json"
+    raw.write_text(json.dumps(bad), encoding="utf-8")
+    report = audit_full_inventory(planned_shards, items_paths=[raw])
+    assert report["summary"]["verified_immutable_archives"] is False
+    assert report["summary"]["status"] == "raw_export_preliminary_not_verified"

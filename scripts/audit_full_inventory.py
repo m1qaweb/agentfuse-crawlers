@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from agentfuse_crawlers.diagnostics import derive_diagnostics
-from agentfuse_crawlers.source_lifecycle import collection_decision
+from agentfuse_crawlers.source_lifecycle import collection_decision, source_lifecycle
 from agentfuse_crawlers.sources import load_sources
 from scripts.archive_jobs import load_archive
 from scripts.full_inventory_plan import (
@@ -146,6 +146,13 @@ def _verify_record(row, planned, known, *, job_id, require_job_provenance):
                 or row.get("http_status") is not None):
             raise ValueError("Publisher policy-restricted source was fetched: " + sid)
     if require_job_provenance:
+        # Source policy is immutable for this deployment. The row cannot claim
+        # to have been reviewed/allowed when current pinned registry says it
+        # is degraded, unreviewed, or quarantined.
+        policy = source_lifecycle(src)
+        if (row.get("source_lifecycle_state") != policy["state"]
+                or row.get("source_policy_status") != policy["policy_status"]):
+            raise ValueError("Archived source lifecycle/policy revision drift: " + sid)
         if (row.get("manifest_sha256") != job["spider_args"]["expected_manifest_sha256"]
                 or row.get("source_registry_sha256") !=
                     job["spider_args"]["expected_source_registry_sha256"]
@@ -395,12 +402,19 @@ def audit_full_inventory(plan, *, archive_paths=None, items_paths=None):
                     row, lookup, known, job_id=meta["job_id"],
                     require_job_provenance=True,
                 )
-                if (not isinstance(row.get("deployment_revision"), str)
-                        or not FINGERPRINT.fullmatch(row["deployment_revision"])
+                fingerprint = row.get("deployment_revision")
+                if (not isinstance(fingerprint, str)
+                        or not FINGERPRINT.fullmatch(fingerprint)
                         or row.get("deployment_revision_kind") !=
-                        "package_py_json_sha256_v1"):
+                        "package_py_json_sha256_v1"
+                        or (plan.get("expected_package_sha256") is not None
+                            and fingerprint != plan["expected_package_sha256"])):
                     valid = False
-                report["package_fingerprint"] = row.get("deployment_revision") or ""
+                if not report["package_fingerprint"]:
+                    report["package_fingerprint"] = fingerprint or ""
+                elif report["package_fingerprint"] != fingerprint:
+                    report["package_fingerprint"] = "multiple_package_revisions"
+                    valid = False
                 row_by_sid[sid] = row
             report["item_provenance_valid"] = valid and bool(rows)
             report["source_accounting_complete"] = (
