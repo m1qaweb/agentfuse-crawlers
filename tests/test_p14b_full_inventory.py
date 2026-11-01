@@ -11,7 +11,11 @@ import pytest
 
 from agentfuse_crawlers.sources import load_sources, select_sources
 from agentfuse_crawlers.source_lifecycle import collection_decision
-from scripts.archive_jobs import archive_job
+from scripts.archive_jobs import archive_job, load_archive
+from scripts.real_gold_binding import (
+    load_bound_archives, prepare_review_candidates, bind_human_gold,
+)
+from scripts.quality_gates import grade_release
 from scripts.audit_full_inventory import (
     audit_full_inventory, write_full_inventory_audit,
 )
@@ -84,6 +88,55 @@ def fake_job_archive(tmp_path, job, *, job_num, package_sha=PACKAGE_SHA,
             ),
             "release_dated_event_count": 0,
         }
+        if sid == "openai_api_pricing":
+            row["pricing_observations"] = [{
+                "observation_id": "0" * 32,
+                "normalized_amount_decimal": "1.50",
+                "raw_displayed_price": "USD 1.50",
+                "source_url": src["url"],
+                "currency": "USD",
+                "billing_unit": "per_1m_tokens",
+                "model_or_service": "Synthetic Model Alpha",
+                "region": "Global",
+                "tier_or_plan": "Standard",
+                "price_dimension": "input",
+                "service_mode": None,
+                "effective_from": None, "effective_until": None,
+                "comparable_candidate": True,
+                "approved_for_advisor": False,
+            }, {
+                "observation_id": "1" * 32,
+                "normalized_amount_decimal": None,
+                "raw_displayed_price": "$1.50",
+                "source_url": src["url"],
+                "currency": None,
+                "billing_unit": "per_1m_tokens",
+                "model_or_service": "Synthetic Model Alpha",
+                "region": None,
+                "tier_or_plan": None,
+                "price_dimension": "input",
+                "service_mode": None,
+                "effective_from": None, "effective_until": None,
+                "comparable_candidate": False,
+                "approved_for_advisor": False,
+            }]
+        if sid == "openai_api_changelog":
+            row["release_events"] = [{
+                "event_id": sid + ":" + "a" * 24,
+                "body_sha256": "b" * 64,
+                "title": "Synthetic API change",
+                "published_at": "2026-10-30",
+                "permalink": src["url"],
+                "approved_for_advisor": False,
+            }]
+        if sid == "openai_api_docs":
+            row["documentation_topic_candidates"] = [{
+                "candidate_id": "c" * 24,
+                "topic_hint": "authentication",
+                "section_id": "authentication",
+                "section_sha256": "d" * 64,
+                "excerpt": "Synthetic documentation snippet for regression only.",
+            }]
         source_rows.append(row)
     meta = {
         "state": "finished",
@@ -349,3 +402,134 @@ def test_three_big_full_jobs_are_structurally_auditable(tmp_path):
     assert summary["whole_inventory_accounted"] is True
     assert summary["verified_immutable_archives"] is True
     assert summary["reported_job_count"] == 3
+
+
+def test_batch_archives_require_exact_plan_for_real_gold(
+        planned_shards, full_fake_archives):
+    with pytest.raises(ValueError, match="one explicitly scoped"):
+        load_bound_archives([full_fake_archives[0]])
+    rows, jobs, sha = load_bound_archives(
+        full_fake_archives, full_inventory_plan=planned_shards,
+    )
+    assert sha == PACKAGE_SHA
+    assert len(jobs) == 20
+    # Three publisher-blocked sources remain present in the coverage audit
+    # but must not count as independently reviewable gold observations.
+    assert len(rows) == 457
+    assert not any(sid.startswith("v0_") for sid, _ in rows)
+
+
+def test_full_batch_campaign_generates_diverse_unreviewed_gold_queue(
+        planned_shards, full_fake_archives):
+    packet = prepare_review_candidates(
+        full_fake_archives, full_inventory_plan=planned_shards,
+    )
+    assert packet["verified_immutable_archive_count"] == 20
+    assert packet["human_review_completed"] is False
+    assert packet["not_for_release_quality_gates"] is True
+    assert packet["independently_verified_vendor_facts"] == 0
+    assert any(x["source_id"] == "openai_api_pricing"
+               for x in packet["samples"]["pricing"])
+    assert any(x["source_id"] == "openai_api_changelog"
+               for x in packet["samples"]["release_dates"])
+    assert any(x["source_id"] == "openai_api_docs"
+               for x in packet["samples"]["documentation"])
+
+
+def _synthetic_gold_from_campaign(plan, archives):
+    packet = prepare_review_candidates(archives, full_inventory_plan=plan)
+    price = next(
+        x for x in packet["samples"]["pricing"]
+        if x["source_id"] == "openai_api_pricing" and
+        x["observation_id"] == "0" * 32
+    )
+    negative = next(
+        x for x in packet["samples"]["pricing"]
+        if x["source_id"] == "openai_api_pricing" and
+        x["observation_id"] == "1" * 32
+    )
+    release = next(
+        x for x in packet["samples"]["release_dates"]
+        if x["source_id"] == "openai_api_changelog"
+    )
+    price_expected = dict(price["observed"])
+    price_expected.pop("comparable_candidate")
+    def base(case_id, sample):
+        return {
+            "case_id": case_id,
+            "source_id": sample["source_id"],
+            "source_url": sample["source_url"],
+            "evidence_url": sample["source_url"],
+            "job_id": sample["job_id"],
+            "approved_for_advisor": False,
+            "evidence_review_note": (
+                "Invented synthetic regression label: not a verified publisher fact."
+            ),
+        }
+    return {
+        "schema_version": "1.0",
+        "origin": "human_annotated_official_source_evidence",
+        "synthetic_only": False,  # Synthetic TEST contract only.
+        "approved_for_advisor": False,
+        "reviewed_by": "Synthetic CI annotator",
+        "reviewed_at_utc": "2026-11-01T19:00:00+00:00",
+        "expected_package_sha256": PACKAGE_SHA,
+        "pricing_rows": [{
+            **base("price-synthetic-1", price),
+            "observation_id": price["observation_id"],
+            "expected": price_expected,
+            "observed": price["observed"],
+        }],
+        "negative_rate_rows": [{
+            **base("negative-synthetic-1", negative),
+            "observation_id": negative["observation_id"],
+            "expected_comparable": False,
+            "observed_comparable": False,
+        }],
+        "date_rows": [{
+            **base("date-synthetic-1", release),
+            "event_id": release["event_id"],
+            "event_body_sha256": release["event_body_sha256"],
+            "expected_day": release["observed_day"],
+            "observed_day": release["observed_day"],
+        }],
+        "change_safety_rows": [{
+            **base("baseline-synthetic-1", release),
+            "scenario": "first_baseline",
+            "observed_new_release_alert": False,
+        }],
+    }
+
+
+def test_batch_gold_binding_checks_real_archive_without_re_crawling(
+        planned_shards, full_fake_archives):
+    annotations = _synthetic_gold_from_campaign(
+        planned_shards, full_fake_archives,
+    )
+    bound = bind_human_gold(
+        annotations, full_fake_archives,
+        full_inventory_plan=planned_shards,
+    )
+    assert bound["binding_complete"] is True
+    assert bound["pricing_cases_bound"] == 1
+    assert bound["negative_cases_bound"] == 1
+    assert bound["date_cases_bound"] == 1
+    assert bound["change_cases_bound"] == 1
+    assert bound["full_inventory_plan_sha256"] == planned_shards["plan_sha256"]
+    assert bound["independent_publisher_truth_confirmed"] is False
+    quality = grade_release(
+        human_gold=annotations, gold_archives=full_fake_archives,
+        gold_inventory_plan=planned_shards,
+    )
+    assert quality["checks"]["archive_bound_human_gold"] is True
+    assert quality["checks"]["independent_pricing_gold"] is False
+    assert quality["status"] == "blocked_pending_evidence_or_quality"
+    assert quality["deployment_authorized"] is False
+
+
+def test_batch_gold_binding_rejects_forged_plan_package(
+        planned_shards, full_fake_archives):
+    plan = deepcopy(planned_shards)
+    plan["expected_package_sha256"] = "f" * 64
+    with pytest.raises(ValueError):
+        load_bound_archives(full_fake_archives, full_inventory_plan=plan)
