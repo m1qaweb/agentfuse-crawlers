@@ -9,7 +9,7 @@ import argparse
 import hashlib
 import json
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -25,6 +25,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 RATE_ID = re.compile(r"^[0-9a-f]{32}$")
 MAX_ARCHIVES = 60
 MAX_REVIEW_PER_CATEGORY = 1200
+MAX_REVIEW_PER_SOURCE = 40
 KNOWN = {s["id"]: s for s in load_sources()}
 
 
@@ -49,11 +50,31 @@ def _source_locator_allowed(candidate, expected):
         return False
 
 
-def load_bound_archives(paths):
-    """Recompute checksums and identity from immutable P07 job directories."""
+def load_bound_archives(paths, *, full_inventory_plan=None):
+    """Recompute checksums and identity from immutable P07 job directories.
+
+    A full-inventory plan is REQUIRED for batch jobs. The P14A one-source
+    path remains fail-closed for unplanned/mixed-source archives.
+    """
     paths = list(paths)
     if not 1 <= len(paths) <= MAX_ARCHIVES:
         raise ValueError("Provide 1-60 explicit immutable Zyte archive directories")
+    if full_inventory_plan is not None:
+        from scripts.full_inventory_plan import validate_full_inventory_plan
+        from scripts.audit_full_inventory import audit_full_inventory
+
+        plan = validate_full_inventory_plan(full_inventory_plan)
+        if not plan.get("expected_package_sha256"):
+            raise ValueError("Batch gold needs a pinned package SHA-256 in the full-inventory plan")
+        audit = audit_full_inventory(plan, archive_paths=paths)
+        confirmed = [j for j in audit["jobs"] if j["job_id"]]
+        if (not confirmed or len(confirmed) != len(paths)
+                or any(not j["source_accounting_complete"]
+                       or not j["archive_scope_valid"]
+                       or not j["item_provenance_valid"]
+                       for j in confirmed)
+                or not audit["summary"]["package_pinned_and_verified"]):
+            raise ValueError("Every batch gold archive needs verified complete planned job accounting")
     by_job = {}
     jobs = {}
     package_hashes = set()
@@ -70,28 +91,29 @@ def load_bound_archives(paths):
                 or envelope.get("source_evidence_is_unverified") is not True
                 or envelope.get("source_scope", {}).get("safe_for_semantic_diff") is not True):
             raise ValueError("Archive is not a complete, unverified finished-job snapshot")
-        if len(rows) != 1 or envelope.get("source_summary_count") != 1:
-            raise ValueError("Archive-bound gold requires one explicitly scoped source per job")
-        only = rows[0]
-        sid = only["source_id"]
-        src = KNOWN.get(sid)
-        if src is None:
-            raise ValueError("Unknown source ID in gold canary job")
-        expected_args = {
-            "cohort": "all", "source_ids": sid, "collection_mode": "validation",
-            "expected_manifest_sha256": current_manifest,
-            "expected_selection_ids_sha256": selection_ids_sha256([src]),
-            "expected_source_registry_sha256": current_registry,
-        }
-        observed_args = job.get("spider_args") or {}
-        if (any(observed_args.get(k) != v for k, v in expected_args.items())
-                or job.get("spider") != only.get("spider_name")
-                or only.get("selection_source_count") != 1
-                or only.get("selection_ids_sha256") !=
-                   expected_args["expected_selection_ids_sha256"]
-                or only.get("requested_cohort") != "all"
-                or only.get("collection_mode") != "validation"):
-            raise ValueError("Gold archive job arguments not pinned to the exact source")
+        if full_inventory_plan is None:
+            if len(rows) != 1 or envelope.get("source_summary_count") != 1:
+                raise ValueError("Archive-bound gold requires one explicitly scoped source per job")
+            only = rows[0]
+            sid = only["source_id"]
+            src = KNOWN.get(sid)
+            if src is None:
+                raise ValueError("Unknown source ID in gold canary job")
+            expected_args = {
+                "cohort": "all", "source_ids": sid, "collection_mode": "validation",
+                "expected_manifest_sha256": current_manifest,
+                "expected_selection_ids_sha256": selection_ids_sha256([src]),
+                "expected_source_registry_sha256": current_registry,
+            }
+            observed_args = job.get("spider_args") or {}
+            if (any(observed_args.get(k) != v for k, v in expected_args.items())
+                    or job.get("spider") != only.get("spider_name")
+                    or only.get("selection_source_count") != 1
+                    or only.get("selection_ids_sha256") !=
+                       expected_args["expected_selection_ids_sha256"]
+                    or only.get("requested_cohort") != "all"
+                    or only.get("collection_mode") != "validation"):
+                raise ValueError("Gold archive job arguments not pinned to the exact source")
         jobs[job_id] = {
             "job_id": job_id, "category": job["category"],
             "finished_time_ms": job.get("finished_time_ms"),
@@ -100,6 +122,18 @@ def load_bound_archives(paths):
         }
         for row in rows:
             sid = row["source_id"]
+            if full_inventory_plan is not None:
+                # All 460 IDs remain accounted for by the full campaign
+                # auditor. Policy-blocked and failed/empty pages cannot
+                # become price/date gold just because their job completed.
+                if (sid in full_inventory_plan["expected_policy_skipped_source_ids"]
+                        or row.get("status") not in {
+                            "captured", "needs_review", "partial_capture"
+                        }
+                        or row.get("http_status") != 200
+                        or not isinstance(row.get("content_sha256"), str)
+                        or not SHA256.fullmatch(row["content_sha256"])):
+                    continue
             manifest = KNOWN.get(sid)
             if (not manifest or manifest["category"] != row.get("category")
                     or manifest["provider"] != row.get("provider")
@@ -211,7 +245,7 @@ def _ensure_unique_evidence(category, key, seen):
     seen.add(full_key)
 
 
-def bind_human_gold(gold, paths):
+def bind_human_gold(gold, paths, *, full_inventory_plan=None):
     """Verify every self-annotated case against immutable, current-schema Items.
 
     Does not decide if the human label is true. It prevents forged/extraneous
@@ -219,7 +253,9 @@ def bind_human_gold(gold, paths):
     """
     # Preserve the existing P08 label syntax checks and exact Decimal scoring.
     score_human_gold(gold)
-    by_job, jobs, package_sha = load_bound_archives(paths)
+    by_job, jobs, package_sha = load_bound_archives(
+        paths, full_inventory_plan=full_inventory_plan,
+    )
     if gold.get("expected_package_sha256") != package_sha:
         raise ValueError("Reviewed gold must pin the actual archived package SHA-256")
     evidence_seen = set()
@@ -316,6 +352,10 @@ def bind_human_gold(gold, paths):
         "manifest_sha256": manifest_sha256(),
         "source_registry_sha256": registry_revision_sha256(),
         "package_sha256": package_sha,
+        "full_inventory_plan_sha256": (
+            full_inventory_plan.get("plan_sha256")
+            if full_inventory_plan is not None else None
+        ),
         "verified_immutable_job_count": len(jobs),
         "verified_source_job_items": len(by_job),
         "pricing_cases_bound": bound["pricing"],
@@ -336,12 +376,24 @@ def bind_human_gold(gold, paths):
     }
 
 
-def prepare_review_candidates(paths):
+def prepare_review_candidates(paths, *, full_inventory_plan=None):
     """Generate finite unreviewed queue, never fake a human-reviewed gold set."""
-    by_job, jobs, package_sha = load_bound_archives(paths)
+    by_job, jobs, package_sha = load_bound_archives(
+        paths, full_inventory_plan=full_inventory_plan,
+    )
     results = {"pricing": [], "release_dates": [], "documentation": []}
     omitted = Counter()
     seen = set()
+    groups = {key: defaultdict(list) for key in results}
+
+    def queue_candidate(kind, sid, row):
+        # Do not let one large pricing table or long release timeline crowd
+        # every other provider out of the real-world human review queue.
+        if len(groups[kind][sid]) < MAX_REVIEW_PER_SOURCE:
+            groups[kind][sid].append(row)
+        else:
+            omitted[kind] += 1
+
     for (sid, job_id), item in sorted(by_job.items()):
         base = {
             "source_id": sid, "job_id": job_id,
@@ -365,10 +417,7 @@ def prepare_review_candidates(paths):
                            normalization_blockers=(obs.get("normalization_blockers") or [])[:12],
                            evidence_url=item["source_url"])
                 kind = "pricing"
-                if len(results[kind]) < MAX_REVIEW_PER_CATEGORY:
-                    results[kind].append(row)
-                else:
-                    omitted[kind] += 1
+                queue_candidate(kind, sid, row)
         elif item["category"] == "changelog":
             for evt in item.get("release_events", []):
                 if not isinstance(evt, dict) or not evt.get("event_id"):
@@ -385,10 +434,7 @@ def prepare_review_candidates(paths):
                            excerpt=str(evt.get("excerpt") or "")[:360],
                            evidence_url=evt.get("permalink") or item["source_url"])
                 kind = "release_dates"
-                if len(results[kind]) < MAX_REVIEW_PER_CATEGORY:
-                    results[kind].append(row)
-                else:
-                    omitted[kind] += 1
+                queue_candidate(kind, sid, row)
         elif item["category"] == "documentation":
             for sec in item.get("documentation_topic_candidates", []):
                 if not isinstance(sec, dict) or not sec.get("candidate_id"):
@@ -404,13 +450,29 @@ def prepare_review_candidates(paths):
                            section_sha256=sec.get("section_sha256"),
                            excerpt=str(sec.get("excerpt") or "")[:360])
                 kind = "documentation"
+                queue_candidate(kind, sid, row)
+    # Deterministic breadth-first sampling: one distinct candidate per
+    # source, then a second per source, and so on. This is a review workload
+    # balance, NOT statistical representativeness or fact verification.
+    for kind, per_source in groups.items():
+        depth_limit = max((len(rows) for rows in per_source.values()), default=0)
+        for depth in range(depth_limit):
+            for sid in sorted(per_source):
+                if depth >= len(per_source[sid]):
+                    continue
                 if len(results[kind]) < MAX_REVIEW_PER_CATEGORY:
-                    results[kind].append(row)
+                    results[kind].append(per_source[sid][depth])
                 else:
                     omitted[kind] += 1
     return {
         "schema_version": "1.0",
         "kind": "unreviewed_offline_publisher_evidence_candidates_not_gold",
+        "sampling_strategy": "bounded_source_round_robin_unreviewed",
+        "per_source_candidate_limit": MAX_REVIEW_PER_SOURCE,
+        "source_diversity_counts": {
+            kind: len({entry["source_id"] for entry in values})
+            for kind, values in results.items()
+        },
         "package_sha256": package_sha,
         "verified_immutable_archive_count": len(jobs),
         "samples": results,
@@ -426,18 +488,28 @@ def prepare_review_candidates(paths):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archives", type=Path, nargs="+", required=True)
+    parser.add_argument("--full-inventory-plan", type=Path,
+                        help="Mandatory exact plan for multi-source batch archives")
     option = parser.add_mutually_exclusive_group(required=True)
     option.add_argument("--prepare-review", type=Path, metavar="OUTPUT_JSON")
     option.add_argument("--reviewed-gold", type=Path, metavar="ANNOTATIONS_JSON")
     parser.add_argument("--out", type=Path, default=Path("output/private/gold_binding.json"))
     args = parser.parse_args()
+    plan = (
+        json.loads(args.full_inventory_plan.read_text(encoding="utf-8"))
+        if args.full_inventory_plan else None
+    )
     if args.prepare_review:
         path = args.prepare_review
-        report = prepare_review_candidates(args.archives)
+        report = prepare_review_candidates(
+            args.archives, full_inventory_plan=plan,
+        )
     else:
         path = args.out
         gold = json.loads(args.reviewed_gold.read_text(encoding="utf-8"))
-        report = bind_human_gold(gold, args.archives)
+        report = bind_human_gold(
+            gold, args.archives, full_inventory_plan=plan,
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8")

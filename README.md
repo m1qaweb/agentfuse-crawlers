@@ -332,3 +332,25 @@ an **additional mandatory archive-bound gold check**; without every original
 job archive and package digest, a self-attested perfect gold JSON cannot pass
 release readiness. Only source-policy-reviewed live canaries and actual human
 labels can meet the separate rollout accuracy requirements.
+
+
+## P14B: full-inventory validation (all 460 URLs, not a one-site sample)
+
+The next operator-managed validation campaign includes **194 documentation +
+177 pricing + 89 changelog** pinned source IDs. Run
+\`python -m scripts.full_inventory_plan --strategy sharded --shard-size 25\`
+to generate 20 explicit manifest/registry-pinned Zyte Spider Arguments;
+or \`--strategy full\` for exactly three full category spider jobs using
+\`cohort=all\`, \`confirm_full_inventory=yes\`, and
+\`collection_mode=validation\`. Do not blindly bypass robots/terms or launch
+all jobs concurrently. The three unresolved v0.app sources stay quarantined
+and are accounted for as no-fetch Items.
+
+Use \`python -m scripts.audit_full_inventory --plan ... --archives ...\` to
+prove source-ID accounting and collect source quality issues across every
+partition. P14A also accepts \`--full-inventory-plan ...\` to bind human
+pricing/date labels to the **same fully verified batch archives** without
+re-crawling the same pages one by one. In all modes, full coverage is not
+vendor accuracy. Publisher permission and human-reviewed gold remain
+separate requirements. See
+[the P14B operator runbook](docs/P14B_FULL_INVENTORY_VALIDATION_RUNBOOK.md).
