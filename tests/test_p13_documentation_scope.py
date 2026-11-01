@@ -197,9 +197,15 @@ def test_wrong_product_marker_still_blocks_scoped_comparability():
         "and provides regional configuration and usage management tools. "
         "It is not the Bedrock product described in the source registry.</p>"
     )
-    # A negative mention would pass a lexical marker alone; scope remains
-    # unverified. This test instead asserts the positivity invariant only.
-    row = record(data, status="needs_review")
+    # Body-only references, including negative mentions, do not establish
+    # source-to-product identity or a technical support claim.
+    assert data["documentation_product_scope_signal"] == (
+        "body_only_marker_requires_review"
+    )
+    assert assess_capture("documentation", data, data["text"]) == (
+        "needs_review", "documentation_product_marker_only_in_body"
+    )
+    row = record(data, status="captured")  # Even a mislabeled status is blocked.
     assert not _comparable(row)
     assert not _healthy_for_typed_diffs(row)
 
@@ -323,3 +329,20 @@ def test_never_execute_spreadsheet_formula_from_page_anchor():
     assert _safe_csv("=WEBSERVICE('http://evil.invalid')").startswith("'")
     assert _safe_csv(" @SUM(1,2)").startswith("'")
     assert _safe_csv("Plain docs title") == "Plain docs title"
+
+def test_introductory_body_only_product_reference_requires_review():
+    data = doc(
+        "<h1>API overview</h1>"
+        "<h2>Models</h2><p>Amazon Bedrock provides managed model "
+        "interfaces. This paragraph describes integration prerequisites "
+        "for applications but does not itself verify current feature "
+        "support, regional availability, supported interfaces or exact "
+        "billing modes for a deployed product.</p>"
+    )
+    assert data["documentation_product_scope_signal"] == (
+        "body_only_marker_requires_review"
+    )
+    assert assess_capture("documentation", data, data["text"]) == (
+        "needs_review", "documentation_product_marker_only_in_body"
+    )
+    assert data["documentation_all_capabilities_verified"] is False

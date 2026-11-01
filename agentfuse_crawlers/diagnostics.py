@@ -134,6 +134,9 @@ def derive_diagnostics(record):
         if signal == "marker_not_found":
             add("documentation_product_scope_not_demonstrated")
             product_review = True
+        if signal == "body_only_marker_requires_review":
+            add("documentation_product_marker_only_in_body")
+            product_review = True
         if record.get("documentation_profile_status") == "profile_url_mismatch":
             add("documentation_source_profile_url_mismatch")
             product_review = True

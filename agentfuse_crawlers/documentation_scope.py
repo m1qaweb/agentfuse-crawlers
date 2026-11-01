@@ -232,17 +232,27 @@ def inspect_documentation_dom(root, source_url, source_id):
     }
 
 
-def _scope_marker_evidence(lead, markers):
+def _scope_marker_evidence(title, text, markers):
+    """A body mention is NOT strong enough to identify a pinned product.
+
+    E.g. a competing product can say 'not Bedrock' in introductory prose.
+    We only accept a lexical marker from the visible H1/page title, never
+    imply a capability or independent publisher ownership from it.
+    """
     if not markers:
         return "no_marker_policy"
-    return (
-        "explicit_marker_found"
-        if any(re.search(
+
+    def matches(value):
+        return any(re.search(
             r"(?<![a-z0-9])" + re.escape(marker.lower()) + r"(?![a-z0-9])",
-            lead,
+            value.lower(),
         ) for marker in markers)
-        else "marker_not_found"
-    )
+
+    if matches(title):
+        return "explicit_marker_found"
+    if matches(text[:1600]):
+        return "body_only_marker_requires_review"
+    return "marker_not_found"
 
 
 def extract_documentation_evidence(
@@ -261,8 +271,7 @@ def extract_documentation_evidence(
     # A curated source ID cannot prove that the returned body is about the
     # expected product. Require known identity signals for higher-risk URLs.
     markers = profile.get("required_scope_markers", []) if profile else []
-    lead = re.sub(r"\s+", " ", (title + " " + text[:1600])).lower()
-    product_signal = _scope_marker_evidence(lead, markers)
+    product_signal = _scope_marker_evidence(title, text, markers)
     dom = document_dom or {}
     words = len(text.split())
     if words >= 45:

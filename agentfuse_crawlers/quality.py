@@ -91,6 +91,8 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
             return "needs_review", "documentation_source_profile_url_mismatch"
         if evidence.get("documentation_product_scope_signal") == "marker_not_found":
             return "needs_review", "documentation_product_scope_not_demonstrated"
+        if evidence.get("documentation_product_scope_signal") == "body_only_marker_requires_review":
+            return "needs_review", "documentation_product_marker_only_in_body"
         if evidence.get("documentation_requires_product_review"):
             return "needs_review", "documentation_product_scope_ambiguous"
         scope = evidence.get("documentation_scope_status")

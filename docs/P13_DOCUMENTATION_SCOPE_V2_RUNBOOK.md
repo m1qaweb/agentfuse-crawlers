@@ -13,8 +13,9 @@ mismatch. These are **historic audit observations**, not a new live test.
 
 - Curated exact-URL provisional profiles expanded from 22 to 64, with
   product identity words used to prevent source-to-product drift. These
-  markers are weak lexical checks and do not independently prove identity,
-  much less that a feature is available.
+  markers are **accepted only from the visible H1/page title**; a body-only
+  mention (even a positive one) requires review and cannot establish identity.
+  Markers still do not prove ownership or that a feature is available.
 - Each technical topic candidate must have substantive visible prose under
   *the same heading* and match the curated profile's intended topic list.
   Navigation labels and unrelated paragraphs do not prove a capability.
