@@ -46,10 +46,15 @@ UNIT_PATTERNS = [
         r"(?:\bper\b|/)\s*(?:1\s*m(?:illion)?|million)\s*characters?\b", re.I)),
     ("per_1k_requests", re.compile(
         r"(?:\bper\b|/)\s*(?:1[, ]?000|1\s*k|thousand)\s*requests?\b", re.I)),
+    ("per_1k_queries", re.compile(
+        r"(?:\bper\b|/)\s*(?:1[, ]?000|1\s*k|thousand)\s*quer(?:y|ies)\b", re.I)),
+    ("per_query", re.compile(r"(?:\bper\b|/)\s*query\b", re.I)),
     ("per_request", re.compile(r"(?:\bper\b|/)\s*request\b", re.I)),
     ("per_image", re.compile(r"(?:\bper\b|/)\s*image\b", re.I)),
     ("per_user_month", re.compile(
         r"(?:\bper\b|/)\s*(?:user|seat)\s*(?:per|/)?\s*month\b", re.I)),
+    ("per_month", re.compile(
+        r"(?:\bper\b|/)\s*month\b", re.I)),
     ("per_gpu_hour", re.compile(
         r"(?:\bper\b|/)\s*(?:GPU|GPU[- ]hour)\s*(?:per|/)?\s*hour\b|/\s*GPU[- ]hour\b", re.I)),
     ("per_ocpu_hour", re.compile(
@@ -60,6 +65,14 @@ UNIT_PATTERNS = [
     ("per_minute", re.compile(r"(?:\bper\b|/)\s*minute\b", re.I)),
 ]
 DIMENSION_PATTERNS = [
+    # Long-lived cache-write prices must not collapse into the cached-input
+    # read rate or into writes with another retention commitment.
+    ("cache_write_30m", re.compile(
+        r"\b(?:30\s*m(?:in(?:utes?)?)?|half[- ]hour)\b\s*(?:cache\s*)?write\b"
+        r"|\bcache\s*write\b.{0,30}\b30\s*m(?:in(?:utes?)?)?\b", re.I)),
+    ("cache_write_12h", re.compile(
+        r"\b12\s*h(?:ours?)?\b\s*(?:cache\s*)?write\b"
+        r"|\bcache\s*write\b.{0,30}\b12\s*h(?:ours?)?\b", re.I)),
     ("ultrafast_input", re.compile(r"\b(?:ultra[- ]?fast|ultrafast)\b.*\binput\b", re.I)),
     ("ultrafast_output", re.compile(r"\b(?:ultra[- ]?fast|ultrafast)\b.*\boutput\b", re.I)),
     ("fast_input", re.compile(r"\bfast\b.*\binput\b", re.I)),
@@ -73,19 +86,27 @@ DIMENSION_PATTERNS = [
     ("cached_input", re.compile(r"\b(?:cached input|input cach(?:ed|ing)?|context caching)\b", re.I)),
     ("input", re.compile(r"\binput\b", re.I)),
     ("output", re.compile(r"\boutput\b", re.I)),
-    ("subscription", re.compile(r"\b(?:seat|user)\b.*\bmonth\b", re.I)),
-    ("usage", re.compile(r"\b(?:unit price|usage price|request price|hourly rate|rate)\b", re.I)),
+    ("subscription", re.compile(
+        r"\b(?:seat|user)\b.*\bmonth\b|"
+        r"\b(?:monthly price|plan price|monthly subscription)\b", re.I)),
+    ("usage", re.compile(
+        r"\b(?:unit price|usage price|request price|hourly rate|rate|"
+        r"price per (?:1[, ]?000 |1k |query|request))\b", re.I)),
 ]
 REGION_RE = re.compile(
     r"\b(?:region|location)\s*[:=]\s*"
     r"(global|worldwide|us-east-\d|us-west-\d|eu-[a-z]+-\d|"
-    r"ap-[a-z]+-\d|US East|US West|EU West|EU Central|Asia Pacific)\b", re.I,
+    r"ap-[a-z]+-\d|US East|US West|EU West|EU Central|Asia Pacific)\b"
+    r"|\b(?:all\s+)?(?:prices?|rates?)\s+(?:are\s+)?(?:the\s+)?"
+    r"same\s+(?:in|across|for)\s+(all\s+regions)\b", re.I,
 )
 TIER_RE = re.compile(
     r"\b(?:tier|plan)\s*[:=, -]+\s*(free|paid|standard|priority|enterprise|"
     r"pro|business|batch|on[- ]demand|provisioned)\b"
     r"|\b(free|paid|enterprise|standard|priority|business|on[- ]demand|"
-    r"provisioned)\s+tier\b", re.I,
+    r"provisioned)\s+tier\b"
+    r"|\b(?:all\s+)?(?:prices?|rates?)\s+(?:are\s+)?(?:the\s+)?"
+    r"same\s+(?:in|across|for)\s+(all\s+(?:plans|tiers))\b", re.I,
 )
 
 
@@ -99,6 +120,8 @@ def detect_unit(*scopes):
     for scope in scopes:
         hits.update(name for name, pattern in UNIT_PATTERNS
                     if pattern.search(clean(scope, 1500)))
+    if "per_user_month" in hits:
+        hits.discard("per_month")
     specialized = hits.intersection({"per_gpu_hour", "per_ocpu_hour", "per_vcpu_hour"})
     if specialized:
         # "per OCPU per hour" legitimately also matches "per hour".
@@ -115,6 +138,7 @@ def detect_dimension(*scopes):
             # modes is not a single independent rate.
             found = list(dict.fromkeys(found))
             if found[0] in {
+                "cache_write_30m", "cache_write_12h",
                 "ultrafast_input", "ultrafast_output", "fast_input", "fast_output",
                 "long_context_input", "long_context_output", "batch_cached_input",
                 "batch_input", "batch_output", "cache_write", "cached_input",
@@ -145,8 +169,14 @@ def _extract_one(pattern, scopes):
     values = []
     for scope in scopes:
         for x in pattern.finditer(clean(scope, 350)):
-            candidate = clean(x.group(1) or x.group(2), 80)
+            candidate = clean(
+                next((group for group in x.groups() if group), ""), 80
+            )
             if candidate:
+                if candidate.lower() == "all regions":
+                    candidate = "Global"
+                elif candidate.lower() in {"all plans", "all tiers"}:
+                    candidate = "All Plans"
                 values.append(candidate)
     # Values are case-insensitive; inconsistent region/tier means "unknown".
     return values[0] if values and len({x.lower() for x in values}) == 1 else None
@@ -182,8 +212,14 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
             state = name
             break
     normalized = None
+    observed_single_amount_decimal = None
+    review_quote_amount_decimal = None
     displayed_amount = None
     amounts = list(PRICE.finditer(raw))
+    negative_amount = bool(re.search(
+        r"(?:^|[^\w])-\s*(?:(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF)\s*)?[$€£¥]?\s*\d",
+        raw, re.I,
+    ))
     # If the vendor uses an unadorned number under a labeled currency column,
     # a single number is an observable candidate; do not infer missing currency.
     if state == "not_displayed" and len(amounts) == 1:
@@ -191,6 +227,15 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
         amount = match.group(3)
         displayed_amount = match.group(0).strip()
         state = "numeric_candidate"
+        if negative_amount:
+            reasons.append("negative_or_discount_amount")
+        else:
+            try:
+                observed_single_amount_decimal = str(
+                    Decimal(amount.replace(",", ""))
+                )
+            except InvalidOperation:
+                reasons.append("invalid_numeric_amount")
         if not currency:
             reasons.append("missing_explicit_currency")
         if not unit:
@@ -210,11 +255,15 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
             reasons.append("conditional_or_tiered_price")
         if FOOTNOTE_MARK.search(raw) or footnotes:
             reasons.append("unresolved_footnote")
+        # A quote candidate requires a stated currency, denominator, rate
+        # dimension and model. Unknown region/tier remain explicit blockers;
+        # a quote candidate is NEVER a comparable/approved rate.
+        quote_blockers = {"missing_explicit_region", "missing_explicit_tier_or_plan"}
+        if (observed_single_amount_decimal is not None
+                and set(reasons) <= quote_blockers):
+            review_quote_amount_decimal = observed_single_amount_decimal
         if not reasons:
-            try:
-                normalized = str(Decimal(amount.replace(",", "")))
-            except InvalidOperation:
-                reasons.append("invalid_numeric_amount")
+            normalized = observed_single_amount_decimal
     elif state == "not_displayed" and len(amounts) > 1:
         state = "multiple_or_time_dependent"
         reasons.append("multiple_amounts_in_cell")
@@ -228,6 +277,18 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
     return {
         "raw_displayed_price": raw,
         "raw_amount_text": displayed_amount,
+        # The unverified visible number is useful for manual triage even when
+        # comparison is forbidden. A separate quote candidate is deliberately
+        # stricter and cannot bypass source-review or inventory health gates.
+        "observed_single_amount_decimal": observed_single_amount_decimal,
+        "review_quote_amount_decimal": review_quote_amount_decimal,
+        "review_quote_candidate": review_quote_amount_decimal is not None,
+        "region_applicability": "explicit_scope" if region else "unspecified",
+        "tier_applicability": "explicit_scope" if tier else "unspecified",
+        "currency_attribution": (
+            "explicit_currency_code" if currency else
+            "unqualified_symbol" if "$" in raw else "unresolved"
+        ),
         "price_state": state,
         "currency": currency,
         "billing_unit": unit,

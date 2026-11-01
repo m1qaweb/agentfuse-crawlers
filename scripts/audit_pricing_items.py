@@ -18,7 +18,9 @@ DIMENSIONS = (
 )
 ROWS_FIELDS = (
     "source_id", "provider", "status", "reason", "http_status",
-    "observations", "comparable_candidates", "scoped_observations",
+    "observations", "comparable_candidates", "review_quote_candidates",
+    "unscoped_review_quotes", "observed_single_amounts",
+    "scoped_observations",
     "explicit_scope_declarations", "missing_currency", "missing_billing_unit",
     "missing_price_dimension", "missing_region", "missing_tier_or_plan",
     "parser_revision", "detected_price_entries", "card_count",
@@ -73,6 +75,15 @@ def inspect(items, *, expect_all=False):
                     counts["missing_" + name] += 1
             for issue in observation.get("normalization_blockers") or []:
                 blockers[issue] += 1
+            if observation.get("review_quote_candidate"):
+                counts["review_quote_candidates"] += 1
+                if not observation.get("comparable_candidate"):
+                    counts["unscoped_review_quotes"] += 1
+                if (not observation.get("review_quote_amount_decimal")
+                        or observation.get("approved_for_advisor") is not False):
+                    anomalies += 1
+            if observation.get("observed_single_amount_decimal") is not None:
+                counts["observed_single_amounts"] += 1
             if observation.get("scope_declarations"):
                 counts["scoped_observations"] += 1
                 counts["explicit_scope_declarations"] += len(
@@ -93,6 +104,9 @@ def inspect(items, *, expect_all=False):
             "http_status": item.get("http_status"),
             "observations": len(records),
             "comparable_candidates": counts["comparable_candidates"],
+            "review_quote_candidates": counts["review_quote_candidates"],
+            "unscoped_review_quotes": counts["unscoped_review_quotes"],
+            "observed_single_amounts": counts["observed_single_amounts"],
             "scoped_observations": counts["scoped_observations"],
             "explicit_scope_declarations": counts["explicit_scope_declarations"],
             "missing_currency": counts["missing_currency"],
@@ -129,6 +143,15 @@ def inspect(items, *, expect_all=False):
         "source_accounting_complete": seen == set(known),
         "observed_price_rows": observed,
         "comparable_candidates": comparable,
+        "review_quote_candidates": sum(
+            row["review_quote_candidates"] for row in source_rows
+        ),
+        "unscoped_review_quotes": sum(
+            row["unscoped_review_quotes"] for row in source_rows
+        ),
+        "observed_single_amounts": sum(
+            row["observed_single_amounts"] for row in source_rows
+        ),
         "sources_with_rate_candidates": sum(
             r["comparable_candidates"] > 0 for r in source_rows
         ),
@@ -196,6 +219,7 @@ def main():
     print(json.dumps({
         k: report[k] for k in (
             "source_count", "observed_price_rows", "comparable_candidates",
+            "review_quote_candidates", "unscoped_review_quotes",
             "sources_with_rate_candidates", "provenance_or_approval_anomalies",
         )
     }, indent=2))
