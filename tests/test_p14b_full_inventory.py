@@ -553,3 +553,44 @@ def test_forged_policy_state_in_an_archived_item_is_rejected(
     report = audit_full_inventory(planned_shards, items_paths=[raw])
     assert report["summary"]["verified_immutable_archives"] is False
     assert report["summary"]["status"] == "raw_export_preliminary_not_verified"
+
+
+def test_large_provider_cannot_crowd_out_49_others_in_human_review_queue(
+        monkeypatch):
+    from scripts import real_gold_binding
+
+    fake = {}
+    for n in range(50):
+        sid = f"synthetic_source_{n:02}"
+        fake[(sid, f"883514/3/{n+500}")] = {
+            "source_id": sid,
+            "category": "pricing",
+            "source_url": "https://synthetic.invalid/pricing",
+            "content_sha256": "a" * 64,
+            "pricing_observations": [{
+                "observation_id": f"{k:032x}",
+                "normalized_amount_decimal": "1.00",
+                "raw_displayed_price": "USD 1.00",
+                "currency": "USD",
+                "model_or_service": "Synthetic",
+                "comparable_candidate": True,
+            } for k in range(50)],
+        }
+    monkeypatch.setattr(
+        real_gold_binding, "load_bound_archives",
+        lambda paths, full_inventory_plan=None: (
+            fake, {"synthetic": {"job_id": "synthetic"}}, PACKAGE_SHA
+        ),
+    )
+    packet = real_gold_binding.prepare_review_candidates(["synthetic-only"])
+    prices = packet["samples"]["pricing"]
+    assert len(prices) == 1200
+    assert packet["source_diversity_counts"]["pricing"] == 50
+    assert len({row["source_id"] for row in prices[:50]}) == 50
+    assert packet["omitted_by_bounded_sample"]["pricing"] == 1300
+    assert packet["per_source_candidate_limit"] == 40
+    assert packet["sampling_strategy"] == (
+        "bounded_source_round_robin_unreviewed"
+    )
+    assert all(p["review_status"] == "unreviewed" for p in prices)
+    assert packet["independently_verified_vendor_facts"] == 0
