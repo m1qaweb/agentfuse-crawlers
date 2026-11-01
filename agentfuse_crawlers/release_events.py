@@ -384,6 +384,28 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
     }
 
 
+def _finalize_generic_date_identity(event, source_id, source_url):
+    """An in-card <time> may appear AFTER the heading used to create event.
+
+    Finalize review-only dated identity from the completed event, not solely
+    the date known when its heading was first encountered.
+    """
+    if (event.get("identity_basis") == "stable_title_and_version_no_date"
+            and event.get("permalink") == source_url
+            and not event.get("version")
+            and event.get("published_at")
+            and _generic_dated_title(event.get("title", ""))):
+        stable_heading = _normalize(event["title"]).casefold()
+        identity = (
+            "dated_generic:" + stable_heading + "|day:" + event["published_at"]
+        )
+        event["event_id"] = source_id + ":" + hashlib.sha256(
+            (source_id + "|" + identity).encode("utf-8")
+        ).hexdigest()[:24]
+        event["identity_basis"] = "date_scoped_generic_heading_review_only"
+        event["release_identity_requires_manual_review"] = True
+
+
 def extract_release_events(main, source_url, source_id):
     """Build bounded candidates; no inferred publication dates or automatic approval.
 
@@ -423,6 +445,7 @@ def extract_release_events(main, source_url, source_id):
         current["excerpt_truncated"] = len(body) > MAX_EXCERPT
         current["body_text_truncated"] = bool(current.pop("_body_overflow", False))
         current["heading_level"] = heading_level
+        _finalize_generic_date_identity(current, source_id, source_url)
         entries_seen += 1
         window.add(current)
         current = None
