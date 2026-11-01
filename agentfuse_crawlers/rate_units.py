@@ -46,6 +46,9 @@ UNIT_PATTERNS = [
         r"(?:\bper\b|/)\s*(?:1\s*m(?:illion)?|million)\s*characters?\b", re.I)),
     ("per_1k_requests", re.compile(
         r"(?:\bper\b|/)\s*(?:1[, ]?000|1\s*k|thousand)\s*requests?\b", re.I)),
+    ("per_1k_queries", re.compile(
+        r"(?:\bper\b|/)\s*(?:1[, ]?000|1\s*k|thousand)\s*quer(?:y|ies)\b", re.I)),
+    ("per_query", re.compile(r"(?:\bper\b|/)\s*query\b", re.I)),
     ("per_request", re.compile(r"(?:\bper\b|/)\s*request\b", re.I)),
     ("per_image", re.compile(r"(?:\bper\b|/)\s*image\b", re.I)),
     ("per_user_month", re.compile(
@@ -60,6 +63,14 @@ UNIT_PATTERNS = [
     ("per_minute", re.compile(r"(?:\bper\b|/)\s*minute\b", re.I)),
 ]
 DIMENSION_PATTERNS = [
+    # Long-lived cache-write prices must not collapse into the cached-input
+    # read rate or into writes with another retention commitment.
+    ("cache_write_30m", re.compile(
+        r"\b(?:30\s*m(?:in(?:utes?)?)?|half[- ]hour)\b\s*(?:cache\s*)?write\b"
+        r"|\bcache\s*write\b.{0,30}\b30\s*m(?:in(?:utes?)?)?\b", re.I)),
+    ("cache_write_12h", re.compile(
+        r"\b12\s*h(?:ours?)?\b\s*(?:cache\s*)?write\b"
+        r"|\bcache\s*write\b.{0,30}\b12\s*h(?:ours?)?\b", re.I)),
     ("ultrafast_input", re.compile(r"\b(?:ultra[- ]?fast|ultrafast)\b.*\binput\b", re.I)),
     ("ultrafast_output", re.compile(r"\b(?:ultra[- ]?fast|ultrafast)\b.*\boutput\b", re.I)),
     ("fast_input", re.compile(r"\bfast\b.*\binput\b", re.I)),
@@ -74,7 +85,9 @@ DIMENSION_PATTERNS = [
     ("input", re.compile(r"\binput\b", re.I)),
     ("output", re.compile(r"\boutput\b", re.I)),
     ("subscription", re.compile(r"\b(?:seat|user)\b.*\bmonth\b", re.I)),
-    ("usage", re.compile(r"\b(?:unit price|usage price|request price|hourly rate|rate)\b", re.I)),
+    ("usage", re.compile(
+        r"\b(?:unit price|usage price|request price|hourly rate|rate|"
+        r"price per (?:1[, ]?000 |1k |query|request))\b", re.I)),
 ]
 REGION_RE = re.compile(
     r"\b(?:region|location)\s*[:=]\s*"
@@ -115,6 +128,7 @@ def detect_dimension(*scopes):
             # modes is not a single independent rate.
             found = list(dict.fromkeys(found))
             if found[0] in {
+                "cache_write_30m", "cache_write_12h",
                 "ultrafast_input", "ultrafast_output", "fast_input", "fast_output",
                 "long_context_input", "long_context_output", "batch_cached_input",
                 "batch_input", "batch_output", "cache_write", "cached_input",
@@ -182,8 +196,14 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
             state = name
             break
     normalized = None
+    observed_single_amount_decimal = None
+    review_quote_amount_decimal = None
     displayed_amount = None
     amounts = list(PRICE.finditer(raw))
+    negative_amount = bool(re.search(
+        r"(?:^|[^\w])-\s*(?:(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF)\s*)?[$€£¥]?\s*\d",
+        raw, re.I,
+    ))
     # If the vendor uses an unadorned number under a labeled currency column,
     # a single number is an observable candidate; do not infer missing currency.
     if state == "not_displayed" and len(amounts) == 1:
@@ -191,6 +211,15 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
         amount = match.group(3)
         displayed_amount = match.group(0).strip()
         state = "numeric_candidate"
+        if negative_amount:
+            reasons.append("negative_or_discount_amount")
+        else:
+            try:
+                observed_single_amount_decimal = str(
+                    Decimal(amount.replace(",", ""))
+                )
+            except InvalidOperation:
+                reasons.append("invalid_numeric_amount")
         if not currency:
             reasons.append("missing_explicit_currency")
         if not unit:
@@ -210,11 +239,15 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
             reasons.append("conditional_or_tiered_price")
         if FOOTNOTE_MARK.search(raw) or footnotes:
             reasons.append("unresolved_footnote")
+        # A quote candidate requires a stated currency, denominator, rate
+        # dimension and model. Unknown region/tier remain explicit blockers;
+        # a quote candidate is NEVER a comparable/approved rate.
+        quote_blockers = {"missing_explicit_region", "missing_explicit_tier_or_plan"}
+        if (observed_single_amount_decimal is not None
+                and set(reasons) <= quote_blockers):
+            review_quote_amount_decimal = observed_single_amount_decimal
         if not reasons:
-            try:
-                normalized = str(Decimal(amount.replace(",", "")))
-            except InvalidOperation:
-                reasons.append("invalid_numeric_amount")
+            normalized = observed_single_amount_decimal
     elif state == "not_displayed" and len(amounts) > 1:
         state = "multiple_or_time_dependent"
         reasons.append("multiple_amounts_in_cell")
@@ -228,6 +261,18 @@ def analyze_cell(raw_cell, *, model_label, column_header, row_header,
     return {
         "raw_displayed_price": raw,
         "raw_amount_text": displayed_amount,
+        # The unverified visible number is useful for manual triage even when
+        # comparison is forbidden. A separate quote candidate is deliberately
+        # stricter and cannot bypass source-review or inventory health gates.
+        "observed_single_amount_decimal": observed_single_amount_decimal,
+        "review_quote_amount_decimal": review_quote_amount_decimal,
+        "review_quote_candidate": review_quote_amount_decimal is not None,
+        "region_applicability": "explicit_scope" if region else "unspecified",
+        "tier_applicability": "explicit_scope" if tier else "unspecified",
+        "currency_attribution": (
+            "explicit_currency_code" if currency else
+            "unqualified_symbol" if "$" in raw else "unresolved"
+        ),
         "price_state": state,
         "currency": currency,
         "billing_unit": unit,

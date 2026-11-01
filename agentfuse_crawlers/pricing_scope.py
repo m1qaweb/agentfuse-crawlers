@@ -32,6 +32,21 @@ LOCAL_UNIT = re.compile(
     r"(?:tokens?|characters?|requests?)\s*\.?$",
     re.I,
 )
+LOCAL_CURRENCY = re.compile(
+    rf"^(?:prices?|rates?|pricing|costs?)\s+(?:are|is\s+)?"
+    rf"(?:(?:shown|listed|quoted|denominated)\s+)?in\s+({CODES})\s*\.?$",
+    re.I,
+)
+LOCAL_ALL_REGIONS = re.compile(
+    r"^(?:all\s+)?(?:prices?|rates?)\s+(?:are\s+)?(?:the\s+)?"
+    r"same\s+(?:in|across|for)\s+all\s+regions\s*\.?$",
+    re.I,
+)
+LOCAL_ALL_PLANS = re.compile(
+    r"^(?:all\s+)?(?:prices?|rates?)\s+(?:are\s+)?(?:the\s+)?"
+    r"same\s+(?:in|across|for)\s+all\s+(?:plans|tiers)\s*\.?$",
+    re.I,
+)
 LOCAL_LABEL = re.compile(
     r"^(?:region|location|tier|plan)\s*[:=]\s*[A-Za-z0-9 _-]{2,45}$",
     re.I,
@@ -67,6 +82,13 @@ def _leaf_statement(node):
 
 def _statement_declarations(text):
     found = []
+    currency = LOCAL_CURRENCY.fullmatch(text)
+    if currency:
+        found.append(("currency", currency.group(1).upper()))
+    if LOCAL_ALL_REGIONS.fullmatch(text):
+        found.append(("region", "Global"))
+    if LOCAL_ALL_PLANS.fullmatch(text):
+        found.append(("tier_or_plan", "All Plans"))
     unit = detect_unit(text) if LOCAL_UNIT.fullmatch(text) else None
     if unit is not None:
         found.append(("billing_unit", unit))

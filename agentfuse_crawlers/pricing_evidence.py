@@ -426,7 +426,7 @@ def extract_pricing_evidence(main, source_url, source_id):
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "structured_cards_v2",
+        "pricing_parser_revision": "evidence_quote_v3",
         "pricing_table_total": len(all_tables),
         "pricing_table_scanned": min(len(all_tables), MAX_SCAN_TABLES),
         "pricing_table_relevant": relevant_total,
@@ -457,6 +457,18 @@ def extract_pricing_evidence(main, source_url, source_id):
         "pricing_rows_examined": rows_examined,
         "pricing_observation_count": len(observations),
         "pricing_comparable_candidate_count": len(comparable),
+        "pricing_review_quote_candidate_count": sum(
+            bool(x.get("review_quote_candidate")) for x in observations
+        ),
+        "pricing_observed_single_amount_count": sum(
+            x.get("observed_single_amount_decimal") is not None
+            for x in observations
+        ),
+        "pricing_unscoped_review_quote_count": sum(
+            bool(x.get("review_quote_candidate"))
+            and not bool(x.get("comparable_candidate"))
+            for x in observations
+        ),
         "pricing_non_numeric_states": states,
         "pricing_unparsed_candidate_count": ambiguous_table_cells,
         "pricing_scoped_table_count": sum(
