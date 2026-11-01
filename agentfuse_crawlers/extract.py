@@ -16,7 +16,9 @@ from lxml import etree, html
 
 from agentfuse_crawlers.release_events import extract_release_events
 from agentfuse_crawlers.pricing_evidence import extract_pricing_evidence
-from agentfuse_crawlers.documentation_scope import extract_documentation_evidence
+from agentfuse_crawlers.documentation_scope import (
+    extract_documentation_evidence, inspect_documentation_dom,
+)
 
 BLOCKS = frozenset({
     'article', 'blockquote', 'div', 'dl', 'dt', 'dd', 'h1', 'h2', 'h3',
@@ -267,10 +269,33 @@ def _tables(main):
     return tables, truncated
 
 
+def _attach_documentation_local_prose(main, sections):
+    """Count only substantive visible <p> blocks inside each heading's span."""
+    if not sections:
+        return
+    counts = [0] * len(sections)
+    active = -1
+    for node in main.iter():
+        tag = _tag(node)
+        if tag in {"h2", "h3", "h4"}:
+            active += 1
+        elif (tag == "p" and 0 <= active < len(counts)
+              and len(re.sub(r"\s+", " ", node.text_content()).split()) >= 12):
+            counts[active] += 1
+    for section, count in zip(sections, counts):
+        section["local_substantive_paragraph_count"] = count
+
+
 def extract_evidence(raw_html, source_url, category=None, source_id=None,
                      pricing_table_window=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
+    # Inspect original documentation links and script/mount metadata BEFORE
+    # removing nav/aside elements. This metadata is never a crawl allowlist.
+    doc_dom = (
+        inspect_documentation_dom(root, source_url, source_id)
+        if category == "documentation" and source_id else None
+    )
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
     main_nodes = root.xpath('//main | //*[@role="main"]')
     if not main_nodes:
@@ -302,6 +327,7 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None,
         sections, sections_truncated = _sections(
             main, source_url, max_sections=64, max_excerpt=1200,
         )
+        _attach_documentation_local_prose(main, sections)
         tables, tables_truncated = _tables(main)
     else:
         sections, sections_truncated = _sections(main, source_url)
@@ -335,6 +361,7 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None,
             link_text_ratio=main_link_text_ratio,
             sections_truncated=sections_truncated,
             canonical_candidate=canonical[0] if canonical else '',
+            document_dom=doc_dom,
         ) if category == 'documentation' and source_id else {}
     )
     return {
