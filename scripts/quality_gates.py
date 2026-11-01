@@ -248,9 +248,15 @@ def _canary_report_consistent(report):
     )
 
 
-def grade_release(*, synthetic=None, canaries=None, human_gold=None):
-    """Return actionable blockers. Missing evidence NEVER counts as passed."""
+def grade_release(*, synthetic=None, canaries=None, human_gold=None,
+                  gold_archives=None):
+    """Return actionable blockers. Missing evidence NEVER counts as passed.
+
+    Any human gold used for release review must be matched to actual archived
+    crawler evidence, not merely an operator-typed `observed` dictionary.
+    """
     blockers, warnings, criteria = [], [], {}
+    gold_binding = None
 
     def check(name, ok, message):
         criteria[name] = bool(ok)
@@ -335,6 +341,33 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None):
             "false news, or negative human gold has not been supplied",
         )
         warnings.append("Human labeling is self-attested; source and reviewer must be independently audited")
+
+    if human_gold is not None and gold_archives:
+        # Import here to avoid making the immutable archive verifier part of
+        # every CI-only synthetic regression path.
+        from scripts.real_gold_binding import bind_human_gold
+
+        gold_binding = bind_human_gold(human_gold, gold_archives)
+    check(
+        "archive_bound_human_gold",
+        bool(
+            gold_binding
+            and gold_binding.get("binding_complete") is True
+            and gold_binding.get("pricing_cases_bound")
+                == len(human_gold.get("pricing_rows", []))
+            and gold_binding.get("date_cases_bound")
+                == len(human_gold.get("date_rows", []))
+            and gold_binding.get("negative_cases_bound")
+                == len(human_gold.get("negative_rate_rows", []))
+            and gold_binding.get("change_cases_bound")
+                == len(human_gold.get("change_safety_rows", []))
+            and gold_binding.get("advisor_fact_approvals") == 0
+            and gold_binding.get("deployment_authorized") is False
+        ),
+        "Human annotations have not been cross-checked against finished, "
+        "immutable, fingerprint-matched Zyte source Items; self-attestation "
+        "and synthetic test rows cannot satisfy real-world accuracy gates",
+    )
     return {
         "schema_version": "1.0",
         "report_kind": "manual_release_quality_check",
@@ -342,6 +375,7 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None):
                   else "blocked_pending_evidence_or_quality",
         "checks": criteria, "blockers": blockers, "warnings": warnings,
         "independent_gold_summary": reviewed,
+        "real_gold_archive_binding": gold_binding,
         "hard_gate_count": len(criteria),
         "hard_gates_passed": sum(criteria.values()),
         "advisor_fact_approvals": 0,
@@ -361,6 +395,9 @@ def main():
     parser.add_argument("--canary-score", type=Path)
     parser.add_argument("--reviewed-gold", type=Path,
                         help="Separate human-annotated official evidence JSON")
+    parser.add_argument("--gold-archives", type=Path, nargs="+",
+                        help="Verified P07 immutable job dirs for ALL labeled real cases; "
+                             "required to pass the archive-bound human gold gate")
     parser.add_argument("--out-dir", type=Path,
                         default=Path("output/release-gates"))
     parser.add_argument("--strict", action="store_true",
@@ -374,6 +411,7 @@ def main():
         synthetic=load(args.synthetic_report),
         canaries=load(args.canary_score),
         human_gold=load(args.reviewed_gold),
+        gold_archives=args.gold_archives,
     )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "quality_gate_report.json").write_text(
