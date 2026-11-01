@@ -257,7 +257,8 @@ def _tables(main):
     return tables, truncated
 
 
-def extract_evidence(raw_html, source_url, category=None, source_id=None):
+def extract_evidence(raw_html, source_url, category=None, source_id=None,
+                     pricing_table_window=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
