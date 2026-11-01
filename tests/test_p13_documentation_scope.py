@@ -70,7 +70,11 @@ def test_technical_topic_requires_prose_within_its_own_section():
         "<p>This page describes how the Amazon Bedrock service connects "
         "applications to a managed foundation model interface while "
         "explaining the operational considerations for API deployments "
-        "and prerequisites associated with service configuration.</p>"
+        "and prerequisites associated with service configuration. "
+        "Further materials include distinctions between deployment modes, "
+        "authentication procedures, operational service boundaries and "
+        "limitations which should always be read from exact official "
+        "technical product references before making support claims.</p>"
     )
     assert data["documentation_topic_candidates"] == []
     assert data["documentation_scope_status"] == "scope_not_established"
@@ -85,7 +89,11 @@ def test_locally_corroborated_topic_stays_unverified_and_provenance_scoped():
         "<p>Amazon Bedrock model catalog pages document identity references, "
         "regional requirements, API usage modes and service-specific "
         "configuration details; these source contents require separate review "
-        "before any supported-feature conclusion is drawn.</p>"
+        "before any supported-feature conclusion is drawn. "
+        "The examples on this page are reference material rather than "
+        "guarantees of currently available functions; regional restrictions "
+        "and model capability support require confirmation against the "
+        "publisher's current, exact model documentation.</p>"
     )
     assert data["documentation_scope_status"] == "scoped_page"
     row = data["documentation_topic_candidates"][0]
@@ -111,7 +119,11 @@ def test_child_links_are_same_host_same_path_family_never_auto_crawled():
     <a href='/api/docs/models'>Duplicate models</a></nav>
     <p>This is an introductory API documentation portal; its links lead to
     separate pages with technical documentation about authentication,
-    models, supported interfaces and developer configuration.</p>
+    models, supported interfaces and developer configuration. This page
+    does not itself establish any models or feature capability statements.
+    Each linked source must be reviewed for intended product relevance,
+    official API support and documentation completeness before a technical
+    recommendation is made to another developer.</p>
     """
     result = doc(body, sid=s["id"])
     assert result["documentation_scope_status"] == "overview_only"

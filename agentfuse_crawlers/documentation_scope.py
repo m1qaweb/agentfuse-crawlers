@@ -322,7 +322,12 @@ def extract_documentation_evidence(
     expected = profile.get("expected_page_type") if profile else None
     # Classification is page-level only. A reference-looking overview is not
     # evidence that all relevant reference URLs have been crawled.
-    if words < 45:
+    if (words < 45 and dom.get("documentation_nav_candidate_total_detected", 0)
+            and static_status != "javascript_shell_suspected"):
+        # A static navigation-only HTML page is a reviewable INDEX, not proof
+        # of technical corpus coverage. The nav may be stripped from prose.
+        page_type, scope = "index", "index_only"
+    elif words < 45:
         page_type, scope = "insufficient_content", "insufficient_content"
     elif link_text_ratio > 0.65 and prose_paragraphs < 2:
         page_type, scope = "index", "index_only"
