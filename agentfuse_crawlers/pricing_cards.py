@@ -54,6 +54,12 @@ PLAN_HEADING = re.compile(
     r"ultra|power|project|researcher|pay\s+as\s+you\s+go|"
     r"team|teams|business|enterprise)$", re.I,
 )
+BARE_MONEY = re.compile(
+    r"^(?:(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF)\s*)?"
+    r"[$€£¥]?\s*(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,8})?"
+    r"(?:\s*(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF))?$",
+    re.I,
+)
 BILLING_PERIOD = re.compile(
     r"^(?:per|/)\s*(?:(?:user|seat)\s*(?:/|per)\s*)?"
     r"(?:month|hour|year|annum)$",
@@ -285,6 +291,7 @@ def _pairs(card):
         rate = texts[price_positions[0]]
         period = texts[period_positions[0]]
         if (len(rate) > 85 or len(rate.split()) > 6
+                or not BARE_MONEY.fullmatch(rate)
                 or EXCLUDED_CONTENT.search(rate) or EXCLUDED_CONTENT.search(period)):
             continue
         label = (

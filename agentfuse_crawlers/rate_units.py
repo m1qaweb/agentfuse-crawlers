@@ -96,13 +96,17 @@ DIMENSION_PATTERNS = [
 REGION_RE = re.compile(
     r"\b(?:region|location)\s*[:=]\s*"
     r"(global|worldwide|us-east-\d|us-west-\d|eu-[a-z]+-\d|"
-    r"ap-[a-z]+-\d|US East|US West|EU West|EU Central|Asia Pacific)\b", re.I,
+    r"ap-[a-z]+-\d|US East|US West|EU West|EU Central|Asia Pacific)\b"
+    r"|\b(?:all\s+)?(?:prices?|rates?)\s+(?:are\s+)?(?:the\s+)?"
+    r"same\s+(?:in|across|for)\s+(all\s+regions)\b", re.I,
 )
 TIER_RE = re.compile(
     r"\b(?:tier|plan)\s*[:=, -]+\s*(free|paid|standard|priority|enterprise|"
     r"pro|business|batch|on[- ]demand|provisioned)\b"
     r"|\b(free|paid|enterprise|standard|priority|business|on[- ]demand|"
-    r"provisioned)\s+tier\b", re.I,
+    r"provisioned)\s+tier\b"
+    r"|\b(?:all\s+)?(?:prices?|rates?)\s+(?:are\s+)?(?:the\s+)?"
+    r"same\s+(?:in|across|for)\s+(all\s+(?:plans|tiers))\b", re.I,
 )
 
 
@@ -165,8 +169,14 @@ def _extract_one(pattern, scopes):
     values = []
     for scope in scopes:
         for x in pattern.finditer(clean(scope, 350)):
-            candidate = clean(x.group(1) or x.group(2), 80)
+            candidate = clean(
+                next((group for group in x.groups() if group), ""), 80
+            )
             if candidate:
+                if candidate.lower() == "all regions":
+                    candidate = "Global"
+                elif candidate.lower() in {"all plans", "all tiers"}:
+                    candidate = "All Plans"
                 values.append(candidate)
     # Values are case-insensitive; inconsistent region/tier means "unknown".
     return values[0] if values and len({x.lower() for x in values}) == 1 else None

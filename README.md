@@ -41,6 +41,61 @@ python -m scripts.compare_exports --current output/today-changelogs.json \
 
 Only the original **nine** source URLs have prior real Zyte crawl evidence. A URL in `sources.json` is not automatically current, accurate, or reachable.
 
+### P11A — Quote triage versus comparable pricing
+
+P11A adds a strict separation between single numeric observations,
+review-ready (not fully scoped) quotes and completely dimensioned comparable
+rate candidates. Unqualified `# AgentFuse AI Provider Intelligence — Collection Layer
+
+A conservative, **read-only** Scrapy Cloud project that tracks *official documentation, pricing and changelogs*. It collects evidence for a future AgentFuse Intelligence directory and AI-stack advisor; it **does not publish provider claims, price comparisons or recommendations automatically**.
+
+## What's implemented
+
+- **460 configured official-source URL candidates / 194 provider names** (October 30, 2026): 194 documentation, 177 pricing, 89 changelogs. **82** original entries preserved, **378** appended from the owner's expanded JSON file. Only the original **nine** source URLs have previous observed Zyte crawl success; **451 remain candidates** awaiting source-by-source live validation. The uploaded filename saying "verified" is not live extraction evidence.
+- Exactly three Scrapy 2.18 spiders: `official_documentation`, `official_pricing`, `official_changelogs`. Each job requests the current HTML of every selected official URL; the source inventory can be expanded without adding spider types.
+- Fixed offline URL manifest; no arbitrary-URL spider arguments. `cohort=proven|candidate|all`, explicit source-ID selection, and bounded `offset` and `limit` make safe rollout easier.
+- **PR01 operational guard:** omit `cohort` to crawl only 3 historical smoke-test URLs per spider. Any job with `cohort=all` and no `source_ids` now **requires** `confirm_full_inventory=yes`, even when using `limit`. Existing recurring jobs explicitly set to `cohort=all` must be deliberately updated before deploying this change. This is a scope safety control, not an access-permission check.
+- Evidence schema v2: fetch metadata, status, full-text SHA-256, semantic heading sections and dated *candidates*, HTML table cells with row/colspan, canonical link when same-host, length/quality warnings and original source URLs.
+- Offline JSON/JSONL import, snapshots, source health report, page diffs, section diffs, and **unverified review queue**. A first crawl is a baseline, not a new announcement.
+- Optional manual Zyte job exporter to archive data beyond Zyte's retention window. Uses an environment variable; never commits API keys.
+- GitHub Actions validation of packaged egg and Scrapy spider registration, plus unit tests.
+
+## Fresh-fetch and extraction integrity (v2.1)
+
+Each triggered run schedules **new network requests**, with Scrapy's HTTP cache disabled and `Cache-Control: no-cache` / `Pragma: no-cache` revalidation hints. The crawler records the fetch timestamp, server Date, Last-Modified, ETag, Cache-Control and CDN Age when available. These are *response observations*, not proof that the publisher has posted a newer version.
+
+The spider only follows bounded (max 3) **same-source-host HTTPS redirects** and flags moved URLs or unexpected canonical paths for review. Global automatic redirects remain enabled to let Scrapy process **robots.txt redirects**; all *source page requests* explicitly opt out and use the stricter per-source policy. A login page, JavaScript-only shell, missing dated release sections, link-only documentation index, or pricing page with no observable billing evidence is `needs_review`, not `captured`. Truncated text/tables/changelog sections are `partial_capture`. The cross-source coverage extension writes job stats `agentfuse/coverage/*` and closes a run with a descriptive reason when expected item records are missing or nothing usable was collected.
+
+**Important boundary:** these spiders fetch the current version of each **configured page**, not every subpage in a provider's entire documentation tree. A changelog includes historical entries; a daily run should identify *changes relative to prior snapshots*, not pretend those old entries were published today. A CDN may serve cached content even when the crawler asks for revalidation. Thus `latest_publication_verified=false` until independently confirmed. A `captured` status means structurally useful source evidence, **never fact verification**. Do not mistake a `finished` job for successful source coverage—inspect the coverage stats.
+
+### Reproducible PR01 job provenance
+
+Each fetched or errored source Item now carries **both** `source_cohort` (historical source membership) and `requested_cohort` (actual Zyte job argument), plus an ordering-sensitive selection-ID SHA-256 and a manifest SHA-256, job start time, spider ID, and optional Zyte job ID / deployment revision. `SHUB_JOBKEY` may provide a real Zyte job ID. P10 now writes a nonempty `deployment_revision` as a SHA-256 fingerprint of the installed crawler Python/JSON package, with `deployment_revision_kind=package_py_json_sha256_v1`. This is a **package digest, not a Git SHA**. An optional `AGENTFUSE_DEPLOY_REVISION` is retained separately as `deployment_source_revision_claim` and cannot override the measured fingerprint. GitHub CI compares the legacy Zyte egg contents to the source package digest; the operator must still verify which egg is deployed. See `docs/P10_PROVENANCE_DIAGNOSTICS_RUNBOOK.md`. The exporter refuses to compare modern Items from incompatible job scopes, manifest revisions or mixed job sessions; old Items remain readable but are explicitly labeled `legacy_unverified`.
+
+The separate `agentfuse/run/quality_outcome`, `agentfuse/coverage/*` and P10 `agentfuse/diagnostics/*` metrics show counted source Items, independent concurrent quality reasons, comparable evidence and clipped excerpts. Each Item keeps its original primary `status` / `error` and adds independent unverified `quality_axes`, `diagnostic_reason_codes` and a blocked alert-eligibility state. **`finished` + complete source accounting is not proof that the facts or dates are accurate.**
+
+For stable validation jobs, generate `validation_batches.csv` and use `pinned_cohort=all`, `source_ids=<source_ids_csv>`, `expected_manifest_sha256=<hash>` and `expected_selection_ids_sha256=<hash>` from one CSV row. This pins a fixed ID set even if the candidate/proven registry changes. Explicit source-ID scoped jobs do not require `confirm_full_inventory=yes`; that confirmation is for broad unbounded `cohort=all` jobs only. Compare using the *same* `--cohort all --source-ids ...` arguments.
+
+### Match review exports to periodic-job scope
+
+For your schedules using `cohort=proven`, the post-run comparison automatically detects that cohort from v2.1 Items. For a bounded candidate batch, pass the **exact same** `--cohort candidate --offset 15 --limit 15` or `--source-ids cursor_docs` arguments used in Zyte; otherwise unrequested sources may appear missing. Use `python -m scripts.plan_validation --batch-size 15` to generate batch instructions and static warning flags for all 451 candidates. See [EXPANDED_SOURCES_ROLLOUT.md](docs/EXPANDED_SOURCES_ROLLOUT.md). Example:
+
+```bash
+python -m scripts.compare_exports --current output/today-changelogs.json \
+    --previous output/yesterday-changelogs.json --cohort proven \
+    --out-dir output/changelog-review
+```
+
+Only the original **nine** source URLs have prior real Zyte crawl evidence. A URL in `sources.json` is not automatically current, accurate, or reachable.
+
+ never means USD; missing provider region or
+plan is not silently interpreted as global or default. Explicit local price
+scope and billing periods can be attached to the next exact pricing table,
+while styled subscription plans remain review-only and never authorized for
+advisor price claims. `pricing_parser_revision=evidence_quote_v3` requires a
+fresh comparison baseline. See
+[docs/P11A_PRICING_EVIDENCE_RUNBOOK.md](docs/P11A_PRICING_EVIDENCE_RUNBOOK.md).
+
 ## Security & accuracy contract
 
 - `ROBOTSTXT_OBEY=True`. No login, CAPTCHA bypass, headless browser add-ons, third-party scraping proxies, or paid Zyte API.
