@@ -56,6 +56,24 @@ SKIP_TITLE = {
     "product updates", "documentation", "updates", "latest updates",
 }
 SUBHEADING = {"features", "bug fixes", "fixes", "improvements", "changes", "other"}
+# Only recurring, non-specific section labels can use a dated heading as a
+# distinct review-only identity when there is no release-owned permalink.
+# Source-visible dates are not verified publication dates: identity changes
+# after vendor date corrections MUST NEVER generate a new-release alert.
+GENERIC_DATED_HEADINGS = frozenset({
+    "added", "new", "fixed", "fixes", "bug fixes", "bug fix",
+    "bug fixes and reliability improvements", "what s changed",
+    "what changed", "what s new", "highlights", "changes",
+    "improvements", "features", "new features", "enhancements",
+    "maintenance", "maintenance updates", "performance improvements",
+    "reliability improvements", "security updates", "general updates",
+    "updates", "other", "release notes", "other changes",
+})
+PUBLISHED_DATELINE = re.compile(
+    r"^(?:(?:published|released)\s+on|published|released|"
+    r"publication\s+date|release\s+date)\s*[:—-]?\s*(.+)$",
+    re.I,
+)
 HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5"}
 BODY_TAGS = {"p", "li", "pre", "blockquote"}
 
@@ -116,6 +134,25 @@ def _marker_shape(text):
         DATE_ISO.fullmatch(text) or DATE_WORDS.fullmatch(text)
         or DATE_DAY_FIRST.fullmatch(text) or MONTH_DAY.fullmatch(text)
     )
+
+
+def _explicit_publication_dateline(text):
+    """Read only an entire explicitly labeled published/released dateline."""
+    value = _normalize(text)
+    m = PUBLISHED_DATELINE.fullmatch(value)
+    if not m:
+        return None
+    stamp = m.group(1).strip()
+    # Never treat 'released on date X...' prose or 'updated' labels as a
+    # date. The exact suffix must be an independently recognizable dateline.
+    if _marker_shape(stamp):
+        return stamp
+    return None
+
+
+def _generic_dated_title(title):
+    tokens = re.sub(r"[^a-z0-9]+", " ", _normalize(title).casefold()).strip()
+    return tokens in GENERIC_DATED_HEADINGS
 
 
 def _inline_heading(text, group):
@@ -201,16 +238,24 @@ def _permalink(node, source_url):
         if (dest.path.rstrip("/") == source_path
                 and dest.fragment not in {"", "top", "changelog", "releases"}):
             return target
-    for ancestor in list(node.iterancestors())[:3]:
-        if _tag(ancestor) in {"article", "section", "li", "div"}:
-            # Generic release-list wrapper IDs are shared by many headings;
-            # only use an ancestor ID that identifies one release heading.
-            headings = ancestor.xpath(".//h2|.//h3|.//h4|.//h5")
-            if len(headings) != 1 or headings[0] is not node:
-                continue
-            anchor = ancestor.get("id", "")
-            if anchor and re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", anchor):
-                return source_url.split("#", 1)[0] + "#" + quote(anchor)
+    for ancestor in list(node.iterancestors())[:4]:
+        if _tag(ancestor) not in {"article", "section", "li", "div"}:
+            continue
+        # Only a single-heading release card can own a permalink. A parent
+        # list, multi-event section or shared documentation index cannot.
+        headings = ancestor.xpath(".//h2|.//h3|.//h4|.//h5")
+        if len(headings) != 1 or headings[0] is not node:
+            continue
+        anchor = ancestor.get("id", "")
+        if anchor and re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", anchor):
+            return source_url.split("#", 1)[0] + "#" + quote(anchor)
+        # Release-owned links may appear beside a heading, not within it.
+        # Retain the strict nesting under this exact changelog URL; never
+        # borrow shared guides, release-list indexes or cross-host pages.
+        for link in ancestor.xpath(".//a[@href]")[:8]:
+            target = _first_party_reference(link.get("href", ""), source_url)
+            if target and urlsplit(target).path.startswith(source_path + "/"):
+                return target
     return source_url
 
 def _signals(main):
@@ -241,13 +286,26 @@ def _signals(main):
             )):
                 continue  # Edited time is not a release publication date.
             value = (node.get("datetime") or node.get("dateTime") or "").strip()
-            if value and DATE_ISO.fullmatch(value[:10]):
+            if value and DATE_ISO.fullmatch(value[:10]) and _date(value[:10])[0]:
                 yield "timestamp", value[:10], node, 0
+                continue
+            # Many official article cards display <time>Oct 28, 2026</time>
+            # without machine-readable datetime. The ENTIRE visible value
+            # must still be an explicit day; do not use parent prose or year
+            # inference. If datetime attribute exists but conflicts, refuse.
+            visible = _normalize(node.text_content())
+            direct = visible if _marker_shape(visible) else _explicit_publication_dateline(visible)
+            if direct and _date(direct)[0] and not value:
+                yield "date", direct, node, 0
         elif tag in {"p", "div", "span", "small", "strong", "b"}:
             # Only parse a date when the entire node text is the dateline.
             # Skip wrapper nodes that simply repeat a child dateline.
             value = _normalize(node.text_content())
-            if len(value) > 42 or not _marker_shape(value):
+            dateline = (
+                value if _marker_shape(value)
+                else _explicit_publication_dateline(value)
+            )
+            if len(value) > 65 or dateline is None:
                 if tag == "p":
                     if value:
                         yield "body", value, node, 0
@@ -261,7 +319,7 @@ def _signals(main):
             if any(_marker_shape(_normalize(x.text_content())) for x in node.iterdescendants()
                    if _tag(x) in {"p", "div", "span", "small", "strong", "b", "time"}):
                 continue
-            yield "date", value, node, 0
+            yield "date", dateline, node, 0
         elif tag in {"li", "pre", "blockquote"}:
             # A list item wrapping paragraphs or headings is not independent text.
             if node.xpath(".//p|.//h1|.//h2|.//h3|.//h4|.//h5"):
@@ -281,8 +339,14 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
     # be an edit, not falsely appear as a brand-new release.
     stable_heading = _normalize(title).casefold()
     title = _normalize(title)[:MAX_TITLE]
+    generic_dated = bool(
+        permalink == source_url and not version and day
+        and _generic_dated_title(title)
+    )
     identity = (
         "announcement:" + permalink if permalink != source_url
+        else "dated_generic:" + stable_heading + "|day:" + day
+        if generic_dated
         else "heading:" + stable_heading + "|version:" + (version or "")
     )
     digest = hashlib.sha256((source_id + "|" + identity).encode("utf-8")).hexdigest()[:24]
@@ -299,8 +363,10 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         "related_documentation_urls": related,
         "identity_basis": (
             "release_owned_permalink" if permalink != source_url
+            else "date_scoped_generic_heading_review_only" if generic_dated
             else "stable_title_and_version_no_date"
         ),
+        "release_identity_requires_manual_review": generic_dated,
         "evidence_locator": {
             "heading_id": heading_node.get("id", "")[:120],
             "source_url": source_url,
@@ -490,7 +556,7 @@ def extract_release_events(main, source_url, source_id):
         # A changed event-ID algorithm requires a NEW baseline compared with
         # older archived Items. Same schema of event fields is not the same
         # semantic identity revision. Never issue hundreds of false news.
-        "release_identity_revision": "release_owned_anchor_v2",
+        "release_identity_revision": "release_owner_date_scope_v3",
         "release_events": events,
         "release_event_count": entries_seen,
         "release_recent_event_count": len(events),
@@ -503,6 +569,24 @@ def extract_release_events(main, source_url, source_id):
         "release_order_direction": view["order"],
         "release_order_basis": view["basis"],
         "release_dated_event_count": len(dated),
+        "release_date_scoped_generic_event_count": sum(
+            e.get("identity_basis") == "date_scoped_generic_heading_review_only"
+            for e in events
+        ),
+        # An explicitly dated event can be reviewed individually when the
+        # page's release order is mixed. Do NOT turn this list into a claimed
+        # newest publisher release or an automatic alert.
+        "release_individual_date_candidates": [
+            {
+                "event_id": e["event_id"],
+                "published_at": e["published_at"],
+                "date_evidence_text": e["date_evidence_text"],
+                "published_date_provenance": e["published_date_provenance"],
+                "permalink": e["permalink"],
+                "review_status": "unverified",
+            }
+            for e in events if e.get("published_at")
+        ][:12],
         "release_event_identity_collision": collision,
         "latest_release_date_candidate": latest,
         "latest_release_date_status": (

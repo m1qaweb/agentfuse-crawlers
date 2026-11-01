@@ -87,10 +87,20 @@ def _tag(element):
     return element.tag.lower() if isinstance(element.tag, str) else ''
 
 
-def _clean(node):
+def _clean(node, *, category=None):
     for unwanted in list(node.xpath(NOISE_XPATH)):
-        if unwanted.getparent() is not None:
-            unwanted.drop_tree()
+        if unwanted.getparent() is None:
+            continue
+        # Changelog cards often hold the release-owned <time datetime> in an
+        # <article><header>. Global site headers/navigation remain noise.
+        # Never keep arbitrary headers or navigation menus: only a nested
+        # article header with its own explicit datetime/datelined time token.
+        if (category == "changelog" and _tag(unwanted) == "header"
+                and unwanted.xpath("ancestor::article")
+                and unwanted.xpath(".//time|.//relative-time")
+                and not unwanted.xpath(".//nav")):
+            continue
+        unwanted.drop_tree()
     return node
 
 
@@ -257,8 +267,7 @@ def _tables(main):
     return tables, truncated
 
 
-def extract_evidence(raw_html, source_url, category=None, source_id=None,
-                     pricing_table_window=None):
+def extract_evidence(raw_html, source_url, category=None, source_id=None):
     """Return structured *unverified* evidence and stable text for comparisons."""
     root = html.fromstring(raw_html)
     title = ' '.join(root.xpath('//title[1]/text()') or []).strip()
@@ -268,7 +277,7 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None,
     if not main_nodes:
         main_nodes = root.xpath('//body')
     main = max(main_nodes, key=lambda n: len(n.text_content())) if main_nodes else root
-    main = _clean(main)
+    main = _clean(main, category=category)
     heading1 = main.xpath('.//h1[1]')
     if heading1:
         title = re.sub(r'\s+', ' ', heading1[0].text_content()).strip() or title
@@ -296,10 +305,7 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None,
     else:
         sections, sections_truncated = _sections(main, source_url)
         if category == 'pricing' and source_id:
-            pricing_details = extract_pricing_evidence(
-                main, source_url, source_id,
-                **(pricing_table_window or {}),
-            )
+            pricing_details = extract_pricing_evidence(main, source_url, source_id)
             tables = pricing_details['pricing_legacy_table_excerpts']
             tables_truncated = not pricing_details['pricing_inventory_complete']
         else:
