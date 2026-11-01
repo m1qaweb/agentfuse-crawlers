@@ -264,7 +264,7 @@ class SourceCoverageAudit:
         context = getattr(spider, "run_context", None)
         if context:
             for field in CONTEXT_FIELDS:
-                stats.set_value("agentfuse/run/" + field, context[field])
+                stats.set_value("agentfuse/run/" + field, context.get(field, ""))
 
         if missing:
             spider.logger.warning(
