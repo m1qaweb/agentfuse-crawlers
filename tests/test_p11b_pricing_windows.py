@@ -99,7 +99,8 @@ def test_missing_middle_window_is_not_silently_marked_complete():
 def test_overlap_and_duplicate_job_ids_are_blocked():
     windows = [row(35, offset, 16, 100 + offset) for offset in (0, 16, 32)]
     conflict = copy.deepcopy(windows)
-    conflict[1]["pricing_table_window_start"] = 0
+    conflict[1]["pricing_table_window_start"] = 8
+    conflict[1]["pricing_table_window_end"] = 24
     with pytest.raises(ValueError, match="Missing, overlapping"):
         assemble_source_windows(conflict)
     repeat_job = copy.deepcopy(windows)
