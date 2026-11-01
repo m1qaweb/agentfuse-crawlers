@@ -158,6 +158,11 @@ def derive_diagnostics(record):
     elif category == "changelog" and record.get("release_events_schema"):
         if record.get("release_event_identity_collision"):
             add("release_event_identity_collision")
+        if record.get("release_date_scoped_generic_event_count"):
+            add("date_scoped_generic_release_identity_requires_review")
+        if (record.get("release_individual_date_candidates")
+                and not record.get("latest_release_date_candidate")):
+            add("individual_release_dates_not_verified_latest")
         if record.get("release_recent_body_loss_count"):
             add("recent_release_body_incomplete")
         if not record.get("release_event_count"):

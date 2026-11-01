@@ -311,10 +311,16 @@ def _release_diffs(current, previous):
                         former.get('published_date_provenance')
                     and event.get('version') == former.get('version')):
                 continue
+            generic_date_identity = (
+                event.get("identity_basis")
+                == "date_scoped_generic_heading_review_only"
+            )
             kind = (
                 ('version_first_seen_date_unknown' if former is None
                  else 'version_notes_edited_date_unknown')
                 if version_only
+                else "release_date_scoped_identity_review"
+                if generic_date_identity and former is None
                 else ('release_event_first_seen' if former is None
                       else 'release_event_edited')
             )
@@ -324,6 +330,7 @@ def _release_diffs(current, previous):
                 'category': 'changelog',
                 'change_type': kind,
                 'event_id': event['event_id'],
+                'release_identity_basis': event.get('identity_basis', 'unrecorded'),
                 'title': event.get('title', ''),
                 'version': event.get('version'),
                 'published_at_candidate': event.get('published_at'),
@@ -347,6 +354,10 @@ def _release_diffs(current, previous):
                     ('Existing official Markdown version notes edited; '
                      'publication date unknown; human review required')
                     if version_only else
+                    ('Generic repeated heading is date-scoped: this might be '
+                     'a publisher date correction, not a newly published event; '
+                     'manual source matching is required')
+                    if kind == "release_date_scoped_identity_review" else
                     'First observed by AgentFuse, NOT necessarily first published today'
                     if former is None else 'Vendor event content changed; review before conclusions'
                 ),

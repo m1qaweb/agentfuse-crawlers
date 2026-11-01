@@ -133,14 +133,20 @@ def test_duplicate_real_announcement_anchor_still_causes_fail_closed_collision()
     assert ev["approved_for_advisor"] is False
 
 
-def test_duplicate_generic_heading_without_anchor_is_not_silently_reidentified_by_date():
+def test_generic_repeated_heading_dated_events_are_distinct_review_only():
     ev = crawl("gemini_api_changelog",
         "<h2>October, 2026</h2>"
         "<div>Oct 30</div><h3>Bug fixes</h3><p>First date body.</p>"
         "<div>Oct 29</div><h3>Bug fixes</h3><p>Second date body.</p>"
     )
-    assert ev["release_event_identity_collision"] is True
-    assert ev["latest_release_date_candidate"] is None
+    assert ev["release_event_identity_collision"] is False
+    assert len({x["event_id"] for x in ev["release_events"]}) == 2
+    assert ev["release_date_scoped_generic_event_count"] == 2
+    assert all(x["release_identity_requires_manual_review"]
+               for x in ev["release_events"])
+    assert all(x["identity_basis"] == "date_scoped_generic_heading_review_only"
+               for x in ev["release_events"])
+    assert ev["latest_publication_verified"] is False
 
 
 def test_documentation_reference_cannot_leak_cross_host_or_url_query_secrets():
@@ -239,5 +245,5 @@ def test_current_identity_revision_is_declared_to_all_release_events():
         "<h2>v2.28.2</h2><p>Some deployment details.</p>",
     )
     assert data["release_events_schema"] == "1.1"
-    assert data["release_identity_revision"] == "release_owned_anchor_v2"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v3"
     assert data["release_events"][0]["identity_basis"] == "stable_title_and_version_no_date"
