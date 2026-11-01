@@ -6,6 +6,7 @@ import pytest
 
 from agentfuse_crawlers.run_context import (
     build_run_context, manifest_sha256, selection_ids_sha256,
+    package_fingerprint, PACKAGE_FINGERPRINT_KIND,
 )
 from agentfuse_crawlers.sources import load_sources, select_sources
 from agentfuse_crawlers.spiders.official import ChangelogSpider
@@ -39,7 +40,9 @@ def test_recorded_job_metadata_requires_real_identifiers():
     )
     assert result["run_started_at_utc"] == "2026-10-31T11:00:00+00:00"
     assert result["zyte_job_id"] == "883514/1/100"
-    assert result["deployment_revision"] == "123456abcdef"
+    assert result["deployment_revision"] == package_fingerprint()
+    assert result["deployment_revision_kind"] == PACKAGE_FINGERPRINT_KIND
+    assert result["deployment_source_revision_claim"] == "123456abcdef"
     assert result["requested_cohort"] == "proven"
     assert result["run_scope_explicit"] is False
 
@@ -51,7 +54,8 @@ def test_invalid_job_or_revision_are_not_claimed_as_real_provenance():
         job_id="apikey=secret", revision="wrong revision",
     )
     assert result["zyte_job_id"] == ""
-    assert result["deployment_revision"] == ""
+    assert result["deployment_revision"] == package_fingerprint()
+    assert result["deployment_source_revision_claim"] == ""
 
 
 def test_naive_started_at_rejected():

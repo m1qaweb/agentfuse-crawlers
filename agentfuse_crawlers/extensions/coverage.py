@@ -6,6 +6,8 @@ were relevant, complete, fresh, or suitable for an AI recommendation.
 
 from collections import Counter
 
+from agentfuse_crawlers.diagnostics import AXES as DIAGNOSTIC_AXES
+
 from scrapy import signals
 from scrapy.exceptions import CloseSpider
 
@@ -16,6 +18,7 @@ CONTEXT_FIELDS = (
     "spider_name", "requested_cohort", "run_scope_explicit",
     "selection_source_count", "selection_ids_sha256", "manifest_sha256",
     "run_started_at_utc", "zyte_job_id", "deployment_revision",
+    "deployment_revision_kind", "deployment_source_revision_claim",
 )
 
 
@@ -88,6 +91,8 @@ class SourceCoverageAudit:
         self.policy_unresolved = set()
         self.lifecycle_metadata_errors = set()
         self.collection_monitor_eligible = set()
+        self.diagnostic_records = {}
+        self.missing_modern_diagnostics = set()
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -106,6 +111,20 @@ class SourceCoverageAudit:
         if source_id:
             self.observed[source_id] = item.get("status", "unknown")
             self.status_counts[item.get("status", "unknown")] += 1
+            if item.get("diagnostic_schema") == "1.0":
+                axes = item.get("quality_axes")
+                reasons = item.get("diagnostic_reason_codes")
+                if (not isinstance(axes, dict)
+                        or any(not isinstance(axes.get(key), str) for key in DIAGNOSTIC_AXES)
+                        or not isinstance(reasons, list)
+                        or any(not isinstance(r, str) for r in reasons)
+                        or item.get("diagnostic_review_required") is not True
+                        or axes.get("alert_eligibility") != "blocked_unverified"):
+                    self.missing_modern_diagnostics.add(source_id)
+                else:
+                    self.diagnostic_records[source_id] = (dict(axes), tuple(set(reasons)))
+            elif item.get("schema_version") == "2.1":
+                self.missing_modern_diagnostics.add(source_id)
             if _comparable(item):
                 self.comparable.add(source_id)
             if item.get("release_window_complete"):
@@ -175,7 +194,7 @@ class SourceCoverageAudit:
         problems = bool(
             missing or extra or self.duplicates or self.context_errors
             or self.advisor_approval_anomalies
-            or self.lifecycle_metadata_errors
+            or self.lifecycle_metadata_errors or self.missing_modern_diagnostics
         )
         if problems:
             quality = "coverage_or_provenance_failed"
@@ -214,6 +233,11 @@ class SourceCoverageAudit:
             "unexpected_sources": len(extra),
             "provenance_errors": len(self.context_errors),
             "advisor_approval_anomalies": len(self.advisor_approval_anomalies),
+            "missing_modern_diagnostics": len(self.missing_modern_diagnostics & expected),
+            "multiple_diagnostic_reasons_sources": sum(
+                len(reasons) > 1 for sid, (_, reasons) in self.diagnostic_records.items()
+                if sid in expected
+            ),
             "captured_rate": round(captured / len(expected), 4) if expected else 0,
             "comparable_rate": round(comparable / len(expected), 4) if expected else 0,
         }
@@ -221,6 +245,17 @@ class SourceCoverageAudit:
             stats.set_value("agentfuse/coverage/" + key, value)
         for key, value in self.status_counts.items():
             stats.set_value("agentfuse/coverage/status/" + str(key), value)
+        axis_counts = Counter()
+        reason_counts = Counter()
+        for sid, (axes, reasons) in self.diagnostic_records.items():
+            if sid not in expected:
+                continue
+            axis_counts.update((axis, axes[axis]) for axis in DIAGNOSTIC_AXES)
+            reason_counts.update(reasons)
+        for (axis, value), count in axis_counts.items():
+            stats.set_value("agentfuse/diagnostics/" + axis + "/" + value, count)
+        for code, count in reason_counts.items():
+            stats.set_value("agentfuse/diagnostics/reason/" + code, count)
         stats.set_value("agentfuse/run/quality_outcome", quality)
         stats.set_value("agentfuse/run/collection_mode",
                         getattr(spider, "collection_mode", "legacy_unrecorded"))
@@ -229,7 +264,7 @@ class SourceCoverageAudit:
         context = getattr(spider, "run_context", None)
         if context:
             for field in CONTEXT_FIELDS:
-                stats.set_value("agentfuse/run/" + field, context[field])
+                stats.set_value("agentfuse/run/" + field, context.get(field, ""))
 
         if missing:
             spider.logger.warning(
@@ -258,7 +293,7 @@ class SourceCoverageAudit:
         missing, extra, captured, partial = self.summary(spider)
         if (missing or extra or self.duplicates or self.context_errors
                 or self.advisor_approval_anomalies
-                or self.lifecycle_metadata_errors):
+                or self.lifecycle_metadata_errors or self.missing_modern_diagnostics):
             raise CloseSpider("agentfuse_incomplete_source_coverage")
         if captured == 0 and partial == 0:
             raise CloseSpider("agentfuse_no_usable_sources")
