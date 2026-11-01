@@ -295,7 +295,10 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None):
     else:
         sections, sections_truncated = _sections(main, source_url)
         if category == 'pricing' and source_id:
-            pricing_details = extract_pricing_evidence(main, source_url, source_id)
+            pricing_details = extract_pricing_evidence(
+                main, source_url, source_id,
+                **(pricing_table_window or {}),
+            )
             tables = pricing_details['pricing_legacy_table_excerpts']
             tables_truncated = not pricing_details['pricing_inventory_complete']
         else:

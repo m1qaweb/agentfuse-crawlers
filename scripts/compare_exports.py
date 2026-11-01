@@ -209,6 +209,7 @@ def _compatible_source(row, old):
         "schema_version", "release_events_schema",
         "release_identity_revision",
         "pricing_evidence_schema", "pricing_parser_revision",
+        "pricing_table_window_start", "pricing_table_window_limit",
         "documentation_evidence_schema",
         "documentation_product_scope", "source_format",
     )
