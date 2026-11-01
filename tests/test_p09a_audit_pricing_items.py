@@ -91,3 +91,38 @@ def test_advisor_approval_in_items_is_anomaly_not_a_success():
     changed["approved_for_advisor"] = True
     report = inspect([changed])
     assert report["provenance_or_approval_anomalies"] == 1
+
+
+
+def test_p09a2_card_counts_and_parser_revision_are_auditable_not_approved():
+    record = _item()
+    record.update(
+        pricing_parser_revision="structured_cards_v2",
+        pricing_card_total=3,
+        pricing_card_price_entries_examined=6,
+        pricing_card_observation_count=4,
+        pricing_card_omitted=1,
+        pricing_card_oversized_count=1,
+        pricing_card_duplicate_rate_count=2,
+        pricing_observation_total_detected=8,
+        pricing_rate_identity_collision_count=0,
+        pricing_inventory_complete=False,
+    )
+    report = inspect([record])
+    assert report["parser_revisions"] == {"structured_cards_v2": 1}
+    assert report["card_summaries"]["structured_cards_detected"] == 3
+    assert report["card_summaries"]["price_card_entries_examined"] == 6
+    assert report["card_summaries"]["card_observations_retained"] == 4
+    assert report["card_summaries"]["cards_omitted_or_oversized"] == 1
+    assert report["card_summaries"]["duplicate_comparable_rates_deduplicated"] == 2
+    assert report["sources"][0]["detected_price_entries"] == 8
+    assert report["sources"][0]["parser_revision"] == "structured_cards_v2"
+    assert report["sources"][0]["inventory_complete"] is False
+    assert report["approved_for_advisor"] is False
+
+
+def test_legacy_no_card_fields_still_explained_as_unversioned():
+    report = inspect([_item()])
+    assert report["parser_revisions"] == {"legacy_unversioned": 1}
+    assert report["card_summaries"]["structured_cards_detected"] == 0
+    assert report["sources"][0]["card_observations"] == 0

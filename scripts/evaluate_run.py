@@ -35,6 +35,7 @@ def _source_identity(row):
         row.get("release_events_schema"),
         row.get("release_identity_revision"),
         row.get("pricing_evidence_schema"),
+        row.get("pricing_parser_revision"),
         row.get("documentation_evidence_schema"),
         row.get("documentation_product_scope"),
         row.get("source_format"),
@@ -224,6 +225,8 @@ def _priced_map(row):
 def _pricing_delta(current, previous):
     if not (current.get("pricing_evidence_schema") == "1.0"
             and previous.get("pricing_evidence_schema") == "1.0"
+            and current.get("pricing_parser_revision")
+                == previous.get("pricing_parser_revision")
             and current.get("pricing_inventory_complete")
             and previous.get("pricing_inventory_complete")):
         return []

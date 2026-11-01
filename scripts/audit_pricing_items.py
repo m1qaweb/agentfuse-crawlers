@@ -21,7 +21,10 @@ ROWS_FIELDS = (
     "observations", "comparable_candidates", "scoped_observations",
     "explicit_scope_declarations", "missing_currency", "missing_billing_unit",
     "missing_price_dimension", "missing_region", "missing_tier_or_plan",
-    "text_available", "approved_for_advisor",
+    "parser_revision", "detected_price_entries", "card_count",
+    "card_price_entries", "card_observations", "card_omitted",
+    "card_oversized", "card_duplicates", "rate_identity_collisions",
+    "inventory_complete", "text_available", "approved_for_advisor",
 )
 
 
@@ -34,6 +37,7 @@ def inspect(items, *, expect_all=False):
     statuses = Counter()
     blockers = Counter()
     dimensions = Counter()
+    parser_revisions = Counter()
     source_rows = []
     observed = total = comparable = anomalies = 0
     for item in items:
@@ -49,6 +53,7 @@ def inspect(items, *, expect_all=False):
         if item.get("approved_for_advisor") is not False:
             anomalies += 1
         statuses[item.get("status", "unknown")] += 1
+        parser_revisions[item.get("pricing_parser_revision") or "legacy_unversioned"] += 1
         records = item.get("pricing_observations") or []
         if not isinstance(records, list):
             raise ValueError("pricing_observations must be an array")
@@ -95,6 +100,20 @@ def inspect(items, *, expect_all=False):
             "missing_price_dimension": counts["missing_price_dimension"],
             "missing_region": counts["missing_region"],
             "missing_tier_or_plan": counts["missing_tier_or_plan"],
+            "parser_revision": item.get("pricing_parser_revision"),
+            "detected_price_entries": item.get(
+                "pricing_observation_total_detected", len(records)
+            ),
+            "card_count": item.get("pricing_card_total", 0),
+            "card_price_entries": item.get("pricing_card_price_entries_examined", 0),
+            "card_observations": item.get("pricing_card_observation_count", 0),
+            "card_omitted": item.get("pricing_card_omitted", 0),
+            "card_oversized": item.get("pricing_card_oversized_count", 0),
+            "card_duplicates": item.get("pricing_card_duplicate_rate_count", 0),
+            "rate_identity_collisions": item.get(
+                "pricing_rate_identity_collision_count", 0
+            ),
+            "inventory_complete": item.get("pricing_inventory_complete"),
             "text_available": bool(item.get("text") or item.get("text_sample")),
             "approved_for_advisor": item.get("approved_for_advisor"),
         })
@@ -114,6 +133,25 @@ def inspect(items, *, expect_all=False):
             r["comparable_candidates"] > 0 for r in source_rows
         ),
         "status_counts": dict(sorted(statuses.items())),
+        "parser_revisions": dict(sorted(parser_revisions.items())),
+        "card_summaries": {
+            "structured_cards_detected": sum(r["card_count"] for r in source_rows),
+            "price_card_entries_examined": sum(
+                r["card_price_entries"] for r in source_rows
+            ),
+            "card_observations_retained": sum(
+                r["card_observations"] for r in source_rows
+            ),
+            "cards_omitted_or_oversized": sum(
+                r["card_omitted"] for r in source_rows
+            ),
+            "duplicate_comparable_rates_deduplicated": sum(
+                r["card_duplicates"] for r in source_rows
+            ),
+            "price_identity_collisions": sum(
+                r["rate_identity_collisions"] for r in source_rows
+            ),
+        },
         "dimension_coverage": {
             dim: {"known": dimensions[dim], "total": total}
             for dim in DIMENSIONS

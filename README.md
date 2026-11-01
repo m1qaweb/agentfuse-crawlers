@@ -218,6 +218,21 @@ missing real golden evidence it reports **BLOCKED** even when all synthetic
 tests pass. Passing software gates never approves vendor facts or deployments.
 See [PR08 operator runbook](docs/PR08_OFFLINE_REPLAY_CANARY_RUNBOOK.md).
 
+## P09A2: Explicit pricing-card and list observations (draft)
+
+P09A2 adds **conservative non-table rate capture** for labeled pricing cards,
+plan tiles, and definition lists. It never assumes a missing model, region,
+tier, unit, currency, or vendor fact approval. The original 300-observation
+budget now covers both tables and cards, with visible overflow and
+price-identity-conflict diagnostics; incomplete sources fail closed.
+
+A new pricing parser revision ensures that comparisons with old archived
+exports create a fresh baseline, **not false price-change notifications**.
+The read-only scripts/audit_pricing_items.py produces before/after per-source
+coverage from owner-supplied Items JSON. See the
+[P09A2 operator runbook](docs/PR09A2_PRICING_CARD_CANARY_RUNBOOK.md) before
+re-running *any* permitted exact-source Zyte validation canary.
+
 ## P09A: evidence-scoped pricing repair (draft)
 
 The October 31 live Zyte audit accounted for all 177 pricing source Items but

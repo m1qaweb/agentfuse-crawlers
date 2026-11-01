@@ -13,6 +13,7 @@ from agentfuse_crawlers.rate_units import (
     PRICE_MARKER, analyze_cell, clean,
 )
 from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
+from agentfuse_crawlers.pricing_cards import extract_card_evidence
 
 MAX_SCAN_TABLES = 700
 MAX_SELECTED_TABLES = 64
@@ -33,8 +34,21 @@ GENAI_SCOPE = re.compile(
     r"\b(?:generative AI|gen AI|language models?|inference models?)\b", re.I,
 )
 MODEL_ROW = re.compile(
-    r"\b(?:input price|output price|context caching|cache (?:write|read)|"
-    r"batch input|batch output|storage price|rate per)\b", re.I,
+    r"\b(?:input (?:price|cost|rate)|output (?:price|cost|rate)|"
+    r"cached input (?:price|cost|rate)|context caching|"
+    r"cache (?:write|read)|batch input|batch output|storage price|"
+    r"rate per|price per|monthly price|hourly rate)\b", re.I,
+)
+GENERIC_ROW_LABEL = re.compile(
+    r"^(?:(?:monthly|annual|hourly|subscription)\s+)?"
+    r"(?:prices?|rates?|costs?|charges?|models?|pricing|tiers?|plans?)$",
+    re.I,
+)
+GENERIC_MODEL_SECTION = re.compile(
+    r"^(?:models?|model prices?|model pricing|pricing|billing|"
+    r"api pricing|gemini api pricing|claude pricing|plans|"
+    r"on.demand pricing|standard prices?|rate card)$",
+    re.I,
 )
 
 
@@ -203,14 +217,26 @@ def _is_relevant(table, info, source_id):
 
 def _model_label(row_label, context, caption):
     label = clean(row_label, 180)
-    if not label or MODEL_ROW.search(label):
-        # For Gemini's per-model table, a row is a price DIMENSION, while
-        # the containing h2 describes the model.
-        for part in context.split(" > "):
-            if re.search(r"\b(?:gemini|claude|gpt|model|llama|command|mistral|cohere)\b", part, re.I):
-                return part[:180]
-        return ""
-    return label
+    if (label and not MODEL_ROW.search(label)
+            and not GENERIC_ROW_LABEL.fullmatch(label)
+            and not PRICE_MARKER.search(label)
+            and not re.fullmatch(r"[\d.,%/\-\s]+", label)):
+        return label
+    # For model-by-rate tables, the row identifies INPUT/OUTPUT and a
+    # *specific* model must be named in a nearby heading. "Model pricing",
+    # "Gemini API pricing" and similar section titles are NOT model names.
+    for raw_part in reversed(context.split(" > ")):
+        part = clean(raw_part, 180)
+        if not part or GENERIC_MODEL_SECTION.fullmatch(part):
+            continue
+        if re.match(r"^Model\s*:\s*[A-Za-z][A-Za-z0-9_. -]{2,}$", part, re.I):
+            return part
+        if re.search(
+            r"\b(?:gemini|claude|gpt|grok|llama|command|mistral|cohere)\b",
+            part, re.I,
+        ) and not re.search(r"\b(?:pricing|billing|rates?)\b", part, re.I):
+            return part
+    return ""
 
 
 def extract_pricing_evidence(main, source_url, source_id):
@@ -219,6 +245,7 @@ def extract_pricing_evidence(main, source_url, source_id):
     # P09A: strictly bounded declarations with original text provenance.
     # Never assume publisher-wide USD, a global region, or a default tier.
     table_scope = table_declarations(main)
+    card_evidence = extract_card_evidence(main, source_url, source_id)
     selected = []
     scoped = 0
     scan_truncated = len(all_tables) > MAX_SCAN_TABLES
@@ -317,6 +344,11 @@ def extract_pricing_evidence(main, source_url, source_id):
                     table_scope.get(id(table), ())
                 )
                 candidate["scope_provenance_verified"] = False
+                candidate["evidence_kind"] = "structured_table"
+                candidate["model_label_provenance"] = (
+                    "row_first_cell" if model and first and not MODEL_ROW.search(first)
+                    else "scoped_heading" if model else "unresolved"
+                )
                 candidate["table_id"] = info["table_id"]
                 candidate["row_index"] = row_num
                 candidate["column_index"] = col
@@ -333,10 +365,45 @@ def extract_pricing_evidence(main, source_url, source_id):
                 if len(observations) < MAX_OBSERVATIONS:
                     observations.append(candidate)
 
-    obs_overflow = potential_rate_cells > MAX_OBSERVATIONS
+    # Tables retain priority. A repeated equivalent rate in a styled card is
+    # one vendor observation, not two independent price changes. Conflicting
+    # amounts under the same fully scoped identity invalidate comparability.
+    prior = {
+        x["observation_id"]: x for x in observations
+        if x.get("comparable_candidate")
+    }
+    card_duplicates = 0
+    card_conflict = False
+    for card in card_evidence["card_observations"]:
+        old = prior.get(card["observation_id"]) if card["comparable_candidate"] else None
+        if old:
+            if old.get("normalized_amount_decimal") == card.get("normalized_amount_decimal"):
+                card_duplicates += 1
+                continue
+            card_conflict = True
+        if len(observations) < MAX_OBSERVATIONS:
+            observations.append(card)
+        if card.get("comparable_candidate"):
+            prior[card["observation_id"]] = card
+
+    total_detected = (
+        potential_rate_cells + card_evidence["card_entries_examined"] - card_duplicates
+    )
+    obs_overflow = total_detected > MAX_OBSERVATIONS
+    card_incomplete = card_evidence["card_scan_truncated"]
+    # Ambiguous repeated typed keys across tables/cards are never safe rate
+    # comparisons. The source stays partial, even if both amounts are equal,
+    # until the model/region/plan attribution is independently checked.
+    ids = [
+        x["observation_id"] for x in observations
+        if x.get("comparable_candidate")
+    ]
+    rate_id_collision_count = len(ids) - len(set(ids))
     inventory_complete = bool(
         not scan_truncated and relevant_total == len(selected)
         and not rows_incomplete and not obs_overflow
+        and not card_incomplete and not card_conflict
+        and not rate_id_collision_count
     )
     scope_unresolved = bool(
         source_id == "oracle_oci_generative_ai_pricing" and relevant_total == 0
@@ -345,13 +412,21 @@ def extract_pricing_evidence(main, source_url, source_id):
     states = sorted(set(x["price_state"] for x in observations))
     status = (
         "source_product_scope_unresolved" if scope_unresolved
-        else "no_recognized_pricing_tables" if relevant_total == 0
-        else "recognized_table_inventory_partial" if not inventory_complete
-        else "recognized_pricing_tables_scanned"
+        else "no_recognized_pricing_tables"
+             if relevant_total == 0 and card_evidence["card_total"] == 0
+        else "recognized_pricing_inventory_partial" if not inventory_complete
+        else "recognized_pricing_tables_and_cards_scanned"
+             if relevant_total and card_evidence["card_total"]
+        else "recognized_pricing_cards_scanned"
+             if card_evidence["card_total"] else "recognized_pricing_tables_scanned"
     )
 
     return {
         "pricing_evidence_schema": "1.0",
+        # Adding structurally different evidence changes typed rate inventory.
+        # New parser revision must be baselined, not mistaken for a vendor rate
+        # launch or price increase relative to old archives.
+        "pricing_parser_revision": "structured_cards_v2",
         "pricing_table_total": len(all_tables),
         "pricing_table_scanned": min(len(all_tables), MAX_SCAN_TABLES),
         "pricing_table_relevant": relevant_total,
@@ -360,6 +435,21 @@ def extract_pricing_evidence(main, source_url, source_id):
         "pricing_table_scan_truncated": scan_truncated,
         "pricing_table_rows_incomplete": rows_incomplete,
         "pricing_observation_limit_reached": obs_overflow,
+        "pricing_observation_total_detected": total_detected,
+        "pricing_card_total": card_evidence["card_total"],
+        "pricing_card_selected": card_evidence["card_selected"],
+        "pricing_card_omitted": card_evidence["card_omitted"],
+        "pricing_card_oversized_count": card_evidence["card_oversized"],
+        "pricing_card_scan_truncated": card_incomplete,
+        "pricing_card_price_entries_examined": card_evidence["card_entries_examined"],
+        "pricing_card_price_entries_omitted": card_evidence["card_entries_omitted"],
+        "pricing_card_duplicate_rate_count": card_duplicates,
+        "pricing_card_rate_identity_conflict": card_conflict,
+        "pricing_rate_identity_collision_count": rate_id_collision_count,
+        "pricing_card_observation_count": sum(
+            x.get("evidence_kind") == "structured_card" for x in observations
+        ),
+        "pricing_card_evidence_excerpts": card_evidence["card_evidence_excerpts"],
         "pricing_inventory_complete": inventory_complete,
         "pricing_coverage_status": status,
         "pricing_product_scope_unresolved": scope_unresolved,

@@ -99,6 +99,13 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         if scope == "scope_not_established":
             return "needs_review", "documentation_scope_not_established"
 
+    # An explicitly recognized but truncated/ambiguous price inventory is
+    # partial even on a short pricing page; do not hide financial evidence
+    # loss behind a generic low-word-count warning.
+    if (category == "pricing"
+            and evidence.get("pricing_evidence_schema") == "1.0"
+            and not evidence.get("pricing_inventory_complete")):
+        return "partial_capture", "pricing_table_inventory_incomplete"
     if evidence.get("word_count", 0) < 45:
         return "needs_review", "insufficient_substantive_text"
     if category == "pricing" and evidence.get("pricing_evidence_schema") == "1.0":
