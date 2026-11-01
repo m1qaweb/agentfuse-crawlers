@@ -314,3 +314,21 @@ production repeats until the issue triage is complete.
 5. Build a separate AgentFuse `/intelligence` interface using attributed summaries, searchable provider pages, and source-health indicators. It should read from a reviewed public dataset, **not raw Zyte output**.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the quality gates and technical tradeoffs.
+
+
+### P14A: independently review archived live publisher evidence
+
+Zyte automatic GitHub `main` deployments do **not** establish price/date accuracy.
+Use `scripts.real_gold_binding` to generate an **unreviewed** evidence queue from
+checksum-verified P07 Zyte archive directories, then manually review the exact
+first-party official pages. Recorded `observed` prices and release dates must
+match their archived Item IDs, while expected labels are supplied by a named
+human reviewer. Distinct jobs of the same unchanged observation cannot be used
+to inflate the 200-price / 100-date gold targets. No discovered URL is
+approved or crawled and no advisor fact is published.
+
+See `docs/P14A_ARCHIVE_BOUND_GOLD_RUNBOOK.md`. The P08 quality gate now has
+an **additional mandatory archive-bound gold check**; without every original
+job archive and package digest, a self-attested perfect gold JSON cannot pass
+release readiness. Only source-policy-reviewed live canaries and actual human
+labels can meet the separate rollout accuracy requirements.

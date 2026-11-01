@@ -220,8 +220,9 @@ def test_canary_archive_map_parser_rejects_duplicate_and_bad_round(tmp_path):
 def test_release_gate_fails_closed_without_independent_gold_or_live_canaries():
     synthetic = replay_synthetic()
     result = grade_release(synthetic=synthetic)
-    assert result["hard_gate_count"] == 5
+    assert result["hard_gate_count"] == 6
     assert result["hard_gates_passed"] == 1
+    assert result["checks"]["archive_bound_human_gold"] is False
     assert result["status"] == "blocked_pending_evidence_or_quality"
     assert result["deployment_authorized"] is False
     assert result["advisor_fact_approvals"] == 0
@@ -289,6 +290,7 @@ def test_200_annotated_rate_and_100_date_cases_are_scored_but_not_auto_approved(
         synthetic=replay_synthetic(), human_gold=gold, canaries=None
     )
     assert result["status"] == "blocked_pending_evidence_or_quality"
+    assert result["checks"]["archive_bound_human_gold"] is False
     assert result["deployment_authorized"] is False
 
 
