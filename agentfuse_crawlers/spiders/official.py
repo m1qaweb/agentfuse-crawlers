@@ -18,6 +18,7 @@ from agentfuse_crawlers.recent_window import compact_changelog_record
 from agentfuse_crawlers.pricing_evidence import compact_pricing_record
 from agentfuse_crawlers.documentation_scope import compact_documentation_record
 from agentfuse_crawlers.run_context import build_run_context
+from agentfuse_crawlers.diagnostics import derive_diagnostics
 from agentfuse_crawlers.source_lifecycle import (
     COLLECTION_MODES, collection_decision, registry_revision_sha256,
     source_lifecycle,
@@ -121,7 +122,7 @@ class OfficialBaseSpider(scrapy.Spider):
             self.run_context["manifest_sha256"][:12],
             self.run_context["selection_ids_sha256"][:12],
             self.run_context["zyte_job_id"] or "unknown",
-            self.run_context["deployment_revision"] or "unknown",
+            self.run_context["deployment_revision"][:12],
         )
         for source in self.selected:
             allowed, reason = collection_decision(source, self.collection_mode)
@@ -180,6 +181,7 @@ class OfficialBaseSpider(scrapy.Spider):
         }
 
     def _emit_status(self, record):
+        record.update(derive_diagnostics(record))
         if getattr(self, "crawler", None) is not None:
             self.crawler.stats.inc_value(f'agentfuse/status/{record["status"]}')
         return record
@@ -291,6 +293,8 @@ class OfficialBaseSpider(scrapy.Spider):
         )):
             status, reason = "needs_review", "canonical_path_differs"
         record.update(status=status, error=reason)
+        # Include diagnostics in Item-size compaction, not as hidden overage.
+        record.update(derive_diagnostics(record))
 
         if (source["category"] == "changelog"
                 and allowed_markdown_url(source)

@@ -42,6 +42,8 @@ jobs:
           assert built, 'Legacy egg was not created'
           print('Zyte-compatible egg package:', built[0])
           PY
+      - name: Verify deployable egg bytes match package fingerprint
+        run: python -m scripts.verify_package_fingerprint
       - name: Verify Scrapy recognizes all three spiders
         run: |
           scrapy list
