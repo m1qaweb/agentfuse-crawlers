@@ -163,6 +163,11 @@ def _release_delta(current, previous, older_healthy=()):
         release_date = _date(event.get("published_at"))
         if prior:
             kind = "edited_event"
+        elif event.get("identity_basis") == "date_scoped_generic_heading_review_only":
+            # Date changes are part of this review-only identity. A date
+            # correction MUST NOT be a new-release candidate, even if the
+            # current date is after the previous successful crawl.
+            kind = "needs_review"
         elif identity in earlier:
             kind = "restored_event"
         elif (release_date is None or old_fetch is None
@@ -183,8 +188,12 @@ def _release_delta(current, previous, older_healthy=()):
             evidence_excerpt=str(event.get("excerpt") or "")[:400],
             current_value=event.get("body_sha256"),
             prior_value=prior.get("body_sha256") if prior else None,
-            reason=("date_missing_future_or_unverifiable" if kind == "needs_review"
-                    else "historic_event_first_observed" if kind == "backfilled_event"
+            reason=(
+                "date_scoped_generic_heading_requires_manual_matching"
+                if kind == "needs_review" and event.get("identity_basis")
+                    == "date_scoped_generic_heading_review_only"
+                else "date_missing_future_or_unverifiable" if kind == "needs_review"
+                else "historic_event_first_observed" if kind == "backfilled_event"
                     else "unverified_release_evidence_delta"),
         ))
     return result
