@@ -249,7 +249,7 @@ def _canary_report_consistent(report):
 
 
 def grade_release(*, synthetic=None, canaries=None, human_gold=None,
-                  gold_archives=None):
+                  gold_archives=None, gold_inventory_plan=None):
     """Return actionable blockers. Missing evidence NEVER counts as passed.
 
     Any human gold used for release review must be matched to actual archived
@@ -347,7 +347,10 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None,
         # every CI-only synthetic regression path.
         from scripts.real_gold_binding import bind_human_gold
 
-        gold_binding = bind_human_gold(human_gold, gold_archives)
+        gold_binding = bind_human_gold(
+            human_gold, gold_archives,
+            full_inventory_plan=gold_inventory_plan,
+        )
     check(
         "archive_bound_human_gold",
         bool(
@@ -398,6 +401,8 @@ def main():
     parser.add_argument("--gold-archives", type=Path, nargs="+",
                         help="Verified P07 immutable job dirs for ALL labeled real cases; "
                              "required to pass the archive-bound human gold gate")
+    parser.add_argument("--gold-inventory-plan", type=Path,
+                        help="Exact P14B plan JSON for pinned multi-source gold archives")
     parser.add_argument("--out-dir", type=Path,
                         default=Path("output/release-gates"))
     parser.add_argument("--strict", action="store_true",
@@ -412,6 +417,7 @@ def main():
         canaries=load(args.canary_score),
         human_gold=load(args.reviewed_gold),
         gold_archives=args.gold_archives,
+        gold_inventory_plan=load(args.gold_inventory_plan),
     )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "quality_gate_report.json").write_text(

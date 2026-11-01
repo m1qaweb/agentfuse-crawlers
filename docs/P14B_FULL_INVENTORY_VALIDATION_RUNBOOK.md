@@ -179,3 +179,33 @@ unattended monitoring. GitHub main is auto-deployed to Zyte, so merging
 does change its installed code package; review CI and plan before merge.
 The accuracy of individual prices, capabilities, and release dates is still
 unproven until explicit human review.
+
+
+## P14B integration with P14A gold: reuse the full campaign's batches
+
+**Important correction:** P14A originally required one exact source per
+job. P14B now allows the **same 20 pinned multi-source archives** to
+produce unreviewed pricing/date/doc review packets and to bind human
+gold, without re-fetching each source individually. A batch is eligible
+only when its original P14B plan and entire P07 archive scope, source
+accounting, registry, publisher skips and deployed package fingerprint
+are verified. The original one-source-only path still blocks multi-source
+archives if the plan is omitted.
+
+    python -m scripts.real_gold_binding \
+      --full-inventory-plan output/private/p14b/full_inventory_plan.json \
+      --archives output/private/p14b-archives/jobs/JOB_1 \
+                 output/private/p14b-archives/jobs/JOB_2 \
+      --prepare-review output/private/p14b/unreviewed_evidence.json
+
+The same \`--full-inventory-plan\` flag can be used with
+\`--reviewed-gold\`, or pass \`--gold-inventory-plan\` to
+\`scripts.quality_gates\` when scoring real human labels. A partial
+set of fully verified **planned** batch archives is allowed for gold
+sampling, but the separately audited **full 460-source coverage** must
+still be complete before declaring the inventory campaign successful.
+Pages with HTTP failures, insufficient hashes and v0 quarantine remain
+in inventory diagnostics but are excluded from gold observations.
+
+This saves re-crawling hundreds of sites while preserving a high-trust,
+source-indexed audit trail and case-level human truth verification.
