@@ -15,7 +15,9 @@ from agentfuse_crawlers.markdown_releases import (
     allowed_markdown_url, parse_markdown_releases,
 )
 from agentfuse_crawlers.recent_window import compact_changelog_record
-from agentfuse_crawlers.pricing_evidence import compact_pricing_record
+from agentfuse_crawlers.pricing_evidence import (
+    MAX_SELECTED_TABLES, compact_pricing_record,
+)
 from agentfuse_crawlers.documentation_scope import compact_documentation_record
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.diagnostics import derive_diagnostics
@@ -124,6 +126,11 @@ class OfficialBaseSpider(scrapy.Spider):
             self.run_context["zyte_job_id"] or "unknown",
             self.run_context["deployment_revision"][:12],
         )
+        if self.category == "pricing":
+            self.logger.info(
+                "Pricing table evidence window: relevant_offset=%d, limit=%d",
+                self.pricing_table_offset, self.pricing_table_limit,
+            )
         for source in self.selected:
             allowed, reason = collection_decision(source, self.collection_mode)
             if not allowed:
@@ -262,6 +269,11 @@ class OfficialBaseSpider(scrapy.Spider):
             evidence = extract_evidence(
                 response.text, source["url"], category=source["category"],
                 source_id=source["id"],
+                pricing_table_window=(
+                    {"table_offset": self.pricing_table_offset,
+                     "table_limit": self.pricing_table_limit}
+                    if source["category"] == "pricing" else None
+                ),
             )
         except Exception as exc:
             self.logger.warning("Failed extracting %s: %s", source["id"], exc)
@@ -462,6 +474,21 @@ class DocumentationSpider(OfficialBaseSpider):
 class PricingSpider(OfficialBaseSpider):
     name = "official_pricing"
     category = "pricing"
+
+    def __init__(self, pricing_table_offset=None, pricing_table_limit=None,
+                 **kwargs):
+        super().__init__(**kwargs)
+        raw_offset = "0" if pricing_table_offset is None else str(pricing_table_offset)
+        raw_limit = (str(MAX_SELECTED_TABLES) if pricing_table_limit is None
+                     else str(pricing_table_limit))
+        if (not raw_offset.isascii() or not raw_offset.isdecimal()
+                or not raw_limit.isascii() or not raw_limit.isdecimal()):
+            raise ValueError("pricing table offset and limit must be decimal integers")
+        self.pricing_table_offset = int(raw_offset)
+        self.pricing_table_limit = int(raw_limit)
+        if (self.pricing_table_offset > 700
+                or not 1 <= self.pricing_table_limit <= MAX_SELECTED_TABLES):
+            raise ValueError("pricing table window must be offset=0..700, limit=1..64")
 
 
 class ChangelogSpider(OfficialBaseSpider):

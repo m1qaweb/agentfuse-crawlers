@@ -36,6 +36,8 @@ def _source_identity(row):
         row.get("release_identity_revision"),
         row.get("pricing_evidence_schema"),
         row.get("pricing_parser_revision"),
+        row.get("pricing_table_window_start"),
+        row.get("pricing_table_window_limit"),
         row.get("documentation_evidence_schema"),
         row.get("documentation_product_scope"),
         row.get("source_format"),
