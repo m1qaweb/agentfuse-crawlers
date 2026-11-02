@@ -24,7 +24,8 @@ DESCRIPTIVE_JOIN = re.compile(
     r"The\s+best\s+combination\b|Built\s+for\b|"
     r"Designed\s+for\b)"
     r"|\b(?:For\s+(?:demanding|long|developers?|enterprise)|"
-    r"Long\s+context\s+[≥><]|The\s+best\s+combination|"
+    r"Long\s+context(?:\s+[≥><]\s*\d+)?|"
+    r"The\s+best\s+combination|"
     r"Built\s+for\s+(?:developers?|teams?))\b",
     re.I,
 )
