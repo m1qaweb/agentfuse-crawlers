@@ -269,6 +269,7 @@ def test_duplicate_registry_entries_or_unselected_page_rejected():
     ("<html><head><link rel='canonical' href='" + URL +
      "'><link rel='canonical' href='" + URL + "'></head></html>"),
     "<html><head><title>Access denied</title></head></html>",
+    "<html><head><title>Just a moment...</title></head></html>",
 ])
 def test_canonical_refresh_and_access_challenges_fail_closed(snippet):
     with pytest.raises(ValueError):
@@ -355,8 +356,8 @@ def test_exact_page_batch_failure_rolls_back_all_captured_html(tmp_path):
     second = SOURCE["url"].rstrip("/") + "/guides/models"
     packet = review_packet(URL, second)
     registry = registry_from(packet)
-    ids = [entry["page_id"] for entry in registry["entries"]]
-    assert len(ids) == 2
+    ids = [page_id(SID, URL), page_id(SID, second)]
+    assert len(registry["entries"]) == 2
     fake = fake_routes(extra={
         second: FakeResponse(second, b"<html><title>Access denied</title></html>"),
     })
