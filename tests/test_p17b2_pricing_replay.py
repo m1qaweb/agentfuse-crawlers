@@ -341,6 +341,17 @@ def test_two_reviewers_recover_six_exact_typed_unapproved_components(
     assert score["evaluator_versions"]["after"]["exact_typed_precision_on_reviewed_cells"] == 1
     assert score["evaluator_versions"]["after"]["exact_typed_recall_on_reviewed_cells"] == 1
     assert score["evaluator_versions"]["after"]["exact_cell_match_fraction"] == 1
+    assert score["evaluator_versions"]["after"][
+        "fully_scoped_exact_review_matches"
+    ] == 0
+    assert score["evaluator_versions"]["after"][
+        "partial_scope_review_matches"
+    ] == 6
+    assert score["evaluator_versions"]["after"][
+        "fully_scoped_exact_fraction_of_expected"
+    ] == 0
+    assert score["null_scope_never_counts_as_fully_scoped"] is True
+    assert score["comparable_publisher_rates_verified"] == 0
     assert score["publisher_snapshot_origin_authenticated"] is False
     assert score["human_accuracy_signoff_completed"] is False
     assert score["generalizable_vendor_accuracy_verified"] is False
@@ -446,3 +457,19 @@ def test_review_fails_closed_on_tampered_observation_hash(scenario):
         score_independent_pricing_gold(
             before, changed, manifest, root, a, b,
         )
+
+
+
+def test_blocked_capture_can_never_be_classified_as_candidate_improvement(
+        scenario):
+    root, manifest, before, after = scenario
+    changed = deepcopy(after)
+    changed["sources"][0]["capture_status"] = "blocked"
+    changed["replay_sha256"] = _digest_json({
+        k: v for k, v in changed.items() if k != "replay_sha256"
+    })
+    diff = compare_frozen_replays(before, changed)
+    assert diff["sources"][0]["comparison"] == (
+        "review_coverage_or_product_regression"
+    )
+    assert not diff["publisher_accuracy_improved_proven"]

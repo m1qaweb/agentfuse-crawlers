@@ -261,10 +261,26 @@ def score_independent_pricing_gold(before, after, snapshot_manifest,
                 min(n, actual_counts[token])
                 for token, n in expected_counts.items()
             )
+            # Matching a null/unknown region is NOT proof of regional
+            # price scope. Keep correct observations distinct from rates
+            # that are completely dimensioned for comparison.
+            full_scope = sum(
+                min(n, actual_counts[token])
+                for token, n in expected_counts.items()
+                if all(
+                    token[OBSERVED_FIELDS.index(k)] is not None
+                    for k in (
+                        "currency", "billing_unit", "price_dimension",
+                        "model_or_service", "region", "tier_or_plan",
+                    )
+                )
+            )
             false = sum(actual_counts.values()) - matched
             missing = sum(expected_counts.values()) - matched
             metric["reviewed_cells"] += 1
             metric["correct_exact_typed_components"] += matched
+            metric["fully_scoped_exact_review_matches"] += full_scope
+            metric["partial_scope_review_matches"] += matched - full_scope
             metric["false_or_misattributed_components"] += false
             metric["missed_expected_components"] += missing
             metric["predicted_components"] += sum(actual_counts.values())
@@ -272,6 +288,8 @@ def score_independent_pricing_gold(before, after, snapshot_manifest,
             metric["exact_matching_cells"] += (false == 0 and missing == 0)
             row[name] = {
                 "correct_components": matched,
+                "fully_scoped_exact_review_matches": full_scope,
+                "partial_scope_review_matches": matched - full_scope,
                 "false_or_misattributed": false,
                 "missed": missing,
                 "exact_cell_match": false == 0 and missing == 0,
@@ -295,6 +313,11 @@ def score_independent_pricing_gold(before, after, snapshot_manifest,
                 counts["exact_matching_cells"] / counts["reviewed_cells"]
                 if counts["reviewed_cells"] else None
             ),
+            "fully_scoped_exact_fraction_of_expected": (
+                counts["fully_scoped_exact_review_matches"] /
+                counts["expected_components"]
+                if counts["expected_components"] else None
+            ),
         }
     return {
         "schema_version": VERSION,
@@ -312,6 +335,8 @@ def score_independent_pricing_gold(before, after, snapshot_manifest,
         "evaluator_versions": summary,
         "case_assessments": cases,
         "generalizable_vendor_accuracy_verified": False,
+        "comparable_publisher_rates_verified": 0,
+        "null_scope_never_counts_as_fully_scoped": True,
         "publisher_snapshot_origin_authenticated": False,
         "publisher_reviewer_independence_authenticated": False,
         "human_accuracy_signoff_completed": False,

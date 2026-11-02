@@ -329,6 +329,7 @@ def compare_frozen_replays(before, after):
         new_observed = current["observed_component_count"]
         error = bool(
             current["source_product_title_conflict"]
+            or current["capture_status"] == "blocked"
             or current["pricing_observation_limit_reached"]
             or not current["pricing_inventory_complete"]
             or (original["pricing_inventory_complete"]

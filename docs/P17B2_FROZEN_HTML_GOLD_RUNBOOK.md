@@ -206,3 +206,25 @@ P15B release-quality and source-policy approvals still apply and are
 not bypassed by these offline replay outputs.
 
 No full 460-source Zyte crawl is needed to validate this work.
+
+
+## Scope-aware interpretation of dual-review accuracy
+
+P17B2 reports two deliberately separate measurements:
+
+- \`correct_exact_typed_components\`: the extracted amount and every
+  **entered reference field** match, including matching an unknown/null
+  region. This tests parser fidelity to *observable* source evidence.
+- \`fully_scoped_exact_review_matches\`: the reference and extraction
+  agree **AND** currency, unit, dimension, model, region and plan/tier
+  are all explicitly present. A null region is counted under
+  \`partial_scope_review_matches\`, **never** as a fully scoped price.
+
+For example, a Fireworks Standard input amount may be correctly parsed
+with \`region=null\`. The exact observed-component benchmark can score
+100%, but the fully scoped score is **0%** until official applicable
+region evidence is reviewed. Neither number establishes publisher
+authenticity or authorizes a rate for AgentFuse's advisor.
+
+A source blocked by an access challenge is also never categorized
+as a positive extraction gain, even if DOM parsing emits rate-like text.
