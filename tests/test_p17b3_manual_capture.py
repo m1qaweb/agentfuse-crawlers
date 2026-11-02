@@ -401,3 +401,19 @@ def test_redirect_handler_is_explicitly_disabled():
         None, None, 301, "Moved", {},
         "https://evil.invalid/redirected",
     ) is None
+
+
+
+def test_raw_publisher_html_cannot_be_captured_inside_tracked_repo_folders():
+    from scripts import capture_pricing_html as module
+    repo = Path(module.__file__).resolve().parents[1]
+    unsafe = repo / "docs" / "original_pricing_raw_untracked"
+    assert not unsafe.exists()
+    fake = fake_opener()
+    with pytest.raises(ValueError, match="Git-ignored output/"):
+        capture_pricing_html(
+            [SID], unsafe, policy_review_note=POLICY_NOTE,
+            opener=fake, sleep_fn=lambda _: None,
+        )
+    assert fake.requests == []
+    assert not unsafe.exists()

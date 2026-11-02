@@ -118,3 +118,12 @@ fully scoped, comparable AgentFuse rate.
 - Source-specific parsing should be expanded only after non-synthetic
   held-out reviewer evaluation demonstrates accurate amounts, model
   attribution, currency, units, date/condition and region.
+
+
+## Private-source-content protection
+
+The local capture command **refuses to store publisher HTML in any
+tracked repository folder** (such as \`docs/\`, \`tests/\` or the repo
+root). Under the Git checkout, only the already ignored \`output/\`
+folder is permitted. An operator can also use a separate private
+folder outside the repository, with appropriate secure retention.

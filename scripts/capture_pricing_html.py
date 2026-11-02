@@ -200,6 +200,15 @@ def _private_exclusive_directory(out_dir):
     root = Path(out_dir)
     if any(node.is_symlink() for node in (root, *root.parents)):
         raise ValueError("Private output path must not contain symlinks")
+    repo_root = Path(__file__).resolve().parents[1]
+    dest = root.resolve(strict=False)
+    if dest.is_relative_to(repo_root) and not dest.is_relative_to(
+        repo_root / "output"
+    ):
+        raise ValueError(
+            "Publisher HTML inside this Git checkout must stay in "
+            "the gitignored output/ directory"
+        )
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
     os.chmod(root, 0o700)
     return root
@@ -234,6 +243,12 @@ def capture_pricing_html(source_ids, out_dir, *, policy_review_note,
         parent.is_symlink() for parent in target_path.parents
     ):
         raise ValueError("Choose a fresh non-symlink private output directory")
+    repo_root = Path(__file__).resolve().parents[1]
+    destination = target_path.resolve(strict=False)
+    if destination.is_relative_to(repo_root) and not destination.is_relative_to(
+        repo_root / "output"
+    ):
+        raise ValueError("Use Git-ignored output/ for HTML inside the repository")
     # Preflight the robots policy for every distinct host BEFORE any HTML.
     robots_by_host = {}
     network_requests = 0
