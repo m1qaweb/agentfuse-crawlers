@@ -417,10 +417,13 @@ def test_fireworks_official_semantic_legend_creates_six_unverified_rates():
                "input / cached input / output (EUR per 1M tokens), in that order."},
     {"heading": "Decision models"},
     {"heading": "Embeddings"},
-    {"standard": "$3.00 / $0.30"},
-    {"standard": "$3.00 / $0.30 / $15.00 / $0.50"},
-    {"standard": "$3.00 / $0.30 / $15.00*"},
-    {"standard": "$3.00 / $0.30 / $15.00 through Dec 2026"},
+    {"standard": "$3.00 / $0.30", "priority": "$3.75 / $0.375"},
+    {"standard": "$3.00 / $0.30 / $15.00 / $0.50",
+     "priority": "$3.75 / $0.375 / $18.75 / $0.70"},
+    {"standard": "$3.00 / $0.30 / $15.00*",
+     "priority": "$3.75 / $0.375 / $18.75*"},
+    {"standard": "$3.00 / $0.30 / $15.00 through Dec 2026",
+     "priority": "$3.75 / $0.375 / $18.75 starting Jan 2027"},
     {"footnote": "* Tier-specific rate adjustments"},
 ])
 def test_fireworks_unverified_or_altered_legend_and_shape_never_split(variation):
@@ -431,6 +434,27 @@ def test_fireworks_unverified_or_altered_legend_and_shape_never_split(variation)
     assert result["pricing_review_quote_candidate_count"] == 0
     assert all(x["approved_for_advisor"] is False
                for x in result["pricing_observations"])
+
+
+def test_fireworks_one_invalid_column_does_not_block_separate_valid_column():
+    # A wrong Standard cell must stay intact; the independently valid
+    # Priority cell has its own exact table header + same-section legend.
+    p = _fireworks_capture(standard="$3.00 / $0.30")
+    assert p["pricing_legend_backed_triplet_cells_split"] == 1
+    assert p["pricing_inline_rate_cells_split"] == 1
+    assert p["pricing_observation_count"] == 4
+    assert p["pricing_observation_total_detected"] == 4
+    bad = [x for x in p["pricing_observations"]
+           if x["column_label"] == "Standard"]
+    assert len(bad) == 1
+    assert bad[0]["normalized_amount_decimal"] is None
+    good = [x for x in p["pricing_observations"]
+            if x.get("inline_component_parent_identity_review_status")
+            == "unverified_fireworks_legend_triplet"]
+    assert len(good) == 3
+    assert all(x["tier_or_plan"] == "Priority" for x in good)
+    assert all(x["normalized_amount_decimal"] is None
+               and x["approved_for_advisor"] is False for x in good)
 
 
 def test_fireworks_legend_from_previous_section_does_not_leak():
