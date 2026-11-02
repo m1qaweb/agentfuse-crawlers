@@ -446,6 +446,33 @@ def reviewer_template(tasks, reviewer_id):
     }
 
 
+def source_pins(source_ids):
+    """Read-only exact source URL/manifest fingerprints; NO request issued."""
+    if (not isinstance(source_ids, list)
+            or not 1 <= len(source_ids) <= MAX_SNAPSHOTS
+            or any(not isinstance(sid, str) for sid in source_ids)
+            or len(set(source_ids)) != len(source_ids)):
+        raise ValueError("Supply 1-64 distinct configured pricing source IDs")
+    known = _sources()
+    sources = []
+    for sid in source_ids:
+        src = known.get(sid)
+        if src is None or source_lifecycle(src)["state"] in {"quarantined", "retired"}:
+            raise ValueError("Unknown or publisher-blocked source for manifest")
+        sources.append({
+            "source_id": sid, "official_source_url": src["url"],
+            "category": "pricing",
+        })
+    return {
+        "expected_manifest_sha256": manifest_sha256(),
+        "expected_source_registry_sha256": registry_revision_sha256(),
+        "operator_source_urls": sources,
+        "network_requests_performed": 0,
+        "captures_created": 0,
+        "approved_for_advisor": False,
+    }
+
+
 def _save_private(path, report):
     target = Path(path)
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -465,6 +492,9 @@ def main():
     actions.add_argument("--replay", action="store_true")
     actions.add_argument("--compare", action="store_true")
     actions.add_argument("--blind-review-tasks", action="store_true")
+    actions.add_argument("--source-pins", action="store_true")
+    p.add_argument("--source-ids", type=str,
+                   help="Comma-separated configured pricing source IDs (pins only)")
     p.add_argument("--manifest", type=Path)
     p.add_argument("--snapshot-root", type=Path)
     p.add_argument("--before", type=Path)
@@ -477,6 +507,13 @@ def main():
         if not path or path.stat().st_size > MAX_INPUT_BYTES:
             raise ValueError("Missing or oversized replay metadata input")
         return json.loads(path.read_text(encoding="utf-8"))
+    if args.source_pins:
+        if not args.source_ids:
+            p.error("--source-pins requires --source-ids")
+        print(json.dumps(source_pins(
+            [x.strip() for x in args.source_ids.split(",")]
+        ), indent=2))
+        return
     if args.replay:
         if not (args.manifest and args.snapshot_root):
             p.error("--replay requires --manifest and --snapshot-root")

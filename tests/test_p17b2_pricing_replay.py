@@ -17,6 +17,7 @@ from agentfuse_crawlers.sources import load_sources
 from scripts.replay_pricing_snapshots import (
     _digest_json, _check_report, compare_frozen_replays,
     prepare_blind_cell_tasks, replay_pricing_snapshots, reviewer_template,
+    source_pins,
 )
 from scripts.score_pricing_replay_gold import score_independent_pricing_gold
 
@@ -473,3 +474,30 @@ def test_blocked_capture_can_never_be_classified_as_candidate_improvement(
         "review_coverage_or_product_regression"
     )
     assert not diff["publisher_accuracy_improved_proven"]
+
+
+
+def test_operator_can_derive_exact_pins_without_network_or_guessing_source_urls():
+    p = source_pins(["fireworks_ai_pricing", "gemini_api_pricing"])
+    assert len(p["operator_source_urls"]) == 2
+    assert p["expected_manifest_sha256"] == manifest_sha256()
+    assert p["expected_source_registry_sha256"] == registry_revision_sha256()
+    assert p["operator_source_urls"][0]["official_source_url"] == URL
+    assert p["operator_source_urls"][1]["official_source_url"] == (
+        KNOWN["gemini_api_pricing"]["url"]
+    )
+    assert p["network_requests_performed"] == 0
+    assert p["captures_created"] == 0
+    assert p["approved_for_advisor"] is False
+
+
+@pytest.mark.parametrize("ids", [
+    [],
+    ["v0_pricing"],
+    ["fireworks_ai_docs"],
+    ["fireworks_ai_pricing", "fireworks_ai_pricing"],
+    ["https://docs.fireworks.ai/serverless/pricing"],
+])
+def test_source_pin_helper_rejects_unknown_quarantined_or_duplicated(ids):
+    with pytest.raises(ValueError):
+        source_pins(ids)

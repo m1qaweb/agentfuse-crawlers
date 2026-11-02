@@ -92,6 +92,18 @@ Make \`frozen_snapshots.json\`:
 }
 \`\`\`
 
+Get the actual source URLs and two manifest digest values without
+hand-typing or discovering endpoints:
+
+```bash
+python -m scripts.replay_pricing_snapshots   --source-pins   --source-ids fireworks_ai_pricing,gemini_api_pricing,together_ai_pricing
+```
+
+This command **does not fetch a publisher page or create captures**.
+Copy its exact manifest and registry SHA-256 values into the private
+capture manifest above. Fill the timestamp and raw-file SHA from your
+actual permitted capture, never from the current clock or guesses.
+
 The manifest and registry SHA-256 values must come from the exact
 checked-out repository and must not be invented. The example timestamps
 and digest placeholders above are NOT real publisher evidence.
