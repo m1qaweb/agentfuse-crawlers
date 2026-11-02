@@ -77,8 +77,11 @@ def test_family_profiles_are_exact_source_review_only_and_never_approve_prices()
     assert family_for_source(
         "supabase_pricing", SOURCE_URLS["supabase_pricing"]
     ) is None
-    with pytest.raises(ValueError, match="pinned manifest"):
-        family_for_source("openai_api_pricing", "https://evil.invalid/pricing")
+    # The generic extractor remains usable on arbitrary offline fixtures,
+    # but an incompatible URL can never activate the family-specific adapter.
+    assert family_for_source(
+        "openai_api_pricing", "https://evil.invalid/pricing"
+    ) is None
 
 
 def test_explicit_three_amounts_become_three_unapproved_typed_review_rows():
@@ -315,3 +318,149 @@ def test_inline_splitting_respects_existing_table_window_partition():
         set(o["observation_id"] for o in a["pricing_observations"])
         & set(o["observation_id"] for o in b["pricing_observations"])
     )
+
+
+
+# This synthetic DOM shape mirrors the pricing *semantics* explicitly stated
+# in the official Fireworks source. It is not archived original publisher HTML.
+FIREWORKS_LEGEND = (
+    "In each Standard or Priority cell, prices are input / cached input / "
+    "output (USD per 1M tokens), in that order."
+)
+
+
+def _fireworks_html(*, legend=FIREWORKS_LEGEND,
+                    heading="Text and vision models",
+                    standard="$3.00 / $0.30 / $15.00",
+                    priority="$3.75 / $0.375 / $18.75",
+                    footnote="", preliminary=""):
+    return (
+        "<html><head><title>Serverless Pricing</title></head><body><main>"
+        + preliminary
+        + "<h2>" + heading + "</h2>"
+        + ("<p>" + legend + "</p>" if legend else "")
+        + "<table><thead><tr><th>Model</th><th>Standard</th>"
+        "<th>Priority</th></tr></thead><tbody><tr>"
+        "<th><strong>Ember-1</strong></th><td>" + standard +
+        "</td><td>" + priority + "</td></tr></tbody>"
+        + ("<tfoot><tr><td><small>" + footnote +
+           "</small></td></tr></tfoot>" if footnote else "")
+        + "</table></main></body></html>"
+    )
+
+
+def _fireworks_capture(**kwargs):
+    return extract_evidence(
+        _fireworks_html(**kwargs),
+        SOURCE_URLS["fireworks_ai_pricing"],
+        category="pricing", source_id="fireworks_ai_pricing",
+    )
+
+
+def test_fireworks_official_semantic_legend_creates_six_unverified_rates():
+    p = _fireworks_capture()
+    assert p["pricing_parser_revision"] == (
+        "evidence_quote_v5_inline_labeled_components"
+    )
+    assert p["pricing_inline_adapter_family"] == "model_token_matrix"
+    assert p["pricing_price_cells_examined"] == 2
+    assert p["pricing_legend_backed_triplet_cells_split"] == 2
+    assert p["pricing_inline_rate_cells_split"] == 2
+    assert p["pricing_inline_component_extra_observations"] == 4
+    assert p["pricing_observation_count"] == 6
+    assert p["pricing_observation_total_detected"] == 6
+    assert p["pricing_observation_limit_reached"] is False
+    assert p["pricing_comparable_candidate_count"] == 0
+    assert p["pricing_review_quote_candidate_count"] == 0
+    assert p["pricing_inventory_complete"]
+    rows = p["pricing_observations"]
+    assert len({x["observation_id"] for x in rows}) == 6
+    assert len({x["source_evidence_sha256"] for x in rows}) == 6
+    assert {
+        (x["tier_or_plan"], x["price_dimension"], x["observed_single_amount_decimal"])
+        for x in rows
+    } == {
+        ("Standard", "input", "3.00"),
+        ("Standard", "cached_input", "0.30"),
+        ("Standard", "output", "15.00"),
+        ("Priority", "input", "3.75"),
+        ("Priority", "cached_input", "0.375"),
+        ("Priority", "output", "18.75"),
+    }
+    for x in rows:
+        assert x["currency"] == "USD"
+        assert x["billing_unit"] == "per_1m_tokens"
+        assert x["region"] is None
+        assert x["model_or_service"] == "Ember-1"
+        assert x["raw_parent_cell_text"].count("$") == 3
+        assert x["publisher_legend_evidence_text"] == FIREWORKS_LEGEND
+        assert len(x["publisher_legend_evidence_sha256"]) == 64
+        assert x["inline_component_parent_identity_review_status"] == (
+            "unverified_fireworks_legend_triplet"
+        )
+        assert "fireworks_triplet_requires_independent_publisher_gold" in (
+            x["normalization_blockers"]
+        )
+        assert x["review_status"] == "unverified"
+        assert x["normalized_amount_decimal"] is None
+        assert x["review_quote_candidate"] is False
+        assert x["comparable_candidate"] is False
+        assert x["approved_for_advisor"] is False
+
+
+@pytest.mark.parametrize("variation", [
+    {"legend": ""},
+    {"legend": "Prices per token are shown below in Standard and Priority."},
+    {"legend": "In each Standard or Priority cell, prices are "
+               "input / output / cached input (USD per 1M tokens), in that order."},
+    {"legend": "In each Standard or Priority cell, prices are "
+               "input / cached input / output (EUR per 1M tokens), in that order."},
+    {"heading": "Decision models"},
+    {"heading": "Embeddings"},
+    {"standard": "$3.00 / $0.30"},
+    {"standard": "$3.00 / $0.30 / $15.00 / $0.50"},
+    {"standard": "$3.00 / $0.30 / $15.00*"},
+    {"standard": "$3.00 / $0.30 / $15.00 through Dec 2026"},
+    {"footnote": "* Tier-specific rate adjustments"},
+])
+def test_fireworks_unverified_or_altered_legend_and_shape_never_split(variation):
+    result = _fireworks_capture(**variation)
+    assert result["pricing_legend_backed_triplet_cells_split"] == 0
+    assert result["pricing_inline_rate_cells_split"] == 0
+    assert result["pricing_comparable_candidate_count"] == 0
+    assert result["pricing_review_quote_candidate_count"] == 0
+    assert all(x["approved_for_advisor"] is False
+               for x in result["pricing_observations"])
+
+
+def test_fireworks_legend_from_previous_section_does_not_leak():
+    capture = _fireworks_capture(
+        legend="",
+        heading="Decision models",
+        preliminary=(
+            "<h2>Text and vision models</h2>"
+            "<p>" + FIREWORKS_LEGEND + "</p>"
+        ),
+    )
+    assert capture["pricing_inline_rate_cells_split"] == 0
+    assert capture["pricing_legend_backed_triplet_cells_split"] == 0
+
+
+def test_fireworks_nonmatching_product_url_disables_adapter_without_crashing():
+    wrong = extract_evidence(
+        _fireworks_html(), "https://fake.invalid/pricing",
+        category="pricing", source_id="fireworks_ai_pricing",
+    )
+    assert wrong["pricing_inline_rate_cells_split"] == 0
+    assert wrong["pricing_legend_backed_triplet_cells_split"] == 0
+    assert wrong["pricing_comparable_candidate_count"] == 0
+
+
+def test_triple_without_original_section_legend_never_gains_fake_dimensions():
+    p = _fireworks_capture(legend="")
+    raw = [x for x in p["pricing_observations"]
+           if x["raw_displayed_price"] == "$3.00 / $0.30 / $15.00"]
+    assert len(raw) == 1
+    assert raw[0]["price_state"] == "multiple_or_time_dependent"
+    assert raw[0]["normalized_amount_decimal"] is None
+    assert "publisher_legend_evidence_text" not in raw[0]
