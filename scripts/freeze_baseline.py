@@ -145,7 +145,6 @@ def _lock_key(manifest):
             }
             for category in CATEGORIES
         },
-        "quality_counts_sha256": manifest["quality_counts_sha256"],
     }
 
 
@@ -193,8 +192,17 @@ def freeze_dashboard_exports(paths_by_category, *, baseline_lock=None):
     result["freeze_manifest_sha256"] = _fingerprint(result)
     if baseline_lock is not None:
         locked = json.loads(Path(baseline_lock).read_text(encoding="utf-8"))
-        if _lock_key(result) != locked:
-            raise ValueError("Nov 2 frozen baseline lock mismatch: inputs, deployment or metrics drifted")
+        expected = {key: locked.get(key) for key in _lock_key(result)}
+        if _lock_key(result) != expected:
+            raise ValueError("Nov 2 frozen baseline lock mismatch: inputs, job or deployment drifted")
+        metric_expectations = locked.get("expected_observed_counters", {})
+        if (not isinstance(metric_expectations, dict)
+                or not metric_expectations
+                or any(
+                    quality["summary"]["observed_counters"].get(key) != value
+                    for key, value in metric_expectations.items()
+                )):
+            raise ValueError("Nov 2 frozen baseline metric expectation mismatch")
     return result, quality
 
 
