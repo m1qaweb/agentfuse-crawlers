@@ -20,6 +20,8 @@ ROWS_FIELDS = (
     "source_id", "provider", "status", "reason", "http_status",
     "observations", "comparable_candidates", "review_quote_candidates",
     "unscoped_review_quotes", "observed_single_amounts",
+    "inline_labeled_components", "fireworks_legend_components",
+    "inline_rate_cells_split", "inline_multi_amount_unresolved",
     "scoped_observations",
     "explicit_scope_declarations", "missing_currency", "missing_billing_unit",
     "missing_price_dimension", "missing_region", "missing_tier_or_plan",
@@ -75,6 +77,20 @@ def inspect(items, *, expect_all=False):
                     counts["missing_" + name] += 1
             for issue in observation.get("normalization_blockers") or []:
                 blockers[issue] += 1
+            if (observation.get("evidence_kind") ==
+                    "structured_table_labeled_inline_component"):
+                counts["inline_labeled_components"] += 1
+                if (observation.get(
+                    "inline_component_parent_identity_review_status"
+                ) == "unverified_fireworks_legend_triplet"):
+                    counts["fireworks_legend_components"] += 1
+                # The new P17B1 adapter is hard-coded REVIEW ONLY. Any
+                # future accidental promotion is a quality anomaly.
+                if (observation.get("normalized_amount_decimal") is not None
+                        or observation.get("comparable_candidate") is True
+                        or observation.get("review_quote_candidate") is True
+                        or observation.get("approved_for_advisor") is not False):
+                    anomalies += 1
             if observation.get("review_quote_candidate"):
                 counts["review_quote_candidates"] += 1
                 if not observation.get("comparable_candidate"):
@@ -107,6 +123,12 @@ def inspect(items, *, expect_all=False):
             "review_quote_candidates": counts["review_quote_candidates"],
             "unscoped_review_quotes": counts["unscoped_review_quotes"],
             "observed_single_amounts": counts["observed_single_amounts"],
+            "inline_labeled_components": counts["inline_labeled_components"],
+            "fireworks_legend_components": counts["fireworks_legend_components"],
+            "inline_rate_cells_split": item.get("pricing_inline_rate_cells_split", 0),
+            "inline_multi_amount_unresolved": item.get(
+                "pricing_inline_multi_amount_cells_unresolved", 0
+            ),
             "scoped_observations": counts["scoped_observations"],
             "explicit_scope_declarations": counts["explicit_scope_declarations"],
             "missing_currency": counts["missing_currency"],
@@ -155,6 +177,22 @@ def inspect(items, *, expect_all=False):
         "sources_with_rate_candidates": sum(
             r["comparable_candidates"] > 0 for r in source_rows
         ),
+        "review_only_rate_family_summaries": {
+            "inline_labeled_components_retained": sum(
+                r["inline_labeled_components"] for r in source_rows
+            ),
+            "fireworks_legend_components_retained": sum(
+                r["fireworks_legend_components"] for r in source_rows
+            ),
+            "rate_cells_split": sum(
+                r["inline_rate_cells_split"] for r in source_rows
+            ),
+            "multi_amount_cells_still_unresolved": sum(
+                r["inline_multi_amount_unresolved"] for r in source_rows
+            ),
+            "independently_verified_publisher_rate_facts": 0,
+            "advisor_fact_approvals": 0,
+        },
         "status_counts": dict(sorted(statuses.items())),
         "parser_revisions": dict(sorted(parser_revisions.items())),
         "card_summaries": {
