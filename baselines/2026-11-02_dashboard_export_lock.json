@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "source_item_count": 460,
+  "manifest_sha256": "231534c826b16ec19ca3358a1603cbfa8f7f478bd6f99717ad9784b167787933",
+  "source_registry_sha256": "776384e860fe3207c734719a19b782adb20b30468f856549bfe35378709e6cc2",
+  "deployed_package_sha256": "359051038fea0c0d165760980ff1f0d74ce527a3ebb1601a68106402d7248cce",
+  "job_ids": {
+    "documentation": "883514/2/12",
+    "pricing": "883514/3/10",
+    "changelog": "883514/1/13"
+  },
+  "input_export_files": {
+    "documentation": {
+      "items": {
+        "sha256": "8f364c5353534b3d845f029931cd6839402a79f0563d4795e7da27b7eb246e8e",
+        "size_bytes": 3367770,
+        "record_count": 194
+      },
+      "requests": {
+        "sha256": "e6b8bd2ac6362e4935b04bfce989d2156c82e670e426f5ef225c645089b0b85e",
+        "size_bytes": 78047,
+        "record_count": 463
+      },
+      "log": {
+        "sha256": "4bfdeb5c74b685c069a0048930ebd8f282dfc90f71b49582857acd588cdbe4d2",
+        "size_bytes": 15213,
+        "record_count": 36
+      }
+    },
+    "pricing": {
+      "items": {
+        "sha256": "ca0631997d1162813b71fb6065ee5d534b4dab2939a861a96f82f39de1206bd0",
+        "size_bytes": 8183740,
+        "record_count": 177
+      },
+      "requests": {
+        "sha256": "f93b317eafc889d1520f978eeffa2155e7ac1bae7244908e1298ba6f27a7dd5c",
+        "size_bytes": 60807,
+        "record_count": 368
+      },
+      "log": {
+        "sha256": "a9a16fd7754064e8e1535f177856f9b58a764371efeaac8c94be97232520e019",
+        "size_bytes": 14193,
+        "record_count": 33
+      }
+    },
+    "changelog": {
+      "items": {
+        "sha256": "8a90b6688d043eed206931a20a53e241dfb46882134147059619e63e66f5c42c",
+        "size_bytes": 5387534,
+        "record_count": 89
+      },
+      "requests": {
+        "sha256": "ba562921fb4c2ffc76e6f2c94f13129546bd4c37843cee71bbacf5a9d03c1b82",
+        "size_bytes": 27479,
+        "record_count": 160
+      },
+      "log": {
+        "sha256": "e5221e39047bfbf4c089b45beddd158ff73fe2e58e895b155de1165b7f8d8709",
+        "size_bytes": 13881,
+        "record_count": 28
+      }
+    }
+  },
+  "expected_observed_counters": {
+    "http_200_sources": 422,
+    "policy_skipped_sources": 3,
+    "pricing_observations_retained": 3050,
+    "pricing_observations_detected": 3448,
+    "pricing_comparable_candidates": 0,
+    "pricing_review_quotes": 110,
+    "documentation_topic_candidates": 66,
+    "documentation_nav_links_detected": 5086,
+    "documentation_nav_links_omitted": 3584,
+    "release_events_retained": 2426,
+    "release_events_detected": 4356,
+    "release_events_dated": 1762,
+    "release_duplicate_id_surplus": 118
+  },
+  "note": "Exact-byte SHA-256 pins of user-owned Nov 2 Dashboard Items/Requests/Logs. Does not authenticate Zyte job metadata or retain publisher HTML. Input files remain private and are NOT committed."
+}
