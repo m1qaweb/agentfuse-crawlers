@@ -354,3 +354,22 @@ re-crawling the same pages one by one. In all modes, full coverage is not
 vendor accuracy. Publisher permission and human-reviewed gold remain
 separate requirements. See
 [the P14B operator runbook](docs/P14B_FULL_INVENTORY_VALIDATION_RUNBOOK.md).
+
+
+### P15B: blind two-reviewer publisher gold
+
+The P15B offline review protocol creates two independent **blind**
+reviewer task sheets from P14A archive-backed candidates, with a
+provider-grouped private HMAC holdout. It requires separately collected
+first-party publisher snapshots (SHA-256, source-bound, within 24 hours of
+the archived Item), exact textual evidence, distinct reviewer identities,
+and consistent expected labels. It measures exact normalized price,
+publication-day accuracy, and documentation topic retrieval; it **does
+not** infer verified capability support from a topical heading.
+
+\`scripts.quality_gates\` now has a seventh mandatory fail-closed gate:
+\`blind_dual_review_publisher_gold\`. The quality gate recomputes review
+scores from original snapshots, two label files and checksum-verified
+Zyte archive Items; a reviewer-supplied precomputed passing JSON report
+does not count. Without genuine independently reviewed cases the gate
+remains blocked. See \`docs/P15B_BLIND_DUAL_REVIEW_GOLD.md\`.

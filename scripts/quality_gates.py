@@ -249,7 +249,8 @@ def _canary_report_consistent(report):
 
 
 def grade_release(*, synthetic=None, canaries=None, human_gold=None,
-                  gold_archives=None, gold_inventory_plan=None):
+                  gold_archives=None, gold_inventory_plan=None,
+                  gold_review_materials=None):
     """Return actionable blockers. Missing evidence NEVER counts as passed.
 
     Any human gold used for release review must be matched to actual archived
@@ -257,6 +258,7 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None,
     """
     blockers, warnings, criteria = [], [], {}
     gold_binding = None
+    gold_review_report = None
 
     def check(name, ok, message):
         criteria[name] = bool(ok)
@@ -371,6 +373,30 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None,
         "immutable, fingerprint-matched Zyte source Items; self-attestation "
         "and synthetic test rows cannot satisfy real-world accuracy gates",
     )
+    if gold_review_materials is not None:
+        # Never accept a precomputed "verified=true" report. Recompute blind
+        # review, publisher quote/bytes, SHA-256, date window and P07 archive
+        # binding from the original files in THIS process.
+        if not isinstance(gold_review_materials, dict):
+            raise ValueError("P15B reviewer materials must be a complete input object")
+        from scripts.gold_review_protocol import score_dual_review
+        gold_review_report = score_dual_review(**gold_review_materials)
+    check(
+        "blind_dual_review_publisher_gold",
+        bool(
+            gold_review_report
+            and gold_review_report.get("eligible_for_human_accuracy_signoff") is True
+            and gold_review_report.get("reviewer_count") == 2
+            and gold_review_report.get("independent_publisher_truth_confirmed") is False
+            and gold_review_report.get("advisor_fact_approvals") == 0
+            and gold_review_report.get("deployment_authorized") is False
+            and not gold_review_report.get("unresolved_disagreements")
+        ),
+        "P15B publisher gold missing: require two distinct blind reviewers, "
+        "hash-checked contemporaneous official snapshots, source-held-out "
+        "precision and enough independently agreed vendor evidence. "
+        "A precomputed scorecard or self-attested P08 label is insufficient",
+    )
     return {
         "schema_version": "1.0",
         "report_kind": "manual_release_quality_check",
@@ -379,6 +405,7 @@ def grade_release(*, synthetic=None, canaries=None, human_gold=None,
         "checks": criteria, "blockers": blockers, "warnings": warnings,
         "independent_gold_summary": reviewed,
         "real_gold_archive_binding": gold_binding,
+        "blind_dual_review_gold": gold_review_report,
         "hard_gate_count": len(criteria),
         "hard_gates_passed": sum(criteria.values()),
         "advisor_fact_approvals": 0,
@@ -403,21 +430,56 @@ def main():
                              "required to pass the archive-bound human gold gate")
     parser.add_argument("--gold-inventory-plan", type=Path,
                         help="Exact P14B plan JSON for pinned multi-source gold archives")
+    parser.add_argument("--p15b-candidate-packet", type=Path,
+                        help="Unreviewed P14A packet, recomputed from gold archives")
+    parser.add_argument("--p15b-reviewer-a", type=Path)
+    parser.add_argument("--p15b-reviewer-b", type=Path)
+    parser.add_argument("--p15b-snapshots", type=Path)
+    parser.add_argument("--p15b-snapshot-root", type=Path)
+    parser.add_argument("--p15b-split-key-env",
+                        default="AGENTFUSE_GOLD_SPLIT_KEY")
     parser.add_argument("--out-dir", type=Path,
                         default=Path("output/release-gates"))
     parser.add_argument("--strict", action="store_true",
                         help="Exit nonzero unless independently reviewed release gates pass")
     args = parser.parse_args()
+    import os
 
     def load(path):
         return json.loads(path.read_text(encoding="utf-8")) if path else None
 
+    fields = (
+        args.p15b_candidate_packet, args.p15b_reviewer_a,
+        args.p15b_reviewer_b, args.p15b_snapshots,
+        args.p15b_snapshot_root,
+    )
+    if any(value is not None for value in fields) and (
+        not all(value is not None for value in fields)
+        or not args.gold_archives
+    ):
+        raise ValueError("P15B quality review requires all original inputs and archives")
+    review_materials = None
+    if all(value is not None for value in fields):
+        split_key = os.environ.get(args.p15b_split_key_env)
+        if not split_key:
+            raise ValueError("P15B split key environment variable is required")
+        review_materials = {
+            "candidate_packet": load(args.p15b_candidate_packet),
+            "reviewer_a": load(args.p15b_reviewer_a),
+            "reviewer_b": load(args.p15b_reviewer_b),
+            "snapshot_manifest": load(args.p15b_snapshots),
+            "snapshot_root": args.p15b_snapshot_root,
+            "split_key": split_key,
+            "archive_paths": args.gold_archives,
+            "full_inventory_plan": load(args.gold_inventory_plan),
+        }
     result = grade_release(
         synthetic=load(args.synthetic_report),
         canaries=load(args.canary_score),
         human_gold=load(args.reviewed_gold),
         gold_archives=args.gold_archives,
         gold_inventory_plan=load(args.gold_inventory_plan),
+        gold_review_materials=review_materials,
     )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "quality_gate_report.json").write_text(

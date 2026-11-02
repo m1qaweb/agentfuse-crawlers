@@ -396,3 +396,23 @@ def test_scorecard_stays_blocked_without_double_review_even_if_old_synthetic():
     assert result["status"] == "blocked_pending_evidence_or_quality"
     assert result["advisor_fact_approvals"] == 0
     assert result["deployment_authorized"] is False
+
+
+def test_release_gate_recomputes_dual_review_not_trust_precomputed_flags(
+        case_setup):
+    packet, bundle, a, b, snaps, root, archives = case_setup
+    materials = {
+        "candidate_packet": packet, "reviewer_a": a, "reviewer_b": b,
+        "snapshot_manifest": snaps, "snapshot_root": root,
+        "split_key": KEY, "archive_paths": archives,
+    }
+    report = grade_release(gold_review_materials=materials)
+    assert report["hard_gate_count"] == 7
+    assert report["checks"]["blind_dual_review_publisher_gold"] is False
+    assert report["blind_dual_review_gold"]["case_count"] == 3
+    assert not report["deployment_authorized"]
+    with pytest.raises(TypeError):
+        grade_release(gold_review_materials={
+            "eligible_for_human_accuracy_signoff": True,
+            "advisor_fact_approvals": 0,
+        })
