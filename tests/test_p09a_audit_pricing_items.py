@@ -126,3 +126,58 @@ def test_legacy_no_card_fields_still_explained_as_unversioned():
     assert report["parser_revisions"] == {"legacy_unversioned": 1}
     assert report["card_summaries"]["structured_cards_detected"] == 0
     assert report["sources"][0]["card_observations"] == 0
+
+
+
+def test_p17b1_review_only_component_counts_and_no_false_approval():
+    record = _item()
+    obs = record["pricing_observations"][0]
+    obs.update(
+        evidence_kind="structured_table_labeled_inline_component",
+        inline_component_parent_identity_review_status=(
+            "unverified_fireworks_legend_triplet"
+        ),
+        inline_component_count=3,
+        inline_component_index=0,
+        raw_parent_cell_text="$3.00 / $0.30 / $15.00",
+        normalized_amount_decimal=None,
+        comparable_candidate=False,
+        review_quote_candidate=False,
+        approved_for_advisor=False,
+    )
+    record.update(
+        pricing_parser_revision="evidence_quote_v5_inline_labeled_components",
+        pricing_inline_rate_cells_split=1,
+        pricing_inline_multi_amount_cells_unresolved=4,
+    )
+    report = inspect([record])
+    summary = report["review_only_rate_family_summaries"]
+    assert summary == {
+        "inline_labeled_components_retained": 1,
+        "fireworks_legend_components_retained": 1,
+        "rate_cells_split": 1,
+        "multi_amount_cells_still_unresolved": 4,
+        "independently_verified_publisher_rate_facts": 0,
+        "advisor_fact_approvals": 0,
+    }
+    assert report["provenance_or_approval_anomalies"] == 0
+
+
+@pytest.mark.parametrize("mutation", [
+    {"comparable_candidate": True},
+    {"review_quote_candidate": True},
+    {"normalized_amount_decimal": "3.00"},
+    {"approved_for_advisor": True},
+])
+def test_p17b1_review_candidate_accidental_promotion_is_quality_anomaly(mutation):
+    record = _item()
+    record["pricing_observations"][0].update(
+        evidence_kind="structured_table_labeled_inline_component",
+        inline_component_parent_identity_review_status=(
+            "unverified_fireworks_legend_triplet"
+        ),
+        **mutation,
+    )
+    report = inspect([record])
+    assert report["provenance_or_approval_anomalies"] >= 1
+    assert report["approved_for_advisor"] is False
