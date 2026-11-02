@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from agentfuse_crawlers import settings as crawler_settings
 from agentfuse_crawlers.run_context import manifest_sha256
 from agentfuse_crawlers.source_lifecycle import (
     collection_decision, registry_revision_sha256,
@@ -30,12 +31,12 @@ from agentfuse_crawlers.source_lifecycle import (
 from agentfuse_crawlers.sources import load_sources
 from scripts.replay_pricing_snapshots import source_pins, validate_snapshot_manifest
 
-AGENT = "AgentFuseResearchBot/0.1 (+https://github.com/m1qaweb/agentfuse-crawlers)"
+AGENT = crawler_settings.USER_AGENT
 MAX_SOURCES = 5
-MAX_PAGE_BYTES = 8_000_000
+MAX_PAGE_BYTES = crawler_settings.DOWNLOAD_MAXSIZE
 MAX_ROBOTS_BYTES = 256_000
 TIMEOUT_SECONDS = 35
-MIN_DELAY = 3
+MIN_DELAY = crawler_settings.DOWNLOAD_DELAY
 MAX_CRAWL_DELAY = 30
 MAX_POLICY_NOTE = 500
 
@@ -227,6 +228,12 @@ def capture_pricing_html(source_ids, out_dir, *, policy_review_note,
         lambda: datetime.now(timezone.utc)
     )
     known = {s["id"]: s for s in load_sources()}
+    # Reject existing/symlink outputs before *any* website requests.
+    target_path = Path(out_dir)
+    if target_path.exists() or target_path.is_symlink() or any(
+        parent.is_symlink() for parent in target_path.parents
+    ):
+        raise ValueError("Choose a fresh non-symlink private output directory")
     # Preflight the robots policy for every distinct host BEFORE any HTML.
     robots_by_host = {}
     network_requests = 0
