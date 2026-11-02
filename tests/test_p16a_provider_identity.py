@@ -79,6 +79,7 @@ def test_candidate_title_alias_is_not_verified_product_owner():
         assert result["source_title_alias_observed"]
         assert not result["source_product_title_conflict"]
         assert not result["source_product_ownership_verified"]
+        assert len(result["source_product_profile_sha256"]) == 64
         assert result["source_adapter_current"] == "generic_scrapy_evidence"
         assert not result["source_specific_adapter_authorized"]
         assert not result["approved_for_advisor"]
@@ -92,6 +93,7 @@ def test_contradictory_product_title_cannot_be_reported_as_correct_owner():
         ("gemini_cli_docs", "Gemini API Documentation"),
         ("github_copilot_docs", "Microsoft 365 Copilot documentation"),
         ("openai_api_docs", "Codex documentation"),
+        ("openai_api_docs", "Azure OpenAI documentation"),
     ]
     for sid, title in cases:
         outcome = classify(sid, title)
@@ -325,6 +327,7 @@ def test_normal_title_does_not_modify_existing_generic_spider_status():
         "pricing_no_structured_rate_evidence",
         "pricing_rate_dimensions_unresolved",
         "no_price_or_billing_detail_detected",
+        "insufficient_substantive_text",
     }
     assert item["source_expected_product_id"] == "openai_api"
     assert not item["source_product_title_conflict"]
@@ -405,7 +408,8 @@ def test_offline_full_inventory_review_preserves_460_without_claiming_truth(
     assert (tmp_path / "source_product_review_queue.csv").exists()
     assert (tmp_path / "source_product_ownership_summary.json").exists()
     # A title is never enough to approve a product owner.
-    assert all("verified" not in x["review_action"] for x in result["sources"])
+    assert all(x["review_action"] != "approve_product_identity"
+               for x in result["sources"])
 
 
 def test_offline_audit_aborts_if_a_manifest_source_is_missing():

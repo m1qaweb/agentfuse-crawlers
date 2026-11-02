@@ -8,6 +8,7 @@ Observed page structure may suggest a future adapter family, but this
 module NEVER activates a new extractor, approves a fact, migrates a URL,
 or treats a body-only marketing mention as the page's owner.
 """
+import hashlib
 import json
 import re
 import unicodedata
@@ -59,6 +60,12 @@ def _validated_aliases(value, label):
             or len(cleaned) != len(set(cleaned))):
         raise ValueError("Generic, duplicate, or short identity title alias")
     return tuple(value)
+
+
+@lru_cache(maxsize=1)
+def provider_profiles_sha256():
+    """Digest of the complete, non-secret proposed profile registry bytes."""
+    return hashlib.sha256(DATA_PATH.read_bytes()).hexdigest()
 
 
 @lru_cache(maxsize=1)
@@ -252,6 +259,7 @@ def identify_source_product(source, evidence):
     return {
         "source_product_identity_schema": SCHEMA,
         "source_product_profile_revision": REGISTRY_REVISION,
+        "source_product_profile_sha256": provider_profiles_sha256(),
         "source_expected_provider_id": profile["provider_id"] if profile else None,
         "source_expected_product_id": profile["product_id"] if profile else None,
         "source_expected_product_kind": profile["product_kind"] if profile else None,
