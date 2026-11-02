@@ -44,6 +44,13 @@ NON_MODEL_PHRASE = re.compile(
     r"for demanding|learn more|contact sales|free trial|"
     r"pricing plan|usd|eur|gbp)\b", re.I
 )
+PRICE_SCOPE_QUALIFIER = re.compile(
+    r"\b(?:long|short|extended)\s+context\b"
+    r"|[≥≤<>]\s*\d[\d,.]*\s*[kKmM]?\s*tokens?\b"
+    r"|\b(?:cached?\s+input|cache\s+write|batch\s+mode|"
+    r"priority\s+mode|preview\s+only|region\s+specific)\b",
+    re.I,
+)
 
 
 def visible_cell_text(cell):
@@ -150,6 +157,12 @@ def inspect_model_cell(cell):
             "raw_cell_text": raw,
             "requires_review": False,
             "description_present": bool(description),
+            # A marketing description is not the product name. A pricing
+            # qualifier in that description is also not an approved rate
+            # dimension; block comparison rather than merging tiered rates.
+            "price_scope_qualifier_requires_review": bool(
+                PRICE_SCOPE_QUALIFIER.search(description)
+            ),
         }
     if suspected_model_description_join(raw):
         return {

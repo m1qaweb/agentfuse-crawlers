@@ -98,3 +98,14 @@ into a misleading high score.
 monitor-mode promotion and no production AgentFuse database writes.**
 Merging a PR to \`main\` may still auto-deploy a new package to Zyte;
 review CI and release policy before merge.
+
+
+### Context-condition refinement
+
+An explicitly separated model-name cell can also contain pricing
+**conditions** such as \`Long context ≥ 200k tokens\` in an ordinary
+\`span\`, not only a footnote. P17A preserves the correct model ID but
+adds \`model_row_price_scope_qualifier_unresolved\` and blocks numeric
+comparison and price-review quotes until the publisher's exact context
+schedule is independently established. More text or better model naming
+must never erase long-context/batch/cache rate dimensions.

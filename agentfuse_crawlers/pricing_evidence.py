@@ -356,6 +356,15 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     )),
                     footnotes=info["footnotes"],
                 )
+                if model_cell.get("price_scope_qualifier_requires_review"):
+                    candidate["normalized_amount_decimal"] = None
+                    candidate["review_quote_amount_decimal"] = None
+                    candidate["review_quote_candidate"] = False
+                    candidate["comparable_candidate"] = False
+                    candidate["normalization_blockers"] = list(dict.fromkeys([
+                        *candidate["normalization_blockers"],
+                        "model_row_price_scope_qualifier_unresolved",
+                    ]))
                 if candidate["price_state"] == "unparsed":
                     ambiguous_table_cells += 1
                 descriptor = "|".join(
@@ -389,6 +398,9 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                 )
                 candidate["model_label_hygiene_status"] = model_status
                 candidate["model_label_requires_review"] = model_risk
+                candidate["model_row_price_scope_qualifier_requires_review"] = bool(
+                    model_cell.get("price_scope_qualifier_requires_review")
+                )
                 candidate["model_label_description_present"] = bool(
                     model_cell.get("description_present")
                 )

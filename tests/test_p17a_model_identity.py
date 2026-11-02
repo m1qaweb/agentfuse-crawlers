@@ -93,6 +93,10 @@ def test_high_volume_grok_like_row_with_explicit_dom_marked_id():
               x["normalization_blockers"]) for x in observations])
     assert all(x["model_label_provenance"] == "explicit_dom_primary_label"
                for x in observations)
+    assert all(x["model_row_price_scope_qualifier_requires_review"]
+               for x in observations)
+    assert all("model_row_price_scope_qualifier_unresolved"
+               in x["normalization_blockers"] for x in observations)
     # The <small>Long context >= 200k</small> qualifier is a possible
     # pricing restriction, NOT a reason to infer a safe single rate.
     assert result["pricing_comparable_candidate_count"] == 0
@@ -102,6 +106,22 @@ def test_high_volume_grok_like_row_with_explicit_dom_marked_id():
         and x["approved_for_advisor"] is False
         for x in observations
     )
+
+
+def test_long_context_scope_in_ordinary_span_is_also_not_comparable():
+    ev = rates(row(
+        '<span class="model-name">grok-4.7</span>'
+        '<span>Long context ≥ 200k tokens</span>'
+    ))
+    assert ev["pricing_model_label_recovered_rows"] == 1
+    assert ev["pricing_comparable_candidate_count"] == 0
+    for candidate in ev["pricing_observations"]:
+        assert candidate["model_or_service"] == "grok-4.7"
+        assert candidate["model_row_price_scope_qualifier_requires_review"]
+        assert ("model_row_price_scope_qualifier_unresolved" in
+                candidate["normalization_blockers"])
+        assert candidate["normalized_amount_decimal"] is None
+        assert not candidate["review_quote_candidate"]
 
 
 def test_inline_dom_fragments_have_word_boundary_in_raw_displayed_cell():
