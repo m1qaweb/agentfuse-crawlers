@@ -105,7 +105,10 @@ def family_for_source(source_id, source_url):
     if profile is None:
         return None
     if source_url != profile["source_url"]:
-        raise ValueError("P17B rate family source URL differs from pinned manifest")
+        # Offline extract_evidence() also supports arbitrary synthetic
+        # sources. Mismatched source ownership must fall back to generic
+        # review-only extraction, not crash the spider or use an adapter.
+        return None
     return profile
 
 
@@ -194,3 +197,145 @@ def explicit_inline_components(raw_cell, *, model_label, row_header,
         explicit.append(cell)
         dimensions.add(dimension)
     return explicit
+
+
+
+# P17B1 extension: exact first-party, nearby legend-backed pricing triplets.
+# The official Fireworks source explicitly describes the rates in a Standard
+# or Priority cell as input / cached input / output, in that order. The old
+# 2026-11-02 exported Items have only "$3 / $0.3 / $15" and NOT the original
+# raw HTML section paragraph, so the adapter MUST confirm that paragraph
+# again in the current DOM. Parsed historical Items cannot retroactively
+# authenticate the legend, determine prices, or activate recommendations.
+FIREWORKS_TRIPLE = re.compile(
+    r"^\s*(\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,8})?|\$\s*\d+(?:\.\d{1,8})?)"
+    r"\s*/\s*"
+    r"(\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,8})?|\$\s*\d+(?:\.\d{1,8})?)"
+    r"\s*/\s*"
+    r"(\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{1,8})?|\$\s*\d+(?:\.\d{1,8})?)"
+    r"\s*$"
+)
+FIREWORKS_EXPLICIT_LEGEND = re.compile(
+    r"\bin each standard or priority cell,\s*prices are\s*"
+    r"input\s*/\s*cached input\s*/\s*output\s*"
+    r"\(\s*USD\s+per\s+1\s*m(?:illion)?\s+tokens\s*\),"
+    r"\s*in that order\b",
+    re.I,
+)
+FIREWORKS_HEADING = re.compile(
+    r"^text and vision models$", re.I,
+)
+
+
+def fireworks_scoped_legend(main, table, heading_context, family_profile):
+    """Find publisher's exact ordered-unit legend within THIS table section.
+
+    Never search whole-page text: the same source has decision models,
+    embeddings, non-token rates and other billing dimensions.
+    """
+    if (family_profile is None
+            or family_profile["source_id"] != "fireworks_ai_pricing"
+            or "text and vision models" not in
+               str(heading_context).replace("\u200b", "").casefold()):
+        return None
+    active = False
+    preceding = []
+    for node in main.iter():
+        if node is table:
+            break
+        if not isinstance(getattr(node, "tag", None), str):
+            continue
+        tag = node.tag.lower()
+        if tag in {"h2", "h3"}:
+            heading = clean(node.text_content(), 150).replace("\u200b", "")
+            active = bool(FIREWORKS_HEADING.fullmatch(heading))
+            preceding.clear()
+        if (active and tag == "p"
+                and not node.xpath("ancestor::table|ancestor::nav|ancestor::footer")):
+            text = clean(node.text_content(), 330)
+            if text:
+                preceding.append(text)
+                if len(preceding) > 6:
+                    preceding.pop(0)
+    if not active:
+        return None
+    matching = [p for p in preceding if FIREWORKS_EXPLICIT_LEGEND.search(p)]
+    # Multiple inconsistent apparent legends cannot safely define order.
+    if len(matching) != 1:
+        return None
+    return matching[0]
+
+
+def fireworks_triplet_components(raw_cell, *, column_header, model_label,
+                                 row_header, table_context, table_caption,
+                                 footnotes, legend, family_profile):
+    """Three independent REVIEW candidates only after exact nearby legend.
+
+    "Standard" and "Priority" are literal table headers. EUR pricing,
+    missing legend, missing caption, varied order, footnotes, unit changes,
+    mixed rate families or non-exact row money syntax cannot be split.
+    """
+    if (not isinstance(raw_cell, str) or len(raw_cell) > MAX_RAW_CELL
+            or family_profile is None
+            or family_profile["source_id"] != "fireworks_ai_pricing"
+            or not isinstance(legend, str)
+            or not FIREWORKS_EXPLICIT_LEGEND.search(legend)
+            or column_header not in {"Standard", "Priority"}
+            or footnotes
+            or TEMPORAL.search(raw_cell)
+            or CONDITIONAL.search(raw_cell)
+            or UNSAFE_SCOPE_WORDS.search(raw_cell)
+            or DATE_OR_CONDITION.search(raw_cell)):
+        return None
+    prices = FIREWORKS_TRIPLE.fullmatch(raw_cell)
+    if prices is None:
+        return None
+    labels = ["input", "cached input", "output"]
+    components = []
+    # Both the position-to-dimension legend and denominator/currency must
+    # appear in the same bounded first-party page section. This does not
+    # certify whether publisher facts are current or universally applicable.
+    for idx, (label, value) in enumerate(zip(labels, prices.groups())):
+        candidate = analyze_cell(
+            value, model_label=model_label, column_header=label,
+            row_header=row_header,
+            table_context=table_context,
+            table_caption=(
+                table_caption + " Tier: " + column_header +
+                " USD per 1M tokens"
+            ),
+            footnotes="",
+        )
+        if (candidate["price_state"] != "numeric_candidate"
+                or candidate["price_dimension"] != FIELD_LABELS[label]):
+            return None
+        candidate.update({
+            "raw_parent_cell_text": clean(raw_cell, MAX_RAW_CELL),
+            "inline_component_label": label,
+            "inline_component_index": idx,
+            "inline_component_count": len(prices.groups()),
+            "inline_component_evidence_sha256": hashlib.sha256(
+                (raw_cell + "|" + label + "|" + value + "|" + legend
+                ).encode("utf-8")
+            ).hexdigest(),
+            "inline_component_parent_identity_review_status":
+                "unverified_fireworks_legend_triplet",
+            "family_adapter_revision": REVISION,
+            "family_adapter_candidate_only": True,
+            "source_product_owner_verified": False,
+            "publisher_legend_evidence_text": legend[:280],
+            "publisher_legend_evidence_sha256": hashlib.sha256(
+                legend.encode("utf-8")
+            ).hexdigest(),
+            "approved_for_advisor": False,
+        })
+        candidate["normalized_amount_decimal"] = None
+        candidate["comparable_candidate"] = False
+        candidate["review_quote_amount_decimal"] = None
+        candidate["review_quote_candidate"] = False
+        candidate["normalization_blockers"] = list(dict.fromkeys([
+            *candidate["normalization_blockers"],
+            "fireworks_triplet_requires_independent_publisher_gold",
+        ]))
+        components.append(candidate)
+    return components
