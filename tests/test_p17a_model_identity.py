@@ -209,7 +209,7 @@ def test_model_recovery_does_not_invent_usd_region_tier_or_price():
 
 def test_exact_model_identity_remains_separate_across_two_rates():
     ev = rates(
-        row("<strong>Model Alpha 4</strong><p>Long context ≥ 200k tokens</p>")
+        row("<strong>Model Alpha 4</strong><p>For synthetic coding workloads</p>")
         + row("<strong>Model Beta 4</strong><p>For demanding tasks</p>",
               input_rate="$3.00", output_rate="$7.00")
     )
