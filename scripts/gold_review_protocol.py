@@ -32,6 +32,7 @@ SHA = re.compile(r"^[a-f0-9]{64}$")
 PRICE_ID = re.compile(r"^[a-f0-9]{32}$")
 CASE_RE = re.compile(r"^[a-f0-9]{24}$")
 MAX_SNAPSHOT_BYTES = 2_000_000
+MAX_CACHED_SNAPSHOTS = 8
 MAX_TASKS = 3600
 MIN_SPLIT_KEY_BYTES = 16
 MIN_REVIEW_NOTE = 24
@@ -87,6 +88,29 @@ def _required_key(key):
     if not isinstance(key, bytes) or len(key) < MIN_SPLIT_KEY_BYTES:
         raise ValueError("Private split key must be at least 16 UTF-8 bytes")
     return key
+
+
+def _blind_hint(raw):
+    """Keep non-factual navigation cues but redact numeric price/date leaks."""
+    if not isinstance(raw, str):
+        return ""
+    text = raw[:300]
+    # Publisher headings can themselves embed publication dates. They may
+    # orient the reviewer, but cannot silently prefill the gold answer.
+    text = re.sub(r"\b20\d\d[-/]\d{1,2}[-/]\d{1,2}\b",
+                  "[DATE REDACTED]", text)
+    text = re.sub(
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|"
+        r"May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|"
+        r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+"
+        r"\d{1,2}(?:,?\s+20\d\d)?\b",
+        "[DATE REDACTED]", text, flags=re.I,
+    )
+    text = re.sub(
+        r"(?:[$€£]\s*\d[\d,.]*|\b(?:USD|EUR|GBP)\s+\d[\d,.]*)",
+        "[PRICE REDACTED]", text, flags=re.I,
+    )
+    return text[:150]
 
 
 def _case_id(kind, sample):
@@ -177,11 +201,11 @@ def prepare_blind_bundle(packet, *, split_key, holdout_percent=25):
                 "archived_extracted_content_sha256": sample["content_sha256"],
                 "observation_identity": str(val),
                 # These are unverified *navigation cues*, not proposed truth.
-                "target_title_hint": (
+                "target_title_hint": _blind_hint(
                     sample.get("title") if kind == "release_dates" else
                     sample.get("topic_hint") if kind == "documentation" else
                     sample.get("observed", {}).get("model_or_service")
-                ) or "",
+                ),
                 "target_dimension_hint": (
                     sample.get("observed", {}).get("price_dimension")
                     if kind == "pricing" else ""
@@ -260,6 +284,12 @@ def _publisher_snapshot_text(snap, root, task, archived, *, cache):
         raise ValueError("Publisher snapshot must have a safe relative path")
     if not _same_official_host(snap.get("publisher_url"), task["source_url"]):
         raise ValueError("Publisher snapshot URL must match original first-party host")
+    # A page on the same host can document a completely different
+    # product or release. The pinned task permalink/path is binding.
+    original = urlsplit(task["publisher_evidence_url"])
+    actual = urlsplit(snap["publisher_url"])
+    if actual.path.rstrip("/") != original.path.rstrip("/"):
+        raise ValueError("Publisher snapshot path differs from reviewed source page")
     if snap.get("media_type") not in {
         "text/html", "text/plain", "text/markdown", "application/json"
     }:
@@ -283,6 +313,8 @@ def _publisher_snapshot_text(snap, root, task, archived, *, cache):
         raise ValueError("Publisher evidence snapshot SHA-256 mismatch")
     cache_key = (str(path), digest)
     if cache_key not in cache:
+        if len(cache) >= MAX_CACHED_SNAPSHOTS:
+            cache.pop(next(iter(cache)))
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -468,6 +500,8 @@ def score_dual_review(candidate_packet, reviewer_a, reviewer_b, snapshot_manifes
         if snap["case_id"] in snapshots:
             raise ValueError("Duplicate snapshot for one review case")
         snapshots[snap["case_id"]] = snap
+    if not isinstance(reviewer_a, dict) or not isinstance(reviewer_b, dict):
+        raise ValueError("Two full independent reviewer records are required")
     if reviewer_a.get("reviewer_id", "").strip().casefold() == reviewer_b.get(
         "reviewer_id", "").strip().casefold():
         raise ValueError("Independent review requires two distinct reviewers")
