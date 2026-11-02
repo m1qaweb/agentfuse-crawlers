@@ -276,7 +276,8 @@ def test_replay_is_deterministic_private_and_source_bound(tmp_path):
         "2026-10-28", "2026-10-26",
     }
     assert "<html" not in json.dumps(report)
-    assert PARA not in json.dumps(report)
+    assert "<article" not in json.dumps(report)
+    assert all(len(event["excerpt"]) <= 300 for event in row["events"])
     assert str(tmp_path) not in json.dumps(report)
 
 
