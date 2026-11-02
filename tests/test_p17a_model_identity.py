@@ -86,12 +86,18 @@ def test_high_volume_grok_like_row_with_explicit_dom_marked_id():
         '<span class="model-name">grok-4.7</span>'
         "<small>Long context ≥ 200k tokens</small>"
     ))
-    assert result["pricing_comparable_candidate_count"] == 2
-    assert {x["model_or_service"] for x in result["pricing_observations"]} == {
+    observations = result["pricing_observations"]
+    assert {x["model_or_service"] for x in observations} == {
         "grok-4.7"
-    }
+    }, repr([(x["model_or_service"], x["model_label_hygiene_status"],
+              x["normalization_blockers"]) for x in observations])
     assert all(x["model_label_provenance"] == "explicit_dom_primary_label"
-               for x in result["pricing_observations"])
+               for x in observations)
+    assert result["pricing_comparable_candidate_count"] == 2, repr([
+        (x["model_or_service"], x["normalization_blockers"],
+         x["billing_unit"], x["region"], x["tier_or_plan"])
+        for x in observations
+    ])
 
 
 def test_inline_dom_fragments_have_word_boundary_in_raw_displayed_cell():
