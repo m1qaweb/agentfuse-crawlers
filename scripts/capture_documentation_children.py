@@ -107,30 +107,30 @@ def _now_utc(now=None):
 
 
 def _evidence_url(value):
-    """Policy evidence URL is descriptive only, and is NEVER fetched."""
+    """Policy evidence URL is descriptive only and is NEVER fetched."""
     if (not isinstance(value, str) or len(value) > 450
-            or not value.startswith("https://")
-            or not value.isascii() or any(c in value for c in ("%","\\","?","#"))
+            or not value.startswith("https://") or not value.isascii()
+            or any(c in value for c in ("%", "\\", "?", "#"))
             or any(ord(c) <= 32 or ord(c) == 127 for c in value)):
         raise ValueError("Unsafe publisher policy evidence URL")
     try:
         parsed = urlsplit(value)
-        if (parsed.scheme != "https" or not parsed.hostname
-                or parsed.username or parsed.password or parsed.port not in (None, 443)
-                or not parsed.path.startswith("/")):
-            raise ValueError("Invalid policy evidence origin")
-        ipaddress.ip_address(parsed.hostname)
     except ValueError as exc:
-        if str(exc) == "Invalid policy evidence origin":
-            raise
-        # A non-IP HTTPS hostname is required, never a local numerical address.
-        if parsed.hostname and not any(
-            parsed.hostname.lower().endswith(s)
-            for s in (".localhost", ".local", ".internal")
-        ) and parsed.hostname.lower() != "localhost":
-            return value
-        raise ValueError("Private policy-evidence host is forbidden") from exc
-    raise ValueError("Numeric policy-evidence hosts are forbidden")
+        raise ValueError("Malformed policy evidence URL") from exc
+    if (parsed.scheme != "https" or not parsed.hostname
+            or parsed.username or parsed.password or parsed.port not in (None, 443)
+            or not parsed.path.startswith("/")):
+        raise ValueError("Invalid policy evidence origin")
+    hostname = parsed.hostname.lower()
+    if (hostname == "localhost" or hostname.endswith(
+            (".localhost", ".local", ".internal")
+        ) or "." not in hostname):
+        raise ValueError("Nonpublic policy evidence hostname")
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return value
+    raise ValueError("Numeric policy evidence hosts are forbidden")
 
 
 def _valid_packet(packet, docs, profiles):
@@ -149,7 +149,8 @@ def _valid_packet(packet, docs, profiles):
             or packet.get("approved_for_crawl") is not False
             or packet.get("approved_for_advisor") is not False
             or packet.get("new_fetch_permissions") != 0
-            or packet.get("review_task_count") != len(packet.get("tasks", []))):
+            or not isinstance(packet.get("tasks"), list)
+            or packet.get("review_task_count") != len(packet["tasks"])):
         raise ValueError("P18A1 packet integrity, identity or privilege mismatch")
     selected = packet.get("selected_source_ids")
     tasks = packet.get("tasks")
@@ -370,7 +371,9 @@ def _inspect_html(html, exact_url):
     if parser.refresh:
         raise ValueError("Meta refresh requires manual URL review")
     for title in parser.headings:
-        if " ".join(title.casefold().split()) in CHALLENGE_HEADINGS:
+        heading = " ".join(title.casefold().split()).strip(" .:-")
+        if any(heading == marker or heading.startswith(marker + " ")
+               for marker in CHALLENGE_HEADINGS):
             raise ValueError("Access challenge is not a permitted docs snapshot")
     if len(parser.canonicals) > 1:
         raise ValueError("Ambiguous multiple canonical links")
