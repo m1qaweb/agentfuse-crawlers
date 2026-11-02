@@ -444,9 +444,13 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     candidate["table_caption"] = info["caption"]
                     candidate["heading_context"] = info["heading_context"]
                     candidate["footnotes"] = info["footnotes"]
+                    evidence_key = (
+                        raw + "|" + header + "|" + row_label + "|" + label
+                    )
+                    if explicit_parts:
+                        evidence_key += "|" + str(part_index)
                     candidate["source_evidence_sha256"] = hashlib.sha256(
-                        (raw + "|" + header + "|" + row_label + "|" + label +
-                         "|" + str(part_index)).encode("utf-8")
+                        evidence_key.encode("utf-8")
                     ).hexdigest()
                     candidate["review_status"] = "unverified"
                     candidate["approved_for_advisor"] = False
