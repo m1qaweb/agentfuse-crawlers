@@ -93,11 +93,15 @@ def test_high_volume_grok_like_row_with_explicit_dom_marked_id():
               x["normalization_blockers"]) for x in observations])
     assert all(x["model_label_provenance"] == "explicit_dom_primary_label"
                for x in observations)
-    assert result["pricing_comparable_candidate_count"] == 2, repr([
-        (x["model_or_service"], x["normalization_blockers"],
-         x["billing_unit"], x["region"], x["tier_or_plan"])
+    # The <small>Long context >= 200k</small> qualifier is a possible
+    # pricing restriction, NOT a reason to infer a safe single rate.
+    assert result["pricing_comparable_candidate_count"] == 0
+    assert all(
+        "unresolved_footnote" in x["normalization_blockers"]
+        and x["normalized_amount_decimal"] is None
+        and x["approved_for_advisor"] is False
         for x in observations
-    ])
+    )
 
 
 def test_inline_dom_fragments_have_word_boundary_in_raw_displayed_cell():
