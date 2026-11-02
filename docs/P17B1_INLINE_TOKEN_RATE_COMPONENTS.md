@@ -22,6 +22,24 @@ date and distribution channel. In particular:
 P17B1 therefore starts with a **strict reusable model-token matrix
 candidate** instead of guessing price semantics across providers.
 
+### Source-verified format: Fireworks official docs
+
+The first-party official document at
+https://docs.fireworks.ai/serverless/pricing explicitly states, under
+**Text and vision models**, that each Standard or Priority cell lists
+**input / cached input / output**, in that order, with **USD per 1M
+tokens**. This is *publisher-owned format evidence*, not independently
+verified current model prices. The Nov 2 parsed Fireworks export contains
+39 multi-amount observations; those Items do not preserve the original
+paragraph/HTML, so the new parser must confirm the exact legend on the
+current captured page before decomposing anything.
+
+The separate Together and Gemini layouts do **not** inherit that
+Fireworks legend. The historical Nov 2 export contains zero cells
+matching the stricter semicolon-delimited `Input: ...; Output: ...`
+pattern; P17B1's meaningful real-layout hypothesis is the
+**legend-backed Fireworks triplet**, not the generic semicolon syntax.
+
 ## Implementation
 
 - \`pricing_adapters.py\`: pinned, versioned source-to-family *review*
@@ -30,15 +48,23 @@ candidate** instead of guessing price semantics across providers.
   seat/plan cards (6), and request/credit metering (5). No host/URL
   discovery, provider ownership verification or new crawl permission.
 - The only executable family behavior is **exact inline-labeled
-  decomposition** for the six candidate token-matrix source IDs.
+  decomposition** for the six candidate token-matrix source IDs, plus
+  a narrowly pinned Fireworks triplet parser that requires a nearby
+  identical, publisher-owned order legend in the same section.
 - A cell must contain 2–4 semicolon-delimited segments, each with an
   independent **explicit** label \`Input:\`, \`Cached input:\`,
   \`Output:\`, \`Batch input:\`, \`Batch output:\` or
   \`Cache write:\` and exactly one visible amount.
-- Multiple/duplicate/unknown labels, slash triples, dates, discounts,
-  threshold rates, promotional terms, footnotes and unrecognized
-  conditions are **not decomposed**. The original unsplit evidence
-  remains in the Item for human review.
+- Unlabeled slash triples remain unresolved **unless** they are from
+  the exact Fireworks pricing URL, in the **Text and vision models**
+  section, in a **Standard** or **Priority** column, with the original
+  publisher paragraph explicitly defining both the 3-price order and
+  USD/1M-token unit. The publisher's exact paragraph and hash are
+  preserved per component for reviewer verification.
+- Multiple/duplicate/unknown labels, unlegend-ed triples, dates,
+  discounts, threshold rates, promotional terms, footnotes and
+  unrecognized conditions are **not decomposed**. The original
+  unsplit evidence remains in the Item for human review.
 - Every emitted sub-observation carries its own source evidence SHA,
   a unique component ID, the **original parent cell**, the literal
   price-dimension label and a component count. It is explicitly
@@ -61,8 +87,10 @@ candidate** instead of guessing price semantics across providers.
 
 - Three properly labeled, separately recorded input/cache/output
   numbers are individually observable but **0 approved/comparable**.
-- No guessing for Fireworks unlabeled triples or Together adjacent
-  cached amounts.
+- Fireworks three-price rows require an **explicit matching
+  original-page order legend**; without it, they stay unsplit.
+  Together adjacent cached amounts stay unresolved without their
+  own independently supported label/column semantics.
 - Gemini time-window pricing remains composite and unresolved.
 - Unknown USD/Global/Standard never materializes from the provider ID.
 - Other pricing families and unprofiled sources stay on the current
@@ -71,6 +99,13 @@ candidate** instead of guessing price semantics across providers.
 - Unchanged single amount evidence source hash remains stable.
 
 ## What this **does not** establish
+
+This is a parsing-fidelity hypothesis, not the outcome of a
+real before/after replay. Do not label a historical Fireworks row as
+correct merely because the site's current text explains a three-rate
+order: a version change or a different table section could invalidate
+the mapping. Only original captured markup + P15B dual human review
+can establish operational accuracy.
 
 A passing test proves only deterministic extraction against **synthetic
 HTML**. It does not prove original publisher claims, real cross-region
