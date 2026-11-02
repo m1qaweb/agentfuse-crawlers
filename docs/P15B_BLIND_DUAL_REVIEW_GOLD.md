@@ -188,3 +188,13 @@ and separate release signoff; nothing is published to the advisor.
 
 After real gold is collected, P16 can target adapters to the actual
 highest-cost issues and measure gain on untouched provider holdouts.
+
+
+### Blindness and source specificity
+
+Publisher titles are only **navigation cues**; dates and obvious
+currency/price figures in those cues are redacted. The snapshot URL
+must refer to the exact original publisher page/permalink (same HTTPS
+host **and path**) rather than an unrelated product page on the same
+domain. The scorer keeps at most eight decoded snapshots cached to
+avoid unbounded memory growth during a large campaign.

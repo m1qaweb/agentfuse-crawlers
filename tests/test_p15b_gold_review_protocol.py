@@ -14,7 +14,7 @@ from agentfuse_crawlers.sources import load_sources
 from scripts.archive_jobs import archive_job
 from scripts.gold_review_protocol import (
     _check_expected, prepare_blind_bundle, reviewer_template,
-    score_dual_review,
+    score_dual_review, _blind_hint,
 )
 from scripts.real_gold_binding import prepare_review_candidates
 from scripts.quality_gates import grade_release
@@ -416,3 +416,43 @@ def test_release_gate_recomputes_dual_review_not_trust_precomputed_flags(
             "eligible_for_human_accuracy_signoff": True,
             "advisor_fact_approvals": 0,
         })
+
+
+def test_blind_hints_remove_embedded_dates_and_currency_values():
+    hint = _blind_hint(
+        "Model X USD 1.50 launched Oct 30, 2026, "
+        "then revised 2026-11-02 at $0.20"
+    )
+    assert "1.50" not in hint
+    assert "0.20" not in hint
+    assert "Oct 30" not in hint
+    assert "2026-11-02" not in hint
+    assert "Model X" in hint
+    assert "[PRICE REDACTED]" in hint
+    assert "[DATE REDACTED]" in hint
+
+
+def test_same_host_other_product_path_not_valid_evidence(case_setup):
+    _, _, a, b, snapshots, _, _ = case_setup
+    case = snapshots["snapshots"][0]
+    from urllib.parse import urlsplit, urlunsplit
+    parsed = urlsplit(case["publisher_url"])
+    changed_url = urlunsplit((
+        parsed.scheme, parsed.netloc, parsed.path.rstrip("/") + "/other-product",
+        "", "",
+    ))
+    case["publisher_url"] = changed_url
+    a["labels"][0]["publisher_evidence_url"] = changed_url
+    b["labels"][0]["publisher_evidence_url"] = changed_url
+    with pytest.raises(ValueError, match="path differs"):
+        _score(case_setup)
+
+
+def test_reviewer_snapshot_file_symlink_is_rejected(case_setup, tmp_path):
+    packet, bundle, a, b, snapshots, root, archives = case_setup
+    original = root / snapshots["snapshots"][0]["file"]
+    symlink = root / "shortcut.html"
+    symlink.symlink_to(original)
+    snapshots["snapshots"][0]["file"] = symlink.name
+    with pytest.raises(ValueError, match="symlink"):
+        _score(case_setup)
