@@ -19,6 +19,7 @@ from agentfuse_crawlers.pricing_evidence import (
     MAX_SELECTED_TABLES, compact_pricing_record,
 )
 from agentfuse_crawlers.documentation_scope import compact_documentation_record
+from agentfuse_crawlers.provider_profiles import identify_source_product
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.diagnostics import derive_diagnostics
 from agentfuse_crawlers.source_lifecycle import (
@@ -281,8 +282,13 @@ class OfficialBaseSpider(scrapy.Spider):
             yield self._emit_status(record)
             return
 
+        # P16A: a source ID is only an unverified expected product mapping.
+        # Title/DOM-derived family cues NEVER select a different scraper or
+        # grant advisor access. Persist them for independent publisher review.
+        identity = identify_source_product(source, evidence)
         text = evidence.pop("text")
         record.update(evidence)
+        record.update(identity)
         record["text_truncated"] = len(text) > HARD_TEXT_LIMIT
 
         flags = [str(f).lower() for f in response.flags]
@@ -304,6 +310,10 @@ class OfficialBaseSpider(scrapy.Spider):
             and record.get("documentation_canonical_relation") == "equivalent_path"
         )):
             status, reason = "needs_review", "canonical_path_differs"
+        if identity["source_product_title_conflict"]:
+            # A first-party host may serve the wrong product/landing page.
+            # Retain the conflict rather than treating HTTP 200 as ownership.
+            status, reason = "needs_review", "source_product_title_conflict"
         record.update(status=status, error=reason)
         # Include diagnostics in Item-size compaction, not as hidden overage.
         record.update(derive_diagnostics(record))

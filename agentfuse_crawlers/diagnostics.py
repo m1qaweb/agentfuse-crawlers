@@ -101,6 +101,18 @@ def derive_diagnostics(record):
     if _canonical_path_differs(record):
         add("canonical_path_differs")
 
+    if record.get("source_product_identity_schema") == "2.0":
+        if record.get("source_product_title_conflict"):
+            add("source_product_title_conflict")
+        elif record.get("source_title_alias_evidence_status") in {
+            "body_only_not_owner_proof", "description_only_not_owner_proof"
+        }:
+            add("source_product_alias_not_in_title")
+        elif (record.get("source_expected_product_id")
+              and record.get("source_title_alias_evidence_status") ==
+                  "title_does_not_establish_product_owner"):
+            add("source_product_title_identity_not_established")
+
     warnings = record.get("freshness_warnings") or []
     for warning in warnings:
         add(warning)
@@ -122,7 +134,7 @@ def derive_diagnostics(record):
     if record.get("documentation_item_budget_truncated"):
         add("documentation_item_budget_truncated")
 
-    product_review = False
+    product_review = bool(record.get("source_product_title_conflict"))
     if category == "documentation":
         scope = record.get("documentation_scope_status")
         if scope in ("scope_not_established", "insufficient_content", "index_only"):
@@ -209,7 +221,9 @@ def derive_diagnostics(record):
 
     if (status in {"rejected_redirect", "redirect_needs_review"}
             or _path_redirected(record) or _canonical_path_differs(record)
-            or product_review):
+            or product_review
+            or (record.get("source_expected_product_id")
+                and record.get("source_product_ownership_verified") is False)):
         identity = "review_required"
     elif fetch == "http_response_observed" and record.get("content_sha256"):
         identity = "page_observed_unverified"
