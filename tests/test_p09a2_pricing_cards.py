@@ -46,7 +46,7 @@ def test_explicit_cards_without_tables_generate_two_unapproved_typed_prices():
     assert ev["pricing_observation_count"] == 2
     assert ev["pricing_inventory_complete"] is True
     assert ev["pricing_coverage_status"] == "recognized_pricing_cards_scanned"
-    assert ev["pricing_parser_revision"] == "evidence_quote_v4_model_identity"
+    assert ev["pricing_parser_revision"] == "evidence_quote_v5_inline_labeled_components"
     obs = ev["pricing_observations"]
     assert {o["price_dimension"] for o in obs} == {"input", "output"}
     assert {o["normalized_amount_decimal"] for o in obs} == {"1.20", "4.10"}

@@ -15,6 +15,9 @@ from agentfuse_crawlers.rate_units import (
 from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
 from agentfuse_crawlers.pricing_cards import extract_card_evidence
 from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
+from agentfuse_crawlers.pricing_adapters import (
+    family_for_source, explicit_inline_components, REVISION as ADAPTER_REVISION,
+)
 
 MAX_SCAN_TABLES = 700
 MAX_SELECTED_TABLES = 64
@@ -259,6 +262,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
     # P09A: strictly bounded declarations with original text provenance.
     # Never assume publisher-wide USD, a global region, or a default tier.
     table_scope = table_declarations(main)
+    family_profile = family_for_source(source_id, source_url)
     scan_truncated = len(all_tables) > MAX_SCAN_TABLES
     relevant = []
     for index, table in enumerate(all_tables[:MAX_SCAN_TABLES]):
@@ -285,6 +289,9 @@ def extract_pricing_evidence(main, source_url, source_id, *,
     rows_incomplete = False
     potential_rate_cells = 0
     ambiguous_table_cells = 0
+    inline_cells_split = 0
+    inline_component_extras = 0
+    inline_unlabeled_multi_amount_cells = 0
     model_label_recovered_rows = 0
     model_identity_review_rows = 0
 
@@ -346,79 +353,105 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     continue
                 potential_rate_cells += 1
                 raw = cell["text"]
-                candidate = analyze_cell(
-                    raw, model_label=model, column_header=header,
-                    row_header=row_label,
+                caption = " ".join((
+                    info["caption"], row_unit,
+                    scoped_text(table_scope.get(id(table), ())),
+                ))
+                explicit_parts = explicit_inline_components(
+                    raw, model_label=model, row_header=row_label,
+                    table_caption=caption,
                     table_context=info["heading_context"],
-                    table_caption=" ".join((
-                        info["caption"], row_unit,
-                        scoped_text(table_scope.get(id(table), ())),
-                    )),
                     footnotes=info["footnotes"],
+                    family_profile=family_profile,
                 )
-                if model_cell.get("price_scope_qualifier_requires_review"):
-                    candidate["normalized_amount_decimal"] = None
-                    candidate["review_quote_amount_decimal"] = None
-                    candidate["review_quote_candidate"] = False
-                    candidate["comparable_candidate"] = False
-                    candidate["normalization_blockers"] = list(dict.fromkeys([
-                        *candidate["normalization_blockers"],
-                        "model_row_price_scope_qualifier_unresolved",
-                    ]))
-                if candidate["price_state"] == "unparsed":
-                    ambiguous_table_cells += 1
-                descriptor = "|".join(
-                    str(candidate.get(k) or "") for k in (
-                        "model_or_service", "price_dimension", "billing_unit",
-                        "currency", "region", "tier_or_plan",
+                if explicit_parts:
+                    inline_cells_split += 1
+                    inline_component_extras += len(explicit_parts) - 1
+                    candidates = explicit_parts
+                else:
+                    if len(PRICE_MARKER.findall(raw)) > 1:
+                        inline_unlabeled_multi_amount_cells += 1
+                    candidates = [analyze_cell(
+                        raw, model_label=model, column_header=header,
+                        row_header=row_label,
+                        table_context=info["heading_context"],
+                        table_caption=caption, footnotes=info["footnotes"],
+                    )]
+                for part_index, candidate in enumerate(candidates):
+                    if model_cell.get("price_scope_qualifier_requires_review"):
+                        candidate["normalized_amount_decimal"] = None
+                        candidate["review_quote_amount_decimal"] = None
+                        candidate["review_quote_candidate"] = False
+                        candidate["comparable_candidate"] = False
+                        candidate["normalization_blockers"] = list(dict.fromkeys([
+                            *candidate["normalization_blockers"],
+                            "model_row_price_scope_qualifier_unresolved",
+                        ]))
+                    if candidate["price_state"] == "unparsed":
+                        ambiguous_table_cells += 1
+                    descriptor = "|".join(
+                        str(candidate.get(k) or "") for k in (
+                            "model_or_service", "price_dimension", "billing_unit",
+                            "currency", "region", "tier_or_plan",
+                        )
                     )
-                )
-                # An unknown dimension or model cannot be a stable price
-                # identity; still retain a locator for human review.
-                structured_key = (
-                    source_id + "|" + descriptor
-                    if candidate["comparable_candidate"]
-                    else source_id + "|" + info["table_id"] + f"|{row_num}|{col}"
-                )
-                candidate["observation_id"] = hashlib.sha256(
-                    structured_key.encode("utf-8")
-                ).hexdigest()[:32]
-                candidate["source_id"] = source_id
-                candidate["source_url"] = source_url
-                candidate["scope_declarations"] = list(
-                    table_scope.get(id(table), ())
-                )
-                candidate["scope_provenance_verified"] = False
-                candidate["evidence_kind"] = "structured_table"
-                candidate["model_label_provenance"] = (
-                    "explicit_dom_primary_label" if model_cell.get("label")
-                    else "row_first_cell" if model and first
-                        and not MODEL_ROW.search(first)
-                    else "scoped_heading" if model else "unresolved"
-                )
-                candidate["model_label_hygiene_status"] = model_status
-                candidate["model_label_requires_review"] = model_risk
-                candidate["model_row_price_scope_qualifier_requires_review"] = bool(
-                    model_cell.get("price_scope_qualifier_requires_review")
-                )
-                candidate["model_label_description_present"] = bool(
-                    model_cell.get("description_present")
-                )
-                candidate["table_id"] = info["table_id"]
-                candidate["row_index"] = row_num
-                candidate["column_index"] = col
-                candidate["row_label"] = clean(row_label, 200)
-                candidate["column_label"] = header
-                candidate["table_caption"] = info["caption"]
-                candidate["heading_context"] = info["heading_context"]
-                candidate["footnotes"] = info["footnotes"]
-                candidate["source_evidence_sha256"] = hashlib.sha256(
-                    (raw + "|" + header + "|" + row_label + "|" + label).encode("utf-8")
-                ).hexdigest()
-                candidate["review_status"] = "unverified"
-                candidate["approved_for_advisor"] = False
-                if len(observations) < MAX_OBSERVATIONS:
-                    observations.append(candidate)
+                    # Explicit subrates share one DOM cell but never share an
+                    # observation ID. Rate keys stay non-comparable until gold.
+                    structured_key = (
+                        source_id + "|" + descriptor
+                        if candidate["comparable_candidate"]
+                        else source_id + "|" + info["table_id"] +
+                             f"|{row_num}|{col}|{part_index}"
+                             if explicit_parts
+                        else source_id + "|" + info["table_id"] +
+                             f"|{row_num}|{col}"
+                    )
+                    candidate["observation_id"] = hashlib.sha256(
+                        structured_key.encode("utf-8")
+                    ).hexdigest()[:32]
+                    candidate["source_id"] = source_id
+                    candidate["source_url"] = source_url
+                    candidate["scope_declarations"] = list(
+                        table_scope.get(id(table), ())
+                    )
+                    candidate["scope_provenance_verified"] = False
+                    candidate["evidence_kind"] = (
+                        "structured_table_labeled_inline_component"
+                        if explicit_parts else "structured_table"
+                    )
+                    candidate["model_label_provenance"] = (
+                        "explicit_dom_primary_label" if model_cell.get("label")
+                        else "row_first_cell" if model and first
+                            and not MODEL_ROW.search(first)
+                        else "scoped_heading" if model else "unresolved"
+                    )
+                    candidate["model_label_hygiene_status"] = model_status
+                    candidate["model_label_requires_review"] = model_risk
+                    candidate["model_row_price_scope_qualifier_requires_review"] = bool(
+                        model_cell.get("price_scope_qualifier_requires_review")
+                    )
+                    candidate["model_label_description_present"] = bool(
+                        model_cell.get("description_present")
+                    )
+                    candidate["table_id"] = info["table_id"]
+                    candidate["row_index"] = row_num
+                    candidate["column_index"] = col
+                    candidate["row_label"] = clean(row_label, 200)
+                    candidate["column_label"] = (
+                        candidate["inline_component_label"] if explicit_parts
+                        else header
+                    )
+                    candidate["table_caption"] = info["caption"]
+                    candidate["heading_context"] = info["heading_context"]
+                    candidate["footnotes"] = info["footnotes"]
+                    candidate["source_evidence_sha256"] = hashlib.sha256(
+                        (raw + "|" + header + "|" + row_label + "|" + label +
+                         "|" + str(part_index)).encode("utf-8")
+                    ).hexdigest()
+                    candidate["review_status"] = "unverified"
+                    candidate["approved_for_advisor"] = False
+                    if len(observations) < MAX_OBSERVATIONS:
+                        observations.append(candidate)
 
     # Tables retain priority. A repeated equivalent rate in a styled card is
     # one vendor observation, not two independent price changes. Conflicting
@@ -442,7 +475,8 @@ def extract_pricing_evidence(main, source_url, source_id, *,
             prior[card["observation_id"]] = card
 
     total_detected = (
-        potential_rate_cells + card_evidence["card_entries_examined"] - card_duplicates
+        potential_rate_cells + inline_component_extras +
+        card_evidence["card_entries_examined"] - card_duplicates
     )
     obs_overflow = total_detected > MAX_OBSERVATIONS
     card_incomplete = card_evidence["card_scan_truncated"]
@@ -482,7 +516,14 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "evidence_quote_v4_model_identity",
+        "pricing_parser_revision": "evidence_quote_v5_inline_labeled_components",
+        "pricing_inline_adapter_revision": ADAPTER_REVISION,
+        "pricing_inline_adapter_family": (
+            family_profile["page_family_candidate"] if family_profile else None
+        ),
+        "pricing_inline_adapter_owner_review_status": (
+            family_profile["family_review_status"] if family_profile else None
+        ),
         "pricing_table_window_start": table_offset,
         "pricing_table_window_limit": table_limit,
         "pricing_table_window_end": table_offset + len(selected),
@@ -517,6 +558,10 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         "pricing_coverage_status": status,
         "pricing_product_scope_unresolved": scope_unresolved,
         "pricing_price_cells_examined": potential_rate_cells,
+        "pricing_inline_rate_cells_split": inline_cells_split,
+        "pricing_inline_component_extra_observations": inline_component_extras,
+        "pricing_inline_multi_amount_cells_unresolved":
+            inline_unlabeled_multi_amount_cells,
         "pricing_rows_examined": rows_examined,
         "pricing_observation_count": len(observations),
         "pricing_comparable_candidate_count": len(comparable),

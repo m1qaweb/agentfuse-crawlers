@@ -13,7 +13,7 @@ from pathlib import Path
 
 from agentfuse_crawlers.sources import load_sources
 
-REVISION = "evidence_quote_v4_model_identity"
+REVISION = "evidence_quote_v5_inline_labeled_components"
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SAFE_NAME = re.compile(r"^[a-z0-9_]{1,90}$")
 IDENTITY_FIELDS = (
