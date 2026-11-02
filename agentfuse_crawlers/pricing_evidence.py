@@ -16,7 +16,9 @@ from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
 from agentfuse_crawlers.pricing_cards import extract_card_evidence
 from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
 from agentfuse_crawlers.pricing_adapters import (
-    family_for_source, explicit_inline_components, REVISION as ADAPTER_REVISION,
+    family_for_source, explicit_inline_components,
+    fireworks_scoped_legend, fireworks_triplet_components,
+    REVISION as ADAPTER_REVISION,
 )
 
 MAX_SCAN_TABLES = 700
@@ -296,6 +298,9 @@ def extract_pricing_evidence(main, source_url, source_id, *,
     model_identity_review_rows = 0
 
     for table, info in selected:
+        fireworks_legend = fireworks_scoped_legend(
+            main, table, info["heading_context"], family_profile,
+        )
         matrix, clipped, rows = _grid(table)
         header_rows = _header_count(table, matrix, rows)
         rows_incomplete = rows_incomplete or clipped
@@ -364,6 +369,16 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     footnotes=info["footnotes"],
                     family_profile=family_profile,
                 )
+                if not explicit_parts and fireworks_legend:
+                    explicit_parts = fireworks_triplet_components(
+                        raw, column_header=header, model_label=model,
+                        row_header=row_label,
+                        table_context=info["heading_context"],
+                        table_caption=caption,
+                        footnotes=info["footnotes"],
+                        legend=fireworks_legend,
+                        family_profile=family_profile,
+                    )
                 if explicit_parts:
                     inline_cells_split += 1
                     inline_component_extras += len(explicit_parts) - 1
@@ -563,6 +578,12 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         "pricing_product_scope_unresolved": scope_unresolved,
         "pricing_price_cells_examined": potential_rate_cells,
         "pricing_inline_rate_cells_split": inline_cells_split,
+        "pricing_legend_backed_triplet_cells_split": sum(
+            x.get("inline_component_parent_identity_review_status") ==
+                "unverified_fireworks_legend_triplet"
+            and x.get("inline_component_index") == 0
+            for x in observations
+        ),
         "pricing_inline_component_extra_observations": inline_component_extras,
         "pricing_inline_multi_amount_cells_unresolved":
             inline_unlabeled_multi_amount_cells,
