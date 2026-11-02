@@ -215,7 +215,7 @@ def test_blind_packet_hides_predicted_values_but_keeps_evidence_locator(case_set
     assert "support_state" not in repr_tasks
     assert len(bundle["tasks"]) == 3
     assert len({x["case_id"] for x in bundle["tasks"]}) == 3
-    assert a["labels"] == [] if False else True  # templates are empty until filled
+    assert all("expected" not in task for task in bundle["tasks"])
     template = reviewer_template(bundle, "a_second_reviewer")
     assert template["labels"] == []
     assert bundle["advisor_fact_approvals"] == 0
@@ -223,10 +223,25 @@ def test_blind_packet_hides_predicted_values_but_keeps_evidence_locator(case_set
 
 
 def test_blind_source_split_is_deterministic_and_provider_grouped(case_setup):
-    packet, bundle, *_ = case_setup
+    packet = deepcopy(case_setup[0])
+    # Introduce independently plausible second-provider SAMPLE identity.
+    # This checks split assignment only; no accuracy claim is evaluated.
+    other = SOURCES["anthropic_api_pricing"]
+    sample = deepcopy(packet["samples"]["pricing"][0])
+    sample.update({
+        "source_id": other["id"], "source_url": other["url"],
+        "evidence_url": other["url"], "job_id": "883514/3/999",
+        "observation_id": "2" * 32,
+    })
+    packet["samples"]["pricing"].append(sample)
+    bundle = prepare_blind_bundle(packet, split_key=KEY)
     again = prepare_blind_bundle(packet, split_key=KEY)
     assert bundle == again
     assert {t["partition"] for t in bundle["tasks"]} == {"train", "holdout"}
+    group = {}
+    for task in bundle["tasks"]:
+        group.setdefault(task["provider"], set()).add(task["partition"])
+    assert all(len(splits) == 1 for splits in group.values())
     changed = prepare_blind_bundle(
         packet, split_key="a completely different private seed 2026"
     )
