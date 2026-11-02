@@ -54,7 +54,8 @@ def _validated_aliases(value, label):
             or not all(isinstance(s, str) for s in value)):
         raise ValueError("Invalid provider identity " + label)
     cleaned = [_text(v, 100) for v in value]
-    if (any(len(a) < 4 or a in GENERIC_ALIASES for a in cleaned)
+    if (any((len(a) < 4 and a not in {"xai"})
+            or a in GENERIC_ALIASES for a in cleaned)
             or len(cleaned) != len(set(cleaned))):
         raise ValueError("Generic, duplicate, or short identity title alias")
     return tuple(value)
