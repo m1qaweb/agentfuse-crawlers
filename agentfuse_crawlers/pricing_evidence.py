@@ -14,6 +14,7 @@ from agentfuse_crawlers.rate_units import (
 )
 from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
 from agentfuse_crawlers.pricing_cards import extract_card_evidence
+from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
 
 MAX_SCAN_TABLES = 700
 MAX_SELECTED_TABLES = 64
@@ -111,7 +112,8 @@ def _grid(table):
                 truncated = True
                 break
             value = {
-                "text": clean(cell.text_content(), 750),
+                "text": visible_cell_text(cell),
+                "model_cell": inspect_model_cell(cell) if position == 0 else None,
                 "header": _tag(cell) == "th",
                 "origin_row": r,
                 "origin_col": position,
@@ -283,6 +285,8 @@ def extract_pricing_evidence(main, source_url, source_id, *,
     rows_incomplete = False
     potential_rate_cells = 0
     ambiguous_table_cells = 0
+    model_label_recovered_rows = 0
+    model_identity_review_rows = 0
 
     for table, info in selected:
         matrix, clipped, rows = _grid(table)
@@ -308,7 +312,20 @@ def extract_pricing_evidence(main, source_url, source_id, *,
             rows_examined += 1
             first = cells[0]["text"]
             row_label = first
-            model = _model_label(first, info["heading_context"], info["caption"])
+            model_cell = cells[0].get("model_cell") or {}
+            model_status = model_cell.get("status", "unresolved_plain_row_cell")
+            model_risk = model_cell.get("requires_review") is True
+            if model_risk:
+                # An ambiguous model owner cannot become a stable rate key.
+                # A section heading must not silently rescue a bad row label.
+                model = ""
+                model_identity_review_rows += 1
+            elif model_cell.get("label"):
+                model = model_cell["label"]
+                if model_status == "explicit_leading_dom_label_with_description":
+                    model_label_recovered_rows += 1
+            else:
+                model = _model_label(first, info["heading_context"], info["caption"])
             # Other columns may explicitly identify units for THIS row.
             row_unit = " ".join(
                 cell["text"] for col, cell in enumerate(cells[1:], start=1)
@@ -365,8 +382,15 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                 candidate["scope_provenance_verified"] = False
                 candidate["evidence_kind"] = "structured_table"
                 candidate["model_label_provenance"] = (
-                    "row_first_cell" if model and first and not MODEL_ROW.search(first)
+                    "explicit_dom_primary_label" if model_cell.get("label")
+                    else "row_first_cell" if model and first
+                        and not MODEL_ROW.search(first)
                     else "scoped_heading" if model else "unresolved"
+                )
+                candidate["model_label_hygiene_status"] = model_status
+                candidate["model_label_requires_review"] = model_risk
+                candidate["model_label_description_present"] = bool(
+                    model_cell.get("description_present")
                 )
                 candidate["table_id"] = info["table_id"]
                 candidate["row_index"] = row_num
@@ -446,7 +470,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "evidence_quote_v3_windows",
+        "pricing_parser_revision": "evidence_quote_v4_model_identity",
         "pricing_table_window_start": table_offset,
         "pricing_table_window_limit": table_limit,
         "pricing_table_window_end": table_offset + len(selected),
@@ -498,6 +522,8 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         ),
         "pricing_non_numeric_states": states,
         "pricing_unparsed_candidate_count": ambiguous_table_cells,
+        "pricing_model_label_recovered_rows": model_label_recovered_rows,
+        "pricing_model_identity_review_rows": model_identity_review_rows,
         "pricing_scoped_table_count": sum(
             bool(table_scope.get(id(table))) for table, _ in selected
         ),

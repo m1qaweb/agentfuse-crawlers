@@ -41,7 +41,7 @@ def test_anthropic_like_explicit_usd_retains_review_quote_not_comparable_rate():
     assert x["comparable_candidate"] is False
     assert page["pricing_review_quote_candidate_count"] == 1
     assert page["pricing_unscoped_review_quote_count"] == 1
-    assert page["pricing_parser_revision"] == "evidence_quote_v3_windows"
+    assert page["pricing_parser_revision"] == "evidence_quote_v4_model_identity"
     assert page["approved_for_advisor"] is False
 
 

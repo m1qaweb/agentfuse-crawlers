@@ -22,7 +22,10 @@ DESCRIPTIVE_JOIN = re.compile(
     r"(?:[a-z0-9])(?:For\s+(?:demanding|long|developers?|reasoning|"
     r"complex|better|production|enterprise)|Long\s+context\b|"
     r"The\s+best\s+combination\b|Built\s+for\b|"
-    r"Designed\s+for\b)",
+    r"Designed\s+for\b)"
+    r"|\b(?:For\s+(?:demanding|long|developers?|enterprise)|"
+    r"Long\s+context\s+[≥><]|The\s+best\s+combination|"
+    r"Built\s+for\s+(?:developers?|teams?))\b",
     re.I,
 )
 GENERIC_LABEL = re.compile(
@@ -125,7 +128,8 @@ def inspect_model_cell(cell):
         )
     ]
     different = {x.casefold() for x in matching}
-    if len(different) > 1:
+    prominent = {x.casefold() for x in candidates if _model_like(x)}
+    if len(different) > 1 or len(prominent) > 1:
         return {
             "label": None,
             "status": "ambiguous_multiple_prominent_models",
