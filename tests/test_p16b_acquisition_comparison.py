@@ -39,7 +39,18 @@ def _rendered_docs(title="Kiro"):
         "permissions, connector settings and operational limitations. "
         "The synthetic example is for the regression tests only and does "
         "not document any genuine product behavior or paid feature tier.</p>"
-        "</main></body></html>"
+        + (
+            "<p>Additional synthetic reference text describes distinct "
+            "configuration prerequisites, operating limitations, local "
+            "settings, review procedures, failure detection, compatibility "
+            "constraints, deployment requirements, permission boundaries, "
+            "implementation details, and developer workflow considerations. "
+            "This paragraph is deliberately repeated to model a fully "
+            "rendered documentation section instead of a tiny JavaScript "
+            "loading placeholder; none of the statements constitute "
+            "verified Kiro capabilities or publisher facts.</p>" * 5
+        )
+        + "</main></body></html>"
     )
 
 
@@ -234,7 +245,7 @@ def test_three_real_extractors_consume_paired_private_snapshots_without_network(
     assert len(s["local_parser_package_sha256_not_deployed_revision"]) == 64
     observed = {x["source_id"]: x for x in result["pairs"]}
     docs = observed["kiro_docs"]
-    assert docs["alternate"]["word_count"] > docs["static"]["word_count"]
+    assert docs["alternate"]["word_count"] > docs["static"]["word_count"] + 150
     assert docs["alternate"]["page_family"] != "unsupported_category"
     assert docs["observed_comparison"] in {
         "more_scoped_docs_candidate", "more_visible_text_without_scope_proof"
