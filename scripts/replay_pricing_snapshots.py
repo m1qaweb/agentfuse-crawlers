@@ -30,6 +30,8 @@ from scripts.compare_acquisition_snapshots import _snapshot_bytes
 VERSION = "1.0"
 KIND = "original_pricing_html_replay_not_publisher_gold"
 MAX_SNAPSHOTS = 64
+MAX_REVIEW_PER_SOURCE = 20
+MAX_BLIND_REVIEW_CASES = 1000
 MAX_INPUT_BYTES = 180_000
 SHA = re.compile(r"^[0-9a-f]{64}$")
 ID = re.compile(r"^[0-9a-f]{24}$")
@@ -81,7 +83,7 @@ def _cell_key(obs):
     for key in ("source_evidence_sha256", "observation_id"):
         candidate = obs.get(key)
         if isinstance(candidate, str) and len(candidate) >= 24:
-            return "other|" + kind.__str__() + "|" + candidate[:64]
+            return "other|" + str(kind) + "|" + candidate[:64]
     raise ValueError("Pricing evidence has no replayable physical-cell identity")
 
 
@@ -380,16 +382,32 @@ def compare_frozen_replays(before, after):
 
 
 def prepare_blind_cell_tasks(report):
-    """Review physical HTML cells *without showing any crawler rate guess*."""
+    """Balanced physical-cell review tasks; no crawler-derived prices shown.
+
+    Bound each provider before the global cap, and preserve the omitted
+    count so a 300-row table cannot create a fake representative dataset.
+    """
     sources = _check_report(report)
-    tasks = []
+    by_source = {}
+    omitted = 0
     for sid in sorted(sources):
         row = sources[sid]
         if row["source_product_title_conflict"]:
-            # Do not let an apparently good rate on the WRONG product
-            # enter the blind publisher-gold reviewer queue.
             continue
-        for cell_key in sorted({o["cell_key"] for o in row["observations"]}):
+        cells = sorted({o["cell_key"] for o in row["observations"]})
+        omitted += max(0, len(cells) - MAX_REVIEW_PER_SOURCE)
+        by_source[sid] = cells[:MAX_REVIEW_PER_SOURCE]
+    tasks = []
+    for depth in range(MAX_REVIEW_PER_SOURCE):
+        for sid in sorted(by_source):
+            cells = by_source[sid]
+            if depth >= len(cells):
+                continue
+            if len(tasks) >= MAX_BLIND_REVIEW_CASES:
+                omitted += 1
+                continue
+            row = sources[sid]
+            cell_key = cells[depth]
             tasks.append({
                 "case_id": _case_id(sid, row["snapshot_sha256"], cell_key),
                 "source_id": sid,
@@ -405,6 +423,8 @@ def prepare_blind_cell_tasks(report):
         "replay_sha256": report["replay_sha256"],
         "capture_manifest_sha256": report["capture_manifest_sha256"],
         "tasks": tasks,
+        "sampling": "source_round_robin_max_20_cells_per_source",
+        "omitted_by_bounded_sampling": omitted,
         "reviewers_needed": 2,
         "approved_for_advisor": False,
     }

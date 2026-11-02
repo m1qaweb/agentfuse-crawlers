@@ -189,7 +189,7 @@ def _validate_reviewer(reviewer, tasks, snapshot_manifest, snapshot_root, cache)
         ):
             raise ValueError("Gold quote must identify a reviewed model AND its amount")
         labels[case_id] = (
-            resolution, tuple(sorted(typed)) if typed is not None else None,
+            resolution, tuple(sorted(typed, key=repr)) if typed is not None else None,
         )
     return labels
 
@@ -204,7 +204,7 @@ def _cells_for_source(report, sid):
 def score_independent_pricing_gold(before, after, snapshot_manifest,
                                    snapshot_root, reviewer_a, reviewer_b):
     """Report exact typed extraction on dual-agreed ORIGINAL HTML cells only."""
-    raw_delta = compare_frozen_replays(before, after)
+    compare_frozen_replays(before, after)
     validate_snapshot_manifest(snapshot_manifest)
     if _digest_json(snapshot_manifest) != after["capture_manifest_sha256"]:
         raise ValueError("Gold snapshots differ from frozen before/after publisher bytes")
