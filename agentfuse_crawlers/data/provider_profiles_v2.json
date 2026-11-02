@@ -1,0 +1,485 @@
+{
+  "schema_version": "2.0",
+  "revision": "p16a_candidate_product_identity_v1",
+  "note": "Static source-to-expected-product mapping and unreviewed title/branding candidates. These are NOT publisher-verified facts or adapter authorization. Never infer verified ownership from a source ID, body text, URL host, title alone, or a marketing link. No source URLs or policy permissions are altered.",
+  "review_status": "all_candidates_pending_independent_official_review",
+  "approved_for_advisor": false,
+  "automatic_provider_specific_adapter_selection": false,
+  "products": [
+    {
+      "provider_id": "openai",
+      "product_id": "openai_api",
+      "expected_product_kind": "model_api",
+      "expected_display_name": "OpenAI API",
+      "title_aliases_candidate_unreviewed": [
+        "OpenAI API",
+        "API Platform",
+        "OpenAI Platform"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "ChatGPT",
+        "Codex"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "openai_api_docs",
+          "category": "documentation",
+          "official_source_url": "https://developers.openai.com/api/docs",
+          "manifest_provider_label": "OpenAI"
+        },
+        {
+          "source_id": "openai_api_pricing",
+          "category": "pricing",
+          "official_source_url": "https://developers.openai.com/api/docs/pricing",
+          "manifest_provider_label": "OpenAI"
+        },
+        {
+          "source_id": "openai_api_changelog",
+          "category": "changelog",
+          "official_source_url": "https://developers.openai.com/api/docs/changelog",
+          "manifest_provider_label": "OpenAI"
+        }
+      ]
+    },
+    {
+      "provider_id": "anthropic",
+      "product_id": "anthropic_api",
+      "expected_product_kind": "model_api",
+      "expected_display_name": "Anthropic Claude API",
+      "title_aliases_candidate_unreviewed": [
+        "Claude Platform",
+        "Claude API",
+        "Anthropic API"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Claude Code",
+        "Claude Desktop"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "anthropic_api_docs",
+          "category": "documentation",
+          "official_source_url": "https://platform.claude.com/docs/en/api/overview",
+          "manifest_provider_label": "Anthropic"
+        },
+        {
+          "source_id": "anthropic_api_pricing",
+          "category": "pricing",
+          "official_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "manifest_provider_label": "Anthropic"
+        },
+        {
+          "source_id": "anthropic_api_changelog",
+          "category": "changelog",
+          "official_source_url": "https://platform.claude.com/docs/en/release-notes/overview",
+          "manifest_provider_label": "Anthropic"
+        }
+      ]
+    },
+    {
+      "provider_id": "google",
+      "product_id": "gemini_api",
+      "expected_product_kind": "model_api",
+      "expected_display_name": "Gemini API",
+      "title_aliases_candidate_unreviewed": [
+        "Gemini API",
+        "Gemini Developer API"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Gemini CLI",
+        "Google Antigravity"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "gemini_api_docs",
+          "category": "documentation",
+          "official_source_url": "https://ai.google.dev/gemini-api/docs",
+          "manifest_provider_label": "Google Gemini"
+        },
+        {
+          "source_id": "gemini_api_pricing",
+          "category": "pricing",
+          "official_source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+          "manifest_provider_label": "Google Gemini"
+        },
+        {
+          "source_id": "gemini_api_changelog",
+          "category": "changelog",
+          "official_source_url": "https://ai.google.dev/gemini-api/docs/changelog",
+          "manifest_provider_label": "Google Gemini"
+        }
+      ]
+    },
+    {
+      "provider_id": "anthropic",
+      "product_id": "claude_code",
+      "expected_product_kind": "coding_agent",
+      "expected_display_name": "Claude Code",
+      "title_aliases_candidate_unreviewed": [
+        "Claude Code"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Claude Platform",
+        "Claude API",
+        "Anthropic API"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "claude_code_docs",
+          "category": "documentation",
+          "official_source_url": "https://code.claude.com/docs/en/overview",
+          "manifest_provider_label": "Claude Code"
+        },
+        {
+          "source_id": "claude_code_pricing",
+          "category": "pricing",
+          "official_source_url": "https://claude.com/pricing",
+          "manifest_provider_label": "Claude Code"
+        },
+        {
+          "source_id": "claude_code_changelog",
+          "category": "changelog",
+          "official_source_url": "https://code.claude.com/docs/en/changelog",
+          "manifest_provider_label": "Claude Code"
+        }
+      ]
+    },
+    {
+      "provider_id": "google",
+      "product_id": "gemini_cli",
+      "expected_product_kind": "coding_agent",
+      "expected_display_name": "Gemini CLI",
+      "title_aliases_candidate_unreviewed": [
+        "Gemini CLI"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Gemini Developer API",
+        "Gemini API",
+        "Google Antigravity"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "gemini_cli_docs",
+          "category": "documentation",
+          "official_source_url": "https://geminicli.com/docs/",
+          "manifest_provider_label": "Gemini CLI"
+        },
+        {
+          "source_id": "gemini_cli_pricing",
+          "category": "pricing",
+          "official_source_url": "https://geminicli.com/docs/resources/quota-and-pricing/",
+          "manifest_provider_label": "Gemini CLI"
+        },
+        {
+          "source_id": "gemini_cli_changelog",
+          "category": "changelog",
+          "official_source_url": "https://geminicli.com/docs/changelogs/",
+          "manifest_provider_label": "Gemini CLI"
+        }
+      ]
+    },
+    {
+      "provider_id": "cursor",
+      "product_id": "cursor",
+      "expected_product_kind": "coding_agent",
+      "expected_display_name": "Cursor",
+      "title_aliases_candidate_unreviewed": [
+        "Cursor"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "GitHub Copilot",
+        "Claude Code"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "cursor_docs",
+          "category": "documentation",
+          "official_source_url": "https://cursor.com/docs",
+          "manifest_provider_label": "Cursor"
+        },
+        {
+          "source_id": "cursor_pricing",
+          "category": "pricing",
+          "official_source_url": "https://cursor.com/pricing",
+          "manifest_provider_label": "Cursor"
+        },
+        {
+          "source_id": "cursor_changelog",
+          "category": "changelog",
+          "official_source_url": "https://cursor.com/changelog",
+          "manifest_provider_label": "Cursor"
+        }
+      ]
+    },
+    {
+      "provider_id": "aws",
+      "product_id": "kiro",
+      "expected_product_kind": "coding_agent",
+      "expected_display_name": "Kiro",
+      "title_aliases_candidate_unreviewed": [
+        "Kiro"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Amazon Bedrock",
+        "AWS Bedrock"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "kiro_docs",
+          "category": "documentation",
+          "official_source_url": "https://kiro.dev/docs/",
+          "manifest_provider_label": "Kiro"
+        },
+        {
+          "source_id": "kiro_pricing",
+          "category": "pricing",
+          "official_source_url": "https://kiro.dev/pricing/",
+          "manifest_provider_label": "Kiro"
+        },
+        {
+          "source_id": "kiro_changelog",
+          "category": "changelog",
+          "official_source_url": "https://kiro.dev/changelog/",
+          "manifest_provider_label": "Kiro"
+        }
+      ]
+    },
+    {
+      "provider_id": "aws",
+      "product_id": "aws_bedrock",
+      "expected_product_kind": "managed_inference",
+      "expected_display_name": "Amazon Bedrock",
+      "title_aliases_candidate_unreviewed": [
+        "Amazon Bedrock",
+        "AWS Bedrock"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Amazon SageMaker",
+        "Kiro"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "aws_bedrock_docs",
+          "category": "documentation",
+          "official_source_url": "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html",
+          "manifest_provider_label": "AWS Bedrock"
+        },
+        {
+          "source_id": "aws_bedrock_pricing",
+          "category": "pricing",
+          "official_source_url": "https://aws.amazon.com/bedrock/pricing/",
+          "manifest_provider_label": "AWS Bedrock"
+        },
+        {
+          "source_id": "aws_bedrock_changelog",
+          "category": "changelog",
+          "official_source_url": "https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-ug-doc-history.html",
+          "manifest_provider_label": "AWS Bedrock"
+        }
+      ]
+    },
+    {
+      "provider_id": "xai",
+      "product_id": "xai",
+      "expected_product_kind": "model_api",
+      "expected_display_name": "xAI API",
+      "title_aliases_candidate_unreviewed": [
+        "xAI",
+        "Grok API"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Grok social",
+        "Grok Imagine"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "xai_docs",
+          "category": "documentation",
+          "official_source_url": "https://docs.x.ai/overview",
+          "manifest_provider_label": "xAI"
+        },
+        {
+          "source_id": "xai_pricing",
+          "category": "pricing",
+          "official_source_url": "https://docs.x.ai/developers/pricing",
+          "manifest_provider_label": "xAI"
+        },
+        {
+          "source_id": "xai_changelog",
+          "category": "changelog",
+          "official_source_url": "https://docs.x.ai/developers/release-notes",
+          "manifest_provider_label": "xAI"
+        }
+      ]
+    },
+    {
+      "provider_id": "deepseek",
+      "product_id": "deepseek",
+      "expected_product_kind": "model_api",
+      "expected_display_name": "DeepSeek API",
+      "title_aliases_candidate_unreviewed": [
+        "DeepSeek API",
+        "DeepSeek"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "DeepSeek Chat"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "deepseek_docs",
+          "category": "documentation",
+          "official_source_url": "https://api-docs.deepseek.com/",
+          "manifest_provider_label": "DeepSeek"
+        },
+        {
+          "source_id": "deepseek_pricing",
+          "category": "pricing",
+          "official_source_url": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "manifest_provider_label": "DeepSeek"
+        },
+        {
+          "source_id": "deepseek_changelog",
+          "category": "changelog",
+          "official_source_url": "https://api-docs.deepseek.com/updates/",
+          "manifest_provider_label": "DeepSeek"
+        }
+      ]
+    },
+    {
+      "provider_id": "fireworks",
+      "product_id": "fireworks_ai",
+      "expected_product_kind": "managed_inference",
+      "expected_display_name": "Fireworks AI",
+      "title_aliases_candidate_unreviewed": [
+        "Fireworks AI"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Fireworks Studio"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "fireworks_ai_docs",
+          "category": "documentation",
+          "official_source_url": "https://docs.fireworks.ai/getting-started/introduction",
+          "manifest_provider_label": "Fireworks AI"
+        },
+        {
+          "source_id": "fireworks_ai_pricing",
+          "category": "pricing",
+          "official_source_url": "https://docs.fireworks.ai/serverless/pricing",
+          "manifest_provider_label": "Fireworks AI"
+        },
+        {
+          "source_id": "fireworks_ai_changelog",
+          "category": "changelog",
+          "official_source_url": "https://docs.fireworks.ai/updates/changelog",
+          "manifest_provider_label": "Fireworks AI"
+        }
+      ]
+    },
+    {
+      "provider_id": "github",
+      "product_id": "github_copilot",
+      "expected_product_kind": "coding_agent",
+      "expected_display_name": "GitHub Copilot",
+      "title_aliases_candidate_unreviewed": [
+        "GitHub Copilot"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "Microsoft 365 Copilot"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "github_copilot_docs",
+          "category": "documentation",
+          "official_source_url": "https://docs.github.com/en/copilot",
+          "manifest_provider_label": "GitHub Copilot"
+        },
+        {
+          "source_id": "github_copilot_pricing",
+          "category": "pricing",
+          "official_source_url": "https://docs.github.com/en/copilot/get-started/plans",
+          "manifest_provider_label": "GitHub Copilot"
+        },
+        {
+          "source_id": "github_copilot_changelog",
+          "category": "changelog",
+          "official_source_url": "https://github.blog/changelog/label/copilot/",
+          "manifest_provider_label": "GitHub Copilot"
+        }
+      ]
+    },
+    {
+      "provider_id": "cognition",
+      "product_id": "devin",
+      "expected_product_kind": "coding_agent",
+      "expected_display_name": "Devin",
+      "title_aliases_candidate_unreviewed": [
+        "Devin"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "DevIn Teams"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "devin_docs",
+          "category": "documentation",
+          "official_source_url": "https://docs.devin.ai/get-started/devin-intro",
+          "manifest_provider_label": "Devin"
+        },
+        {
+          "source_id": "devin_pricing",
+          "category": "pricing",
+          "official_source_url": "https://devin.ai/pricing",
+          "manifest_provider_label": "Devin"
+        },
+        {
+          "source_id": "devin_changelog",
+          "category": "changelog",
+          "official_source_url": "https://docs.devin.ai/release-notes/overview",
+          "manifest_provider_label": "Devin"
+        }
+      ]
+    },
+    {
+      "provider_id": "openrouter",
+      "product_id": "openrouter",
+      "expected_product_kind": "gateway",
+      "expected_display_name": "OpenRouter",
+      "title_aliases_candidate_unreviewed": [
+        "OpenRouter"
+      ],
+      "contradictory_title_aliases_candidate_unreviewed": [
+        "OpenAI API"
+      ],
+      "source_identity_review_status": "pending_original_publisher_review",
+      "source_ids": [
+        {
+          "source_id": "openrouter_docs",
+          "category": "documentation",
+          "official_source_url": "https://openrouter.ai/docs/quickstart",
+          "manifest_provider_label": "OpenRouter"
+        },
+        {
+          "source_id": "openrouter_pricing",
+          "category": "pricing",
+          "official_source_url": "https://openrouter.ai/pricing",
+          "manifest_provider_label": "OpenRouter"
+        }
+      ]
+    }
+  ]
+}
