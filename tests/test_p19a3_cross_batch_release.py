@@ -227,10 +227,8 @@ def test_real_source_manifest_pinned_and_cross_batch_micro_macro(tmp_path):
     assert result["all_selected_sources"][
         "macro_owner_recall_on_complete_providers_only"] == 1
     assert len(result["report_sha256"]) == 64
-    assert result["local_package_sha256"] == (
-        result["input_manifest_batches"][0]["replay_sha256"]
-        and result["local_package_sha256"]
-    )
+    assert len(result["local_package_sha256"]) == 64
+    assert result["local_package_sha256"] != result["input_manifest_batches"][0]["replay_sha256"]
     assert result["source_manifest_sha256"] == manifest_sha256()
     for field in (
         "publisher_truth_verified", "generalizable_release_accuracy_established",
@@ -309,7 +307,6 @@ def test_unsafe_source_paths_symlink_and_manifest_shape_rejected(tmp_path):
     data["batches"][0]["blind_packet"] = "batch_openai/linked_packet.json"
     with pytest.raises(ValueError, match="symlink"):
         aggregate_release_pilot(data, tmp_path, split_key=KEY)
-    data = two_batches_again_if_needed_not_called
 
 
 def test_missing_or_incomplete_manifest_never_yields_pilot_approval(tmp_path):
