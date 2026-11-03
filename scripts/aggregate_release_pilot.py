@@ -148,6 +148,38 @@ def _source_counts(value):
     return counts
 
 
+def _reject_implausible_future_gold(item):
+    """Do not score a future scheduled change as a release already published.
+
+    One-day calendar tolerance accounts for publishers in UTC+14; a
+    publisher-labelled date MORE THAN ONE DAY after the capture must be
+    treated as an unresolved scheduled event, not historical gold.
+    """
+    tasks = {
+        t["task_id"]: t for t in item["blind_packet"].get("tasks", [])
+        if isinstance(t, dict) and isinstance(t.get("task_id"), str)
+    }
+    for side in ("reviewer_a", "reviewer_b"):
+        for review in item[side].get("source_reviews", []):
+            task = tasks.get(review.get("task_id"))
+            if task is None:
+                raise ValueError("Reviewer task has no frozen source binding")
+            from scripts.replay_release_snapshots import _capture_time
+            captured = _capture_time(task["captured_at_utc"]).date()
+            for event in review.get("events", []):
+                if event.get("date_status") != "explicit_publication_day":
+                    continue
+                try:
+                    observed = date.fromisoformat(event["published_at"])
+                except (TypeError, ValueError, KeyError) as exc:
+                    raise ValueError("Malformed reviewer publication date") from exc
+                if (observed - captured).days > 1:
+                    raise ValueError(
+                        "Future scheduled publication date cannot be scored "
+                        "as already-published release gold"
+                    )
+
+
 def _split_report(items):
     """Report source-weighted micro and equally weighted provisional providers.
 
@@ -256,6 +288,7 @@ def aggregate_release_pilot(cohort, input_root, *, split_key):
     split_commitment = None
     for item in batches:
         name = item["batch_id"]
+        _reject_implausible_future_gold(item)
         report = score_census(
             item["replay"], item["capture_manifest"], item["snapshot_root"],
             item["blind_packet"], item["reviewer_a"], item["reviewer_b"],
