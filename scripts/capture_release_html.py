@@ -52,9 +52,28 @@ def capture_plan(source_ids):
 
 
 def capture_changelog_html(source_ids, out_dir, *, policy_review_note,
-                           opener=None, sleep_fn=None, clock=None):
+                           opener=None, sleep_fn=None, clock=None,
+                           source_policy_preflight=None):
     """Capture one *explicit* authorized research batch, or fail atomically."""
     plan = capture_plan(source_ids)
+    # Real network capture must be preceded by exact per-source policy review.
+    # An injected test opener preserves P19A1's fully synthetic regressions.
+    if opener is None and source_policy_preflight is None:
+        raise ValueError("Live publisher capture requires source-specific policy preflight")
+    if source_policy_preflight is not None:
+        waves = source_policy_preflight.get("batches") if isinstance(
+            source_policy_preflight, dict
+        ) else None
+        if (source_policy_preflight.get("kind") !=
+                "p19a5_offline_policy_preflight_not_permission"
+                or source_policy_preflight.get("approved_for_advisor") is not False
+                or not isinstance(waves, list)
+                or not any(
+                    wave.get("planned_source_ids") == list(source_ids)
+                    and wave.get("all_batch_sources_operator_attested_eligible") is True
+                    for wave in waves if isinstance(wave, dict)
+                )):
+            raise ValueError("No matching source-by-source operator policy preflight")
     if (not isinstance(policy_review_note, str)
             or not 30 <= len(policy_review_note.strip()) <= MAX_POLICY_NOTE):
         raise ValueError("Manual publisher policy note must be 30-500 chars")
@@ -156,6 +175,13 @@ def capture_changelog_html(source_ids, out_dir, *, policy_review_note,
             "publisher_policy_review_operator_attested": True,
             "publisher_policy_independently_verified": False,
             "policy_review_note": policy_review_note.strip(),
+            "source_specific_policy_review_receipt_sha256": (
+                source_policy_preflight["receipt_sha256"]
+                if source_policy_preflight is not None else None
+            ),
+            "source_specific_policy_review_completed": (
+                source_policy_preflight is not None
+            ),
             "robots_checks": len(robots),
             "network_requests_performed": len(robots) + len(captures),
             "receipts": receipts,
@@ -190,6 +216,10 @@ def main():
                    help="Operator independently checked publisher policy and terms")
     p.add_argument("--policy-review-note", default="",
                    help="Private 30-500 character publisher access/retention note")
+    p.add_argument("--pilot-plan", type=Path,
+                   help="Frozen P19A4 plan required for every real manual capture")
+    p.add_argument("--policy-ledger", type=Path,
+                   help="Filled P19A5 per-publisher policy reviews, private")
     p.add_argument("--out-dir", type=Path, default=Path(
         "output/private/p19a1-changelog-html"
     ))
@@ -197,14 +227,27 @@ def main():
     ids = [x.strip() for x in args.source_ids.split(",")]
     plan = capture_plan(ids)
     if not args.capture:
-        if args.policy_reviewed or args.policy_review_note:
+        if (args.policy_reviewed or args.policy_review_note
+                or args.pilot_plan or args.policy_ledger):
             p.error("Policy flags require explicit --capture")
         print(json.dumps(plan, indent=2))
         return
     if not args.policy_reviewed:
         p.error("--capture requires --policy-reviewed")
+    if not args.pilot_plan or not args.policy_ledger:
+        p.error("--capture requires --pilot-plan and --policy-ledger")
+    selection_key = os.environ.get("AGENTFUSE_RELEASE_PILOT_SELECTION_KEY", "")
+    if not selection_key:
+        p.error("Private AGENTFUSE_RELEASE_PILOT_SELECTION_KEY required")
+    from scripts.prepare_release_pilot import _read_plan
+    from scripts.review_release_pilot_policy import require_batch_capture_review
+    policy_receipt = require_batch_capture_review(
+        _read_plan(args.pilot_plan), _read_plan(args.policy_ledger),
+        source_ids=ids, selection_key=selection_key,
+    )
     manifest, audit = capture_changelog_html(
         ids, args.out_dir, policy_review_note=args.policy_review_note,
+        source_policy_preflight=policy_receipt,
     )
     print(json.dumps({
         "status": "original_changelog_html_saved_privately_unverified",
