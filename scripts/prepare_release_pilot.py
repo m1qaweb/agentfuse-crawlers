@@ -293,7 +293,7 @@ def _put(path, value):
 
 
 def stage_captures(plan, capture_root, out_dir, *,
-                   selection_key, split_key):
+                   selection_key, split_key, source_policy_preflight=None):
     """Offline all-or-none conversion to P19A3 cohort with BLANK reviews."""
     _split_key(split_key)
     frozen = _recheck_plan(plan, selection_key=selection_key)
@@ -302,6 +302,24 @@ def stage_captures(plan, capture_root, out_dir, *,
     ]
     if len(captures) != frozen["batch_count"]:
         raise ValueError("Missing original HTML capture batch")
+    if source_policy_preflight is not None:
+        receipt = source_policy_preflight
+        if (not isinstance(receipt, dict) or receipt.get("kind") !=
+                "p19a5_offline_policy_preflight_not_permission"
+                or receipt.get("frozen_pilot_plan_sha256") != frozen["plan_sha256"]
+                or receipt.get("all_frozen_sources_operator_attested_eligible")
+                    is not True
+                or receipt.get("approved_for_advisor") is not False
+                or receipt.get("network_requests_performed") != 0):
+            raise ValueError("Staging requires full source-policy preflight")
+        for row in captures:
+            audit = row["audit"]
+            if (audit.get("source_specific_policy_review_completed") is not True
+                    or audit.get("source_specific_policy_review_receipt_sha256")
+                        != receipt.get("receipt_sha256")):
+                raise ValueError(
+                    "Captured original HTML lacks exact pilot policy review receipt"
+                )
     # No stage mutation until ALL captured bytes and receipt metadata validate.
     root = _private_new_directory(out_dir)
     wave_inputs = []
@@ -315,6 +333,10 @@ def stage_captures(plan, capture_root, out_dir, *,
         "batch_count": frozen["batch_count"],
         "publisher_policy_review_operator_attested_only": True,
         "publisher_policy_independently_verified": False,
+        "source_specific_policy_review_receipt_sha256": (
+            source_policy_preflight["receipt_sha256"]
+            if source_policy_preflight is not None else None
+        ),
         "independent_census_reviewers_completed": 0,
         "original_html_copied_bytes": 0,
         "replays_computed_offline": 0,
@@ -429,6 +451,8 @@ def main():
     parser.add_argument("--holdout-percent", type=int, default=25)
     parser.add_argument("--input-plan", type=Path)
     parser.add_argument("--capture-root", type=Path)
+    parser.add_argument("--policy-ledger", type=Path,
+                        help="Completed per-source P19A5 ledger (required for stage CLI)")
     parser.add_argument("--out-dir", type=Path, required=True)
     args = parser.parse_args()
     seed = os.environ.get("AGENTFUSE_RELEASE_PILOT_SELECTION_KEY", "")
@@ -460,14 +484,20 @@ def main():
             "advisor_fact_approvals": 0,
         }, indent=2))
         return
-    if not args.input_plan or not args.capture_root:
-        parser.error("--stage needs --input-plan and --capture-root")
+    if not args.input_plan or not args.capture_root or not args.policy_ledger:
+        parser.error("--stage needs --input-plan --capture-root --policy-ledger")
     gold_key = os.environ.get("AGENTFUSE_RELEASE_GOLD_SPLIT_KEY", "")
     if not gold_key:
         parser.error("AGENTFUSE_RELEASE_GOLD_SPLIT_KEY must be private and set")
+    from scripts.review_release_pilot_policy import validate_policy_ledger
+    frozen_plan = _read_plan(args.input_plan)
+    receipt = validate_policy_ledger(
+        frozen_plan, _read_plan(args.policy_ledger), selection_key=seed,
+    )
     result = stage_captures(
-        _read_plan(args.input_plan), args.capture_root, args.out_dir,
+        frozen_plan, args.capture_root, args.out_dir,
         selection_key=seed, split_key=gold_key,
+        source_policy_preflight=receipt,
     )
     print(json.dumps(result, indent=2))
 
