@@ -57,6 +57,11 @@ static profiles/manifest labels, not authenticated publisher ownership.
 
 ## 2. Review every chosen publisher's access/retention policy
 
+**P19A5 requirement:** Fill and validate a private source-specific policy
+ledger before any live original publisher HTML capture. One generic
+batch note is NOT sufficient for capture or staged review. See
+P19A5_PUBLISHER_POLICY_PREFLIGHT.md for the full workflow.
+
 Read the plan and visit the official publisher site directly. The
 operator must decide whether the specific page can lawfully and
 technically be fetched and privately retained. Check terms, robots,
@@ -71,7 +76,9 @@ in that wave has been separately reviewed and allowed**, use:
     python -m scripts.capture_release_html \
       --source-ids EXACT_COMMA_SEPARATED_IDS_FROM_WAVE_01 \
       --capture --policy-reviewed \
-      --policy-review-note "Operator documented every wave source's actual publisher terms, robots access, exact ownership, scope and lawful private retention." \
+      --policy-review-note "Each publisher was separately researched for ownership, terms, robots access, product scope and lawful private retention." \
+      --pilot-plan output/private/changelog-pilot-plan-1/pilot_selection_plan.json \
+      --policy-ledger output/private/changelog-pilot-policy-filled-1/source_policy_review_filled.json \
       --out-dir output/private/changelog-pilot-captures-1/wave_01
 
 Repeat for wave_02, wave_03 and wave_04, using that exact wave's
@@ -98,6 +105,7 @@ run the workbench's offline staging mode:
     python -m scripts.prepare_release_pilot \
       --stage \
       --input-plan output/private/changelog-pilot-plan-1/pilot_selection_plan.json \
+      --policy-ledger output/private/changelog-pilot-policy-filled-1/source_policy_review_filled.json \
       --capture-root output/private/changelog-pilot-captures-1 \
       --out-dir output/private/changelog-pilot-staged-1
 
@@ -106,6 +114,9 @@ re-fetches a source. It refuses any partial or altered sample before
 creating a new output folder.
 
 It validates, for every wave:
+
+- Matching P19A5 source-specific operator-policy ledger digest in the
+  original P19A1 capture audit, with no missing/blocked wave sources
 
 - Exact frozen source IDs/order and current source/lifecycle pins
 - Genuine P19A1-shaped audit (operator-attested, not externally verified)
