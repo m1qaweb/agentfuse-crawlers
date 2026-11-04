@@ -161,6 +161,8 @@ def _policy(row, source, *, now):
     _https(review["terms_url"])
     _https(review["robots_url"], expected_host=host, robots=True)
     if decision == "operator_attested_manual_permitted":
+        if expires <= now:
+            raise ValueError("Original HTML retention policy review expired at staging")
         if not review["retention_reviewed"]:
             raise ValueError("HTML retention must be explicitly reviewed")
         return True
