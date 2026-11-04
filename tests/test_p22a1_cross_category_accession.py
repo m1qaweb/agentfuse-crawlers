@@ -254,7 +254,7 @@ def test_two_snapshot_rounds_must_have_unique_receipts_and_increasing_time(tmp_p
     ("wrong_snapshot_url", "URL"),
     ("wrong_method", "method"),
     ("wrong_capture_origin", "method"),
-    ("unauthorized_approved_status", "unreviewed"),
+    ("unauthorized_approved_status", "method"),
     ("fake_source_permissions", "18-source"),
     ("traversal", "path"),
 ])
