@@ -401,3 +401,78 @@ def test_lifecycle_quarantine_cannot_be_overridden_by_forged_access():
     )
     assert permitted is False
     assert reason == "policy_unresolved_or_quarantined"
+
+
+def test_offline_bulk_policy_report_preserves_all_unreviewed_sources(
+        tmp_path, monkeypatch):
+    from scripts.audit_bulk_validation_policy import (
+        build_policy_readiness, write_policy_readiness,
+    )
+    import urllib.request
+    monkeypatch.setattr(
+        urllib.request, "urlopen",
+        lambda *a, **kw: pytest.fail("P21B audit made a publisher request"),
+    )
+    report, sources = build_policy_readiness()
+    assert len(sources) == 460
+    assert report["counts"]["configured_source_ids"] == 460
+    assert report["counts"]["technically_validatable"] == 457
+    assert report["counts"]["reviewed_permitted_for_bulk"] == 0
+    assert report["counts"]["missing_review_or_denied"] == 460
+    assert report["approved_run_plans_in_deployed_package"] == 0
+    assert report["bulk_run_authorized_by_this_audit"] is False
+    assert report["new_zyte_jobs"] == 0
+    assert report["network_requests_performed"] == 0
+    assert len({r["source_id"] for r in sources}) == 460
+    assert all(r["can_be_fetched_without_exact_run_plan"] is False
+               for r in sources)
+    root = tmp_path / "p21b-private"
+    write_policy_readiness(report, sources, root)
+    assert (root / "bulk_validation_readiness.json").is_file()
+    assert (root / "all_460_source_bulk_review_queue.csv").is_file()
+    with pytest.raises(ValueError, match="NEW"):
+        write_policy_readiness(report, sources, root)
+
+
+def test_exact_source_redirect_cap_is_enforced_in_synthetic_approved_run(
+        monkeypatch):
+    from scrapy.http import HtmlResponse
+    selected, access, plans, pid, _ = fake_case()
+    plan = plans["plans"][pid]
+    plan["max_redirects_per_source"] = 0
+    _mock_private_registries(monkeypatch, access, plans)
+    spider = DocumentationSpider(**_approved_args(pid, policy.digest(plan)))
+    assert spider.bulk_max_redirects_per_source == 0
+    source = selected[0]
+    req = Request(
+        source["url"],
+        meta={"source_redirect_chain": [], "source_redirect_depth": 0,
+              "dont_redirect": True},
+    )
+    response = HtmlResponse(
+        url=source["url"], status=301, request=req,
+        headers={"Location": "/new-path", "Content-Type": "text/html"},
+        body=b"<main>Moved</main>", encoding="utf-8",
+    )
+    result = list(spider.parse_page(response, source))
+    assert len(result) == 1 and isinstance(result[0], dict)
+    assert result[0]["status"] == "redirect_needs_review"
+    assert result[0]["error"] == "redirect_limit_or_loop"
+    assert result[0]["approved_for_advisor"] is False
+
+
+def test_access_and_plan_registries_reject_unhashable_source_inputs():
+    source = load_sources()[0]
+    access = _review(source)
+    access["scopes"] = [{"unknown": "bulk_validation"}]
+    registry = {
+        "schema_version": policy.SCHEMA, "kind": policy.ACCESS_KIND,
+        "default_decision": "not_reviewed",
+        "reviews": {source["id"]: access},
+    }
+    with pytest.raises(ValueError, match="scope"):
+        policy.validate_access_registry(registry)
+    selected, valid_reviews, plans, pid, _ = fake_case()
+    plans["plans"][pid]["authorized_source_ids"] = [{"bad": "id"}]
+    with pytest.raises(ValueError, match="scope"):
+        policy.validate_plan_registry(plans)
