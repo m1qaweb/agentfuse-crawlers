@@ -163,7 +163,7 @@ def test_synthetic_malformed_json_and_provenance_fail_closed(attack, expected):
     if attack == "drop_source":
         data[category]["items"].pop()
     elif attack == "duplicate_source":
-        data[category]["items"][1]["source_id"] = item["source_id"]
+        data[category]["items"][-1]["source_id"] = item["source_id"]
     elif attack == "change_source_url":
         item["source_url"] = "https://hostile.invalid/pricing"
     elif attack == "claim_fact_approved":
