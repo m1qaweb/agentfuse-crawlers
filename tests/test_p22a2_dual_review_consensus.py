@@ -468,7 +468,7 @@ def test_rate_scope_unknown_never_becomes_global_default():
     assert reviewed["region_applicability"] == "unknown"
     assert reviewed["tier_applicability"] == "unknown"
     assert reviewed["region"] is reviewed["tier_or_plan"] is None
-    with pytest.raises(ValueError, match="explicit"):
+    with pytest.raises(ValueError, match="Explicit"):
         reviewed = copy.deepcopy(v)
         reviewed["region_applicability"] = "explicit"
         _rate_scope("pricing", reviewed)
