@@ -249,7 +249,7 @@ def test_two_snapshot_rounds_must_have_unique_receipts_and_increasing_time(tmp_p
     ("denied_policy", "unreviewed"),
     ("no_retention", "retention"),
     ("future_policy", "future"),
-    ("expired_policy", "window"),
+    ("expired_policy", "expired"),
     ("tamper_original_bytes", "SHA-256"),
     ("wrong_snapshot_url", "URL"),
     ("wrong_method", "method"),
