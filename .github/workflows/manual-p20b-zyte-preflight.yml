@@ -14,6 +14,9 @@ on:
       - 'agentfuse_crawlers/data/bulk_run_authorizations.json'
       - 'scripts/audit_bulk_validation_policy.py'
       - 'docs/P21B_ENFORCED_BULK_ACCESS_RUNBOOK.md'
+      - 'scripts/accession_cross_category_html.py'
+      - 'tests/test_p22a1_cross_category_accession.py'
+      - 'docs/P22A1_CROSS_CATEGORY_EVIDENCE_ACCESSION.md'
 
 permissions:
   contents: read
@@ -46,6 +49,9 @@ jobs:
         run: |
           python -m scripts.prepare_zyte_ui_args \
             --out-dir output/private/p20b-zyte-args
+      - name: Freeze P22A1 18-source, 36-round original HTML study (BLANK only)
+        run: |
+          python -m scripts.accession_cross_category_html             --prepare             --out-dir output/private/p22a1-blank
       - name: Audit P21B source-specific bulk permission gate offline
         run: |
           python -m scripts.audit_bulk_validation_policy             --out-dir output/private/p21b-bulk-policy
@@ -58,6 +64,8 @@ jobs:
           census = json.loads((prefix / "p20b-preflight" / "full_inventory_readiness.json").read_text())
           guide = json.loads((prefix / "p20b-zyte-args" / "zyte_full_3_spiders_NOT_AUTHORIZED.json").read_text())
           bulk = json.loads((prefix / "p21b-bulk-policy" / "bulk_validation_readiness.json").read_text())
+          p22a = json.loads((prefix / "p22a1-blank" / "frozen_p20a_18_source_plan.json").read_text())
+          blank = json.loads((prefix / "p22a1-blank" / "source_policy_and_capture_ledger_BLANK.json").read_text())
           assert census["configured_sources"] == 460
           assert census["category_counts"] == {"documentation": 194, "pricing": 177, "changelog": 89}
           assert census["full_inventory_one_time_diagnostic_crawl"] == "NO_GO_PENDING_EVIDENCE"
@@ -67,6 +75,14 @@ jobs:
           assert bulk["counts"]["configured_source_ids"] == 460
           assert bulk["bulk_run_authorized_by_this_audit"] is False
           assert bulk["new_zyte_jobs"] == bulk["network_requests_performed"] == 0
+          assert p22a["selected_source_count"] == 18
+          assert p22a["source_round_denominator"] == 36
+          assert p22a["publisher_permissions_granted"] == 0
+          assert blank["human_gold_supplied"] is False
+          assert len(blank["rows"]) == 18
+          assert all(len(row["rounds"]) == 2 for row in blank["rows"])
+          assert all(round_["state"] == "not_attempted"
+                     for row in blank["rows"] for round_ in row["rounds"])
           assert guide["network_requests_performed"] == guide["zyte_jobs_created"] == 0
           assert len(guide["jobs"]) == 3
           assert sum(j["configured_source_count"] for j in guide["jobs"]) == 460
@@ -92,6 +108,7 @@ jobs:
             output/private/p20b-preflight/
             output/private/p20b-zyte-args/
             output/private/p21b-bulk-policy/
+            output/private/p22a1-blank/
           retention-days: 14
           if-no-files-found: error
       - name: Explain what the artifact means
@@ -104,6 +121,7 @@ jobs:
             echo "- Wave 1 and Wave 2 exact two-round one-source Zyte manual canary plans"
             echo "- READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt and CSV/JSON exact full-spider arguments"
             echo "- P21B bulk_validation_readiness.json and all_460_source_bulk_review_queue.csv"
+            echo "- P22A1 BLANK frozen 18-source original HTML/policy study templates (NO HTML)"
             echo ""
             echo "**These arguments are NOT approval to run full source collection.**"
             echo "**P21B:** cohort=all plus confirm_full_inventory=yes now produces held Items without an exact Git-reviewed URL+run plan."
