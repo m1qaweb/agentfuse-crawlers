@@ -88,13 +88,19 @@ def test_unreviewed_proven_crawl_is_not_assumed_allowed_for_monitor():
     assert emitted[0]["requested_cohort"] == "proven"
 
 
-def test_validation_mode_preserves_legacy_three_spider_requests_and_provenance():
+def test_default_three_source_smoke_now_holds_all_unreviewed_urls():
+    # P21B: even the old implicit proven cohort of three is multi-source
+    # validation. It may not trigger three publisher GETs without a
+    # real source-by-source Git-reviewed authorization and run plan.
     for spider_type in (DocumentationSpider, PricingSpider, ChangelogSpider):
         spider = spider_type()
         emitted = asyncio.run(_run_start(spider))
         assert len(emitted) == 3
-        assert all(isinstance(entry, Request) for entry in emitted)
-        assert all(req.meta["dont_redirect"] is True for req in emitted)
+        assert all(isinstance(entry, dict) for entry in emitted)
+        assert all(entry["status"] == "source_bulk_validation_not_approved"
+                   and entry["http_status"] is None for entry in emitted)
+        assert all(entry["quality_axes"]["fetch_status"] ==
+                   "not_attempted_by_bulk_access_policy" for entry in emitted)
         assert spider.source_registry_sha256 == registry_revision_sha256()
         assert spider.collection_mode == "validation"
         sample = spider._base_record(spider.selected[0])
@@ -102,6 +108,7 @@ def test_validation_mode_preserves_legacy_three_spider_requests_and_provenance()
         assert sample["source_lifecycle_state"] == "needs_validation"
         assert sample["collection_mode"] == "validation"
         assert sample["approved_for_advisor"] is False
+        assert sample["validation_scope"] == "bulk_reviewed_plan_required"
 
 
 def test_explicit_all_cohort_does_not_fetch_quarantined_urls():

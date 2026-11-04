@@ -30,27 +30,36 @@ def test_spider_starts_with_allowlisted_sources(klass, category, cohort):
     assert len(requests) == len(expected)
     for output, source in zip(requests, expected):
         permitted, reason = collection_decision(source, "validation")
-        if permitted:
-            assert isinstance(output, scrapy.Request)
-            assert output.url == source["url"]
-            assert output.callback == spider.parse_page
-            assert output.errback == spider.record_failure
-        else:
-            # Explicitly skipped sources still account for one Item, without
-            # scheduling an HTTP request to a quarantined publisher.
-            assert isinstance(output, dict)
-            assert output["source_id"] == source["id"]
-            assert output["http_status"] is None
+        # P21B: technically selectable is NOT permission to fetch multiple
+        # publisher URLs. Both Git-reviewed registries are empty today.
+        assert isinstance(output, dict)
+        assert output["source_id"] == source["id"]
+        assert output["http_status"] is None
+        assert output["approved_for_advisor"] is False
+        assert output["validation_scope"] == "bulk_reviewed_plan_required"
+        if not permitted:
             assert output["status"] == "source_quarantined"
             assert output["error"] == reason
-            assert output["approved_for_advisor"] is False
+        else:
+            assert output["status"] == "source_bulk_validation_not_approved"
+            assert output["error"] == "bulk_run_plan_not_present"
+            assert output["policy_observation"] == (
+                "not_fetched_by_bulk_source_access_gate"
+            )
 
 
-def test_limit_one_and_explicit_id():
-    spider = PricingSpider(source_ids='openai_api_pricing', limit='1')
-    async def collect():
+def test_limit_one_requires_bulk_review_but_exact_single_id_remains_available():
+    async def collect(spider):
         return [request async for request in spider.start()]
-    assert [r.cb_kwargs['source']['id'] for r in asyncio.run(collect())] == ['openai_api_pricing']
+    # Using limit is not a safe substitute for selecting ONE exact URL.
+    limited = PricingSpider(source_ids="openai_api_pricing", limit="1")
+    blocked = asyncio.run(collect(limited))
+    assert len(blocked) == 1 and not isinstance(blocked[0], scrapy.Request)
+    assert blocked[0]["status"] == "source_bulk_validation_not_approved"
+    explicit = PricingSpider(source_ids="openai_api_pricing")
+    request = asyncio.run(collect(explicit))
+    assert len(request) == 1 and isinstance(request[0], scrapy.Request)
+    assert request[0].cb_kwargs["source"]["id"] == "openai_api_pricing"
 
 
 
@@ -76,11 +85,17 @@ def test_later_candidate_batch_schedules_exact_urls(klass, category):
     async def collect():
         return [r async for r in spider.start()]
 
-    requests = asyncio.run(collect())
+    outputs = asyncio.run(collect())
     expected = select_sources(category, cohort="candidate", offset=15, limit=15)
-    assert [r.url for r in requests] == [s["url"] for s in expected]
+    assert [row["source_id"] for row in outputs] == [
+        source["id"] for source in expected
+    ]
+    assert all(not isinstance(row, scrapy.Request) for row in outputs)
+    assert all(row["status"] == "source_bulk_validation_not_approved"
+               for row in outputs)
+    assert all(row["http_status"] is None for row in outputs)
     assert spider.offset == 15
-    assert len(requests) == 15
+    assert len(outputs) == 15
 
 
 

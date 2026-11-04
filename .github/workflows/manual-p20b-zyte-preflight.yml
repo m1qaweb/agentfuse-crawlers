@@ -9,6 +9,11 @@ on:
       - 'scripts/full_inventory_readiness.py'
       - 'tests/test_p20b_zyte_ui_args.py'
       - 'docs/P20B_NO_LOCAL_ZYTE_UI_GUIDE.md'
+      - 'agentfuse_crawlers/validation_access.py'
+      - 'agentfuse_crawlers/data/validation_access_reviews.json'
+      - 'agentfuse_crawlers/data/bulk_run_authorizations.json'
+      - 'scripts/audit_bulk_validation_policy.py'
+      - 'docs/P21B_ENFORCED_BULK_ACCESS_RUNBOOK.md'
 
 permissions:
   contents: read
@@ -41,6 +46,9 @@ jobs:
         run: |
           python -m scripts.prepare_zyte_ui_args \
             --out-dir output/private/p20b-zyte-args
+      - name: Audit P21B source-specific bulk permission gate offline
+        run: |
+          python -m scripts.audit_bulk_validation_policy             --out-dir output/private/p21b-bulk-policy
       - name: Refuse unsafe scope or inferred permissions
         run: |
           python - <<'PY'
@@ -49,12 +57,16 @@ jobs:
           prefix = Path("output/private")
           census = json.loads((prefix / "p20b-preflight" / "full_inventory_readiness.json").read_text())
           guide = json.loads((prefix / "p20b-zyte-args" / "zyte_full_3_spiders_NOT_AUTHORIZED.json").read_text())
+          bulk = json.loads((prefix / "p21b-bulk-policy" / "bulk_validation_readiness.json").read_text())
           assert census["configured_sources"] == 460
           assert census["category_counts"] == {"documentation": 194, "pricing": 177, "changelog": 89}
           assert census["full_inventory_one_time_diagnostic_crawl"] == "NO_GO_PENDING_EVIDENCE"
           assert census["full_inventory_automatic_monitoring"] == "NO_GO_PENDING_PER_SOURCE_APPROVAL"
           assert census["network_requests_performed"] == census["new_zyte_jobs"] == 0
           assert guide["full_diagnostic_approved_to_run"] is False
+          assert bulk["counts"]["configured_source_ids"] == 460
+          assert bulk["bulk_run_authorized_by_this_audit"] is False
+          assert bulk["new_zyte_jobs"] == bulk["network_requests_performed"] == 0
           assert guide["network_requests_performed"] == guide["zyte_jobs_created"] == 0
           assert len(guide["jobs"]) == 3
           assert sum(j["configured_source_count"] for j in guide["jobs"]) == 460
@@ -79,6 +91,7 @@ jobs:
           path: |
             output/private/p20b-preflight/
             output/private/p20b-zyte-args/
+            output/private/p21b-bulk-policy/
           retention-days: 14
           if-no-files-found: error
       - name: Explain what the artifact means
@@ -90,8 +103,10 @@ jobs:
             echo "- full_inventory_readiness.json and all_460_source_review_queue.csv"
             echo "- Wave 1 and Wave 2 exact two-round one-source Zyte manual canary plans"
             echo "- READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt and CSV/JSON exact full-spider arguments"
+            echo "- P21B bulk_validation_readiness.json and all_460_source_bulk_review_queue.csv"
             echo ""
             echo "**These arguments are NOT approval to run full source collection.**"
+            echo "**P21B:** cohort=all plus confirm_full_inventory=yes now produces held Items without an exact Git-reviewed URL+run plan."
             echo "Review publisher policies, complete real canaries, verify Zyte deployment, then authorize one supervised diagnostic."
             echo "No source IDs, deployed spiders, schedules, permissions or production data were changed."
           } >> "$GITHUB_STEP_SUMMARY"

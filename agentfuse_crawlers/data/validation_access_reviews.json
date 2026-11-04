@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "kind": "git_reviewed_source_specific_validation_access_decisions_not_legal_permissions",
+  "default_decision": "not_reviewed",
+  "reviews": {}
+}

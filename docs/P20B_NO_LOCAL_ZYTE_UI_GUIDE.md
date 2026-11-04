@@ -93,6 +93,27 @@ When done, export the complete job **Items, Requests, Logs and job
 metadata** and share those JSON files in ChatGPT. You do not need
 local scripts for review. Preserve distinct job IDs and timestamps.
 
+## P21B security update — older full-run arguments are INSUFFICIENT
+
+After P21B is merged and deployed, the three full-category UI
+configurations below do **not** authorize publisher GETs on their own.
+With no matching Git-reviewed source-access and exact-scope run
+approval, each spider emits held source Items (no publisher page
+request), including the old default three-source smoke cohort.
+Do not interpret all-held Items as successful evidence acquisition.
+
+The no-local GitHub Actions ZIP now includes
+p21b-bulk-policy/bulk_validation_readiness.json and the full
+460-source access-review queue. It reports **zero** current bulk
+access reviews and zero authorized run plans.
+
+Only after independently reviewing each publisher's exact URL,
+robots/terms and private retention, and adding a separate short-lived
+Git-reviewed run plan, can a bulk validation job supply
+bulk_run_plan_id, expected_bulk_plan_sha256 and
+expected_deployment_package_sha256. There is NO valid plan ID today.
+See docs/P21B_ENFORCED_BULK_ACCESS_RUNBOOK.md.
+
 ## FUTURE ONLY: one full-inventory diagnostic (not now)
 
 **Do not use these arguments until the real cross-category manual
