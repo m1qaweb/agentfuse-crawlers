@@ -55,7 +55,7 @@ BASELINES = {
     "changelog": {"suffix": "16", "count": 89, "spider": "official_changelogs",
                   "job": "883514/1/16",
                   "sha": {
-                      "items": "3a06ffb552493e89ec04c76d0d4cac4a108a587a8b6bb7bd5e11b25e3cac188c",
+                      "items": "3a06ffb552493e89ec04c76d0d4cac4a108b587a8b6bb7bd5e11b25e3cac188c",
                       "requests": "44ae4c0f5c2cbeaddd549eb44d5d6621d4c6d988ee25c886f636a709c8e7cb90",
                       "log": "da152cfeebcc53570a4b969819fe05f93a1f81ac54291a57d469f7bf62149c3f"}},
 }
@@ -418,7 +418,7 @@ def audit_bundle(bundle, *, holdout_key, files=None, allow_synthetic=False):
                 doc_measured["overview_only_sources"] += item.get("documentation_scope_status") == "overview_only"
                 doc_measured["scoped_sources"] += item.get("documentation_scope_status") == "scoped_page"
                 doc_measured["unprofiled_sources"] += item.get("documentation_profile_status") == "unprofiled"
-                doc_measured["navigation_candidates_detected"] += item.get("documentation_nav_candidate_total", 0)
+                doc_measured["navigation_candidates_detected"] += item.get("documentation_nav_candidate_total_detected", 0)
                 doc_measured["navigation_candidates_omitted"] += item.get("documentation_nav_candidate_omitted", 0)
             all_source_rows.append({
                 "source_id": sid, "category": category,
