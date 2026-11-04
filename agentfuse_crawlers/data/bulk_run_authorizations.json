@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "kind": "git_reviewed_expiring_bulk_validation_run_plans_not_schedules",
+  "default_policy": "no_bulk_runs_authorized",
+  "plans": {}
+}
