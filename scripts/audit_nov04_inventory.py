@@ -529,6 +529,66 @@ def audit_bundle(bundle, *, holdout_key, files=None, allow_synthetic=False):
         "source_registry_mutations": 0,
         "deployment_authorized": False, "approved_for_advisor": False,
     }
+    # For this exact Nov 4 frozen export only, reproduce source-wide
+    # measured baselines from raw evidence, not an operator's scorecard.
+    # Synthetic tests pass files=None and do not impersonate this evidence.
+    if files is not None:
+        expected_metrics = {
+            "documentation": (194, 175, 51, 463),
+            "pricing": (177, 159, 0, 368),
+            "changelog": (89, 84, 14, 161),
+        }
+        for category, expected_values in expected_metrics.items():
+            evidence = category_reports[category]
+            observed_values = (
+                evidence["reported_source_ids"],
+                evidence["http_200_source_items"],
+                evidence["status_counts"].get("captured", 0),
+                evidence["request_count"],
+            )
+            if observed_values != expected_values:
+                raise ValueError(
+                    "November 4 frozen operational metrics do not reproduce: "
+                    + category
+                )
+        pricing = category_reports["pricing"]["pricing_evidence"]
+        for key, value in {
+            "detected_observations": 2840,
+            "retained_observations": 2742,
+            "numeric_candidates": 2134,
+            "review_quote_candidates": 68,
+            "fully_comparable_candidates": 0,
+            "recognized_relevant_tables": 353,
+            "selected_relevant_tables": 317,
+            "sources_with_observations": 56,
+        }.items():
+            if pricing.get(key) != value:
+                raise ValueError("Frozen pricing evidence metric drift: " + key)
+        changelog = category_reports["changelog"]["changelog_evidence"]
+        for key, value in {
+            "detected_entries": 4240,
+            "retained_entries": 2344,
+            "historical_entries_omitted": 1896,
+            "entries_with_day": 1685,
+            "duplicated_event_id_count": 45,
+            "excess_duplicate_id_occurrences": 115,
+            "collision_sources": 20,
+            "incomplete_window_sources": 64,
+        }.items():
+            if changelog.get(key) != value:
+                raise ValueError("Frozen changelog evidence metric drift: " + key)
+        docs = category_reports["documentation"]["documentation_evidence"]
+        for key, value in {
+            "navigation_candidates_detected": 4977,
+            "navigation_candidates_omitted": 3498,
+            "overview_only_sources": 70,
+            "scoped_sources": 20,
+            "unprofiled_sources": 113,
+        }.items():
+            if docs.get(key) != value:
+                raise ValueError("Frozen documentation evidence metric drift: " + key)
+        result["input_integrity"]["reproduced_nov04_section_1_metrics"] = True
+        result["input_integrity"]["independently_verified_publisher_truth"] = False
     # Freeze held-out source IDs using a private key, independently of
     # these items' parser errors; the key is NEVER emitted.
     holdout = _holdout(sources, holdout_key)
