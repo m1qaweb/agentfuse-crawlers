@@ -215,31 +215,50 @@ def build_preflight():
         "documentation_product_scope_human_verified": False,
         "human_crawl_authorization_given": False,
     }
-    blockers = []
+    # Separate permission to perform one supervised DIAGNOSTIC from
+    # permission to trust its numbers for production monitoring/advice.
+    # Human-gold thresholds are deliberately NOT prerequisites just to
+    # COLLECT a finite, nonpublishing diagnostic baseline: those numbers
+    # can be derived from the diagnostic's immutable real evidence.
+    diagnostic_blockers = []
     if not ready["all_source_publisher_policy_review"]:
-        blockers.append(
-            "460 individual publisher URL ownership, terms/robots and retention decisions not supplied"
-        )
-    if blocked:
-        blockers.append(
-            "Lifecycle blocks original HTTPS collection for "
-            + str(len(blocked)) + " selected URLs; preserve them as held Items"
+        diagnostic_blockers.append(
+            "Per-URL human access/terms/robots/retention reviews for all attempted publishers not supplied"
         )
     if not ready["archived_two_round_real_zyte_canaries_supplied"]:
-        blockers.append("Two separate finished, archive-verified live canary rounds are missing")
-    if not ready["real_200_plus_archived_pricing_gold_verified"]:
-        blockers.append("200+ distinct real pricing amount+model+unit+region cases have not been measured")
-    if not ready["real_100_plus_archived_date_gold_verified"]:
-        blockers.append("100+ real owned publication-date cases have not been measured")
-    if not ready["full_original_changelog_html_census_verified"]:
-        blockers.append("15-25-provider original-HTML changelog blind human census not supplied")
-    if not ready["documentation_product_scope_human_verified"]:
-        blockers.append("Independent documentation scope/child-page review not supplied")
-    if len(monitor_approved) != EXPECTED_TOTAL:
-        blockers.append(
-            "0/460 full-inventory ongoing-monitor approvals" if not monitor_approved
-            else "Unattended monitoring is not approved for every configured URL"
+        diagnostic_blockers.append(
+            "Two independently archived, source-pinned live canary rounds across docs/pricing/changelogs not supplied"
         )
+    diagnostic_blockers.append(
+        "Exact package revision in Zyte, proposed run budget, and operator's one-shot approval not verified here"
+    )
+    monitoring_blockers = list(diagnostic_blockers)
+    if not ready["real_200_plus_archived_pricing_gold_verified"]:
+        monitoring_blockers.append(
+            "200+ distinct actual first-party pricing amount+model+unit+region cases not reviewed"
+        )
+    if not ready["real_100_plus_archived_date_gold_verified"]:
+        monitoring_blockers.append(
+            "100+ real publisher-owned release-date cases not reviewed"
+        )
+    if not ready["blind_dual_review_publisher_gold_verified"]:
+        monitoring_blockers.append(
+            "Two independent real-evidence review rounds have not been reconciled"
+        )
+    if not ready["full_original_changelog_html_census_verified"]:
+        monitoring_blockers.append(
+            "15-25-provider original-HTML whole-page changelog census not supplied"
+        )
+    if not ready["documentation_product_scope_human_verified"]:
+        monitoring_blockers.append(
+            "Documentation child-page scope and product identity not independently reviewed"
+        )
+    if len(monitor_approved) != EXPECTED_TOTAL:
+        monitoring_blockers.append(
+            "0/460 current unattended-monitor approvals" if not monitor_approved
+            else "Not every monitored URL is approved by the source registry"
+        )
+    blockers = sorted(set(diagnostic_blockers + monitoring_blockers))
     outcome = {
         "schema_version": VERSION,
         "kind": KIND,
@@ -270,18 +289,25 @@ def build_preflight():
         "total_planned_manual_canary_jobs": sum(w["manual_jobs"] for w in waves),
         "full_inventory_one_time_diagnostic_crawl": "NO_GO_PENDING_EVIDENCE",
         "full_inventory_automatic_monitoring": "NO_GO_PENDING_PER_SOURCE_APPROVAL",
+        "diagnostic_collection_requires_completed_gold_benchmarks": False,
+        "trusted_monitoring_requires_real_human_gold": True,
+        "source_ids_held_and_not_fetched_under_current_policy": [
+            b["source_id"] for b in blocked
+        ],
         "real_accuracy_measured_by_this_preflight": False,
         "preflight_checks": ready,
+        "diagnostic_run_blockers": diagnostic_blockers,
+        "trusted_monitoring_blockers": monitoring_blockers,
         "blockers": blockers,
         "suggested_operator_sequence": [
-            "Review policy/ownership and expected product for the nine Wave 1 sources.",
-            "Run two separate source-pinned manual Zyte canary rounds only after review; archive logs, requests, Items.",
-            "Inspect real documentation product scope, unit-specific pricing and release-date ownership.",
-            "Expand to preregistered Wave 2 without replacing denied/degraded sources.",
-            "Complete human original-HTML changelog full-page census (P19A6) and real archived pricing/date gold (P08/P15B).",
-            "Run current strict quality_gates against immutable Zyte archives and both blind reviewers.",
-            "Review all 460 exact publisher URLs individually, preserving denied sources as blocked before considering full inventory.",
-            "Only then authorize one supervised full-inventory diagnostic, no schedules or automatic advisor facts.",
+            "Review policy/ownership and product for all Wave 1 sources; preserve blocked source IDs.",
+            "Run two separate source-pinned, manually approved Zyte canary rounds; archive Items, Requests, Logs.",
+            "Inspect real docs scope, pricing units, release date ownership and deployment fingerprint.",
+            "Run Wave 2's preselected 9-source canaries after its own policy review; do not resample denials.",
+            "Review each publisher URL that the broad diagnostic would actually request, while holding prohibited URLs.",
+            "ONLY AFTER clean safe canaries, verified deployment and explicit budget/operator approval, run one supervised 460-ID diagnostic with no data publishing or schedules.",
+            "Use those authentic full-run archives and P19A6 captured original HTML to build independently reviewed pricing, release and documentation gold.",
+            "Pass strict P08/P15B quality gates and per-source Git-reviewed monitoring permissions before any trusted recurring full monitoring.",
         ],
         "published_release_facts_independently_verified": False,
         "advisor_fact_approvals": 0,
