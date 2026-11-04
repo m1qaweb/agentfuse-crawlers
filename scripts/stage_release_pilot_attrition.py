@@ -88,6 +88,11 @@ def _inspect_waves(plan, receipt, capture_root):
             wave["operator_attested_capture_eligible_source_ids"]
         ) for wave in receipt["batches"]
     }
+    for path in Path(capture_root).iterdir():
+        if (path.is_symlink() or path.name not in {
+                x["batch_id"] for x in plan["batches"]
+            }):
+            raise ValueError("Orphan/unknown publisher capture outside frozen waves")
     for wave in plan["batches"]:
         wid = wave["batch_id"]
         ids = wave["source_ids"]
@@ -146,8 +151,6 @@ def _inspect_waves(plan, receipt, capture_root):
                 if full_capture else set()
             )
             if full_capture:
-                allowed.update(row["snapshot"]["file"] for row
-                               in all_inspected.values() if "snapshot" in row)
                 allowed.update(x["entry"]["snapshot"]["file"] for x
                                in all_inspected.values())
             unexpected = [
@@ -222,20 +225,6 @@ def _check_receipt(audit, receipt):
             "Original P19A1 capture is not bound to the currently frozen "
             "per-publisher P19A5 policy review"
         )
-
-
-def _source_decisions(ledger, receipt):
-    """Never inject operator-supplied statuses into the selection reporter."""
-    decisions = {
-        row["source_id"]: row["decision"] for row in ledger["reviews"]
-    }
-    expected = sum(len(x["planned_source_ids"]) for x in receipt["batches"])
-    if len(decisions) != expected:
-        raise ValueError("Publisher policy ledger decision count mismatch")
-    return [{**row, "policy_rows": [
-        {"source_id": sid, "decision": decisions[sid]}
-        for sid in row["planned_source_ids"]
-    ]} for row in receipt["batches"]]
 
 
 def stage_partial_pilot(plan, ledger, capture_root, out_dir, *,
@@ -416,8 +405,18 @@ def score_partial_pilot(plan, ledger, staged_root, *, selection_key, split_key):
     }
     expected_captured = set()
     audit_hashes = {}
-    for entry in subset.get("batches", []):
+    snapshot_hashes = {}
+    if (not isinstance(subset, dict)
+            or subset.get("kind") != "p19a3_reviewed_release_source_batch_cohort"
+            or subset.get("holdout_percent") != frozen["holdout_percent"]
+            or not isinstance(subset.get("batches"), list)):
+        raise ValueError("Invalid captured-subset P19A3 cohort")
+    seen_waves = set()
+    for entry in subset["batches"]:
         wid = entry["batch_id"]
+        if wid in seen_waves:
+            raise ValueError("Repeated wave would double-count publisher evidence")
+        seen_waves.add(wid)
         wave = next((w for w in frozen["batches"]
                     if w["batch_id"] == wid), None)
         if wave is None:
@@ -432,6 +431,7 @@ def score_partial_pilot(plan, ledger, staged_root, *, selection_key, split_key):
                 raise ValueError("Duplicate/unplanned/blocked source in captured subset")
             expected_captured.add(sid)
             expected_status[sid] = "captured_original_html_unreviewed"
+            snapshot_hashes[sid] = saved["snapshot"]["sha256"]
             audit_path = wid + "/capture_audits/" + sid + ".json"
             audit = _json(staged_root, audit_path)
             if (audit.get("source_specific_policy_review_completed") is not True
@@ -448,6 +448,11 @@ def score_partial_pilot(plan, ledger, staged_root, *, selection_key, split_key):
             or row.get("provisional_provider_group")
                != planned[sid]["provisional_provider_group"]
             or row.get("capture_status") != expected_status[sid]
+            or row.get("frozen_batch_id") != next(
+                x["batch_id"] for x in frozen["batches"]
+                if sid in x["source_ids"]
+            )
+            or row.get("raw_snapshot_sha256") != snapshot_hashes.get(sid)
             or row.get("publisher_capture_audit_sha256") !=
                audit_hashes.get(sid)
             or row.get("publisher_policy_decision") != next(
