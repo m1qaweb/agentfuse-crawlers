@@ -449,10 +449,35 @@ def score_partial_pilot(plan, ledger, staged_root, *, selection_key, split_key):
             snapshot_hashes[sid] = saved["snapshot"]["sha256"]
             audit_path = wid + "/capture_audits/" + sid + ".json"
             audit = _json(staged_root, audit_path)
-            if (audit.get("source_specific_policy_review_completed") is not True
+            source = planned[sid]
+            receipt_rows = [
+                row for row in audit.get("receipts", [])
+                if isinstance(row, dict) and row.get("source_id") == sid
+            ]
+            if (audit.get("kind") !=
+                    "p19a1_manual_original_changelog_capture_audit"
+                    or audit.get("source_specific_policy_review_completed")
+                       is not True
                     or audit.get("source_specific_policy_review_receipt_sha256")
-                       != receipt["receipt_sha256"]):
-                raise ValueError("Staged capture audit lost exact policy receipt")
+                       != receipt["receipt_sha256"]
+                    or audit.get("publisher_policy_review_operator_attested")
+                       is not True
+                    or audit.get("publisher_policy_independently_verified")
+                       is not False
+                    or audit.get("approved_for_advisor") is not False
+                    or sid not in audit.get("source_ids", [])
+                    or len(receipt_rows) != 1
+                    or receipt_rows[0].get("raw_html_sha256")
+                       != saved["snapshot"]["sha256"]
+                    or receipt_rows[0].get("official_source_url")
+                       != source["source_url"]
+                    or receipt_rows[0].get("raw_html_bytes") not in range(1, 8_500_001)
+                    or receipt_rows[0].get("robots_allowed_for_agent") is not True
+                    or receipt_rows[0].get("approved_for_advisor") is not False):
+                raise ValueError(
+                    "Staged original capture receipt no longer matches "
+                    "publisher evidence or the frozen policy ledger"
+                )
             audit_hashes[sid] = _digest(audit)
     for sid in expected_status:
         if expected_status[sid] is None:
