@@ -137,6 +137,21 @@ def _inspect_waves(plan, receipt, capture_root):
                     raise ValueError("Capturing a publisher blocked by frozen policy")
                 single = _audit_batch(_one_source_batch(wave, source), capture_root)
                 _check_receipt(single["audit"], receipt)
+                # P19A1 creates exactly an HTML file and two JSON
+                # receipts. Extra symlinks or files are an uninspected
+                # evidence bundle, not a valid original-page snapshot.
+                folder = _safe_member(
+                    capture_root, wid + "/" + sid, directory=True,
+                )
+                allowed_files = {
+                    "frozen_release_snapshots.json", "capture_audit.json",
+                    single["manifest"]["snapshots"][0]["snapshot"]["file"],
+                }
+                if any(
+                    p.is_symlink() or not p.is_file()
+                    or p.name not in allowed_files for p in folder.iterdir()
+                ):
+                    raise ValueError("Unexpected file or symlink in source capture")
                 all_inspected[sid] = {
                     "entry": single["manifest"]["snapshots"][0],
                     "original_html": single["html"][0][1],
