@@ -28,7 +28,13 @@ SHA-256 pins with no GET requests. Choose 1–5 exact source IDs per manual
 batch. Blocked lifecycle sources stay blocked. Configured source URLs are
 not, by themselves, publisher collection permissions.
 
-## 2. Manual capture only after independent publisher-policy review
+## 2. Manual capture only after source-specific publisher-policy preflight
+
+**P19A5 update:** A generic batch policy note is no longer sufficient for
+real publisher capture. First preregister the P19A4 selection and complete
+its per-source private policy ledger. See
+P19A5_PUBLISHER_POLICY_PREFLIGHT.md for the exact prepare/validate
+commands and rules. One blocked publisher holds the entire selected wave.
 
 Before --capture, independently check publisher terms, robots, site
 ownership and private retention rights. Never bypass authentication,
@@ -37,8 +43,10 @@ CAPTCHAs, paywalls, bot controls, denied access or unfriendly 403/429.
     python -m scripts.capture_release_html \
       --source-ids kiro_changelog \
       --capture --policy-reviewed \
-      --policy-review-note "Checked current publisher terms, robots, exact page scope and private research retention rights." \
-      --out-dir output/private/p19a1-kiro-round-1
+      --policy-review-note "Each selected publisher's ownership, terms, robots, exact scope and private retention rights were individually reviewed." \
+      --pilot-plan output/private/changelog-pilot-plan-1/pilot_selection_plan.json \
+      --policy-ledger output/private/changelog-pilot-policy-filled-1/source_policy_review_filled.json \
+      --out-dir output/private/changelog-pilot-captures-1/wave_01
 
 Fetches only exact publisher robots.txt and the pinned HTTPS changelog URL.
 Refuses redirects/retries, non-UTF-8 HTML, oversized 8MB responses, and
