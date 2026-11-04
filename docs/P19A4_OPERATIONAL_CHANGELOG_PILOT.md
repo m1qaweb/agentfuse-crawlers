@@ -89,13 +89,13 @@ publisher-policy research privately; the P19A1 note is only an
 operator attestation. This command is an EXAMPLE; the workbench
 never builds or executes live --capture commands.
 
-**If any source is legally disallowed or unavailable, record the
-reason and stop the wave.** Do not substitute another source behind
-the frozen sample or claim the selection passed.
-The current workbench intentionally stages only all-available captured
-waves so omitted/blocked sources cannot disappear from accuracy
-denominators. A transparent protocol revision may be needed to handle
-real access failures without compromising the held-out sample.
+**P19A6 update:** If a source is blocked, do not capture or replace it.
+Other individually permitted sources in that original wave may be
+captured under wave_ID/SOURCE_ID using P19A5 source-specific policy
+review. P19A6 offline partial staging and scoring preserve every
+original selected source in the denominator, even when access fails.
+The older P19A4 full-wave staging command remains all-or-none.
+See P19A6_ATTRITION_AWARE_CHANGELOG_PILOT.md.
 
 ## 3. Stage existing captures into review-ready files — OFFLINE
 
