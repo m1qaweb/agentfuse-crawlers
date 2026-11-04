@@ -96,6 +96,7 @@ class SourceCoverageAudit:
         self.documentation_unprofiled = set()
         self.documentation_canonical_review = set()
         self.lifecycle_skipped = set()
+        self.bulk_access_held = set()
         self.lifecycle_quarantined = set()
         self.policy_unresolved = set()
         self.lifecycle_metadata_errors = set()
@@ -159,8 +160,11 @@ class SourceCoverageAudit:
             if item.get("status") in {
                 "source_quarantined", "source_retired",
                 "source_not_validated_for_monitor",
+                "source_bulk_validation_not_approved",
             }:
                 self.lifecycle_skipped.add(source_id)
+            if item.get("status") == "source_bulk_validation_not_approved":
+                self.bulk_access_held.add(source_id)
             if item.get("source_lifecycle_state") == "quarantined":
                 self.lifecycle_quarantined.add(source_id)
             if item.get("source_policy_status") in {"unresolved", "prohibited_reviewed"}:
@@ -232,6 +236,7 @@ class SourceCoverageAudit:
             "documentation_unprofiled_sources": len(self.documentation_unprofiled & expected),
             "documentation_canonical_review_sources": len(self.documentation_canonical_review & expected),
             "lifecycle_skipped_sources": len(self.lifecycle_skipped & expected),
+            "bulk_access_held_sources": len(self.bulk_access_held & expected),
             "quarantined_sources": len(self.lifecycle_quarantined & expected),
             "policy_unresolved_sources": len(self.policy_unresolved & expected),
             "monitor_eligible_sources": len(self.collection_monitor_eligible & expected),
