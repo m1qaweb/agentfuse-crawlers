@@ -309,6 +309,11 @@ def authorize_bulk_run(*, selected, category, cohort, collection_mode,
               validate_access_registry(access_registry, now=clock))
     approved = (load_run_plan_registry() if run_plans is None else
                 validate_plan_registry(run_plans, now=clock))
+    # Defense in depth: the effective loaded records can be cached, replaced,
+    # or injected by a test runner. Recheck the exact in-memory policy and
+    # run-plan schema at the authorization boundary, not only at load time.
+    validate_access_registry(access, now=clock)
+    validate_plan_registry(approved, now=clock)
     result = {
         "authorized_source_ids": frozenset(),
         "plan_id": "",
