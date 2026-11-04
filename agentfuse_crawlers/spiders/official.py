@@ -32,6 +32,10 @@ from agentfuse_crawlers.quality import (
 from agentfuse_crawlers.sources import (
     load_proven_source_ids, load_sources, select_sources,
 )
+from agentfuse_crawlers.validation_access import (
+    authorize_bulk_run, bulk_plan_revision_sha256,
+    validation_access_revision_sha256,
+)
 
 ALLOWED_HOSTS = sorted({urlsplit(s["url"]).hostname for s in load_sources()})
 PROVEN_IDS = load_proven_source_ids()
@@ -77,7 +81,9 @@ class OfficialBaseSpider(scrapy.Spider):
     def __init__(self, cohort=None, source_ids=None, limit=None, offset=0,
                  confirm_full_inventory=None, expected_manifest_sha256=None,
                  expected_selection_ids_sha256=None, collection_mode="validation",
-                 expected_source_registry_sha256=None, **kwargs):
+                 expected_source_registry_sha256=None, bulk_run_plan_id=None,
+                 expected_bulk_plan_sha256=None,
+                 expected_deployment_package_sha256=None, **kwargs):
         super().__init__(**kwargs)
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
@@ -115,6 +121,60 @@ class OfficialBaseSpider(scrapy.Spider):
                 raise ValueError(
                     f"Run scope mismatch: {field} differs from pinned validation plan"
                 )
+        # P21B: the historic "proven" cohort is NOT a publisher policy
+        # review. A single manual validation must identify exactly ONE source
+        # and cannot be formed indirectly through limit/offset. EVERY other
+        # validation scope (default three-source smoke, chunks, full category)
+        # needs both independently Git-reviewed source access and an
+        # exact-bound short-lived run approval. The two registries ship empty.
+        ids = (
+            [part.strip() for part in source_ids.split(",")]
+            if isinstance(source_ids, str) else
+            list(source_ids) if isinstance(source_ids, (list, tuple, set))
+            else []
+        )
+        single = (
+            len(ids) == 1 and ids[0] == self.selected[0]["id"]
+            and len(self.selected) == 1 and limit is None and self.offset == 0
+        )
+        self.validation_scope = (
+            "monitor" if collection_mode == "monitor"
+            else "single_exact_source" if single
+            else "bulk_reviewed_plan_required"
+        )
+        self.bulk_validation_required = (
+            collection_mode == "validation" and not single
+        )
+        self.bulk_plan_id = ""
+        self.bulk_plan_sha256 = ""
+        self.bulk_authorized_ids = frozenset()
+        self.bulk_max_primary_requests = 0
+        self.bulk_plan_expires_at_utc = None
+        self.validation_access_registry_sha256 = validation_access_revision_sha256()
+        self.bulk_run_plan_registry_sha256 = bulk_plan_revision_sha256()
+        if self.bulk_validation_required:
+            decision = authorize_bulk_run(
+                selected=self.selected, category=self.category, cohort=self.cohort,
+                collection_mode=self.collection_mode, plan_id=bulk_run_plan_id,
+                expected_plan_sha256=expected_bulk_plan_sha256,
+                expected_package_sha256=expected_deployment_package_sha256,
+                current_package_sha256=self.run_context["deployment_revision"],
+            )
+            self.bulk_plan_id = decision["plan_id"]
+            self.bulk_plan_sha256 = decision["plan_sha256"]
+            self.bulk_authorized_ids = decision["authorized_source_ids"]
+            self.bulk_max_primary_requests = decision["max_primary_requests"]
+            self.bulk_plan_expires_at_utc = decision["plan_expires_at_utc"]
+            self.bulk_gate_decision = decision["decision"]
+        else:
+            if (bulk_run_plan_id is not None or
+                    expected_bulk_plan_sha256 is not None or
+                    expected_deployment_package_sha256 is not None):
+                raise ValueError(
+                    "Bulk plan flags cannot grant single-source validation "
+                    "or unattended monitoring"
+                )
+            self.bulk_gate_decision = "not_applicable_to_exact_single_or_monitor"
 
     async def start(self):
         """Required for Scrapy 2.18+; called on every scheduled job."""
@@ -132,6 +192,7 @@ class OfficialBaseSpider(scrapy.Spider):
                 "Pricing table evidence window: relevant_offset=%d, limit=%d",
                 self.pricing_table_offset, self.pricing_table_limit,
             )
+        primary_requests_issued = 0
         for source in self.selected:
             allowed, reason = collection_decision(source, self.collection_mode)
             if not allowed:
@@ -149,6 +210,25 @@ class OfficialBaseSpider(scrapy.Spider):
                 # a network request must not silently shrink accounting.
                 yield self._emit_status(record)
                 continue
+            if (self.bulk_validation_required
+                    and source["id"] not in self.bulk_authorized_ids):
+                record = self._base_record(source)
+                record.update(
+                    status="source_bulk_validation_not_approved",
+                    error=("bulk_run_plan_not_present"
+                           if not self.bulk_plan_id
+                           else "bulk_source_not_in_authorized_scope"),
+                    http_status=None, final_url="",
+                    policy_observation="not_fetched_by_bulk_source_access_gate",
+                )
+                yield self._emit_status(record)
+                continue
+            if self.bulk_validation_required:
+                primary_requests_issued += 1
+                if primary_requests_issued > self.bulk_max_primary_requests:
+                    raise ValueError(
+                        "Bulk primary request count exceeds exact reviewed budget"
+                    )
             yield scrapy.Request(
                 source["url"],
                 callback=self.parse_page,
@@ -170,6 +250,18 @@ class OfficialBaseSpider(scrapy.Spider):
             **self.run_context,
             "collection_mode": self.collection_mode,
             "source_registry_sha256": self.source_registry_sha256,
+            "validation_scope": self.validation_scope,
+            "bulk_validation_required": self.bulk_validation_required,
+            "bulk_access_registry_sha256": self.validation_access_registry_sha256,
+            "bulk_run_plan_registry_sha256": self.bulk_run_plan_registry_sha256,
+            "bulk_run_plan_id": self.bulk_plan_id,
+            "bulk_run_plan_sha256": self.bulk_plan_sha256,
+            "bulk_run_expires_at_utc": self.bulk_plan_expires_at_utc,
+            "bulk_source_authorized_by_reviewed_plan": bool(
+                self.bulk_validation_required
+                and source["id"] in self.bulk_authorized_ids
+            ),
+            "bulk_gate_decision": self.bulk_gate_decision,
             "source_lifecycle_state": profile["state"],
             "source_policy_status": profile["policy_status"],
             "source_lifecycle_reason": profile["reason_code"],
