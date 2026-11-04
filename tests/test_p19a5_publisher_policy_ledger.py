@@ -187,10 +187,12 @@ def test_reviews_exact_wave_capture_ready_only_when_all_sources_have_own_evidenc
         plan, reviewed, source_ids=wave, selection_key=SELECTION,
     )
     assert attempt["receipt_sha256"] == report["receipt_sha256"]
-    with pytest.raises(ValueError, match="exactly match"):
-        require_batch_capture_review(
-            plan, reviewed, source_ids=wave[:-1], selection_key=SELECTION,
-        )
+    # Partial captures remain constrained to this one original wave
+    # and never grant permission to an unreviewed or blocked source.
+    subset_receipt = require_batch_capture_review(
+        plan, reviewed, source_ids=wave[:-1], selection_key=SELECTION,
+    )
+    assert subset_receipt["receipt_sha256"] == report["receipt_sha256"]
     with pytest.raises(ValueError, match="exactly match"):
         require_batch_capture_review(
             plan, reviewed, source_ids=list(reversed(wave)),
