@@ -109,85 +109,98 @@ manual diagnostic runs returned HTTP 200. Human-reviewed terms,
 two stable job IDs, correct product identity and Git-reviewed source
 lifecycle approvals remain separate requirements.
 
-## Step 2 — Expand to Wave 2 and independent gold
+## Step 2 — Expand to Wave 2 after checking Wave 1
 
-After diagnosing Wave 1, run Wave 2's preregistered sources only when
-each publisher's policy allows the exact requests. This increases the
-diversity of evidence; it is still not a full source audit.
+Run Wave 2's nine preregistered sources in two distinct manually
+approved, archived rounds, only where each specific publisher allows
+the exact request. Across both waves, this is at most 36 manual
+one-source jobs, not a full inventory. Investigate parser gaps,
+wrong-product docs, empty HTML shells, large pricing tables, release
+date/owner ambiguity, duplicate IDs, unexpected redirects, access
+denials and inconsistent parser revisions.
 
-Minimum evidence expectations already specified in the project:
+The initial live canaries are a **safety and technical validation**
+checkpoint, not proof of 99% source-wide accuracy or collection
+rights for unrelated vendors. Preserve failed sources as explicit
+holds and identify every changed adapter/fingerprint.
 
-- Pricing: >=200 distinct, real archived and independently reviewed
-  amount+model+currency+unit+plan+region+scope observations, >=99% exact
-  comparison agreement, zero fabricated comparable rates when scope
-  or rate units are missing.
-- Changelogs: >=100 real publisher event date examples, >=99% exact
-  publication-day agreement, zero invented latest days and false
-  new-release alerts from baselines/reorders. P19A6 also requires a
-  15-25-provider original-HTML independent two-reviewer full-page
-  census, including parser misses and inaccessible source attrition.
-- Documentation: independent human inspection of original publisher
-  pages, intended product identity, substantive child-page coverage,
-  and JS-only or wrong-product scope. A docs landing page is not a
-  verified complete documentation inventory.
-- Collection: two archived real canary rounds, >=95% usable among
-  source-policy-reviewed and Git-approved collection-eligible rounds,
-  exact source accounting, no duplicate job, policy violation or
-  unauthorized advisor facts.
+## Step 3 — When to do ONE supervised full-inventory diagnostic
 
-The P08/P15B strict quality gate must recompute real gold with
-hash-checked original publisher evidence and Zyte archives; a
-precomputed accuracy-report JSON does not establish these conditions.
+For a single, nonpublishing 460-ID inventory **diagnostic** run,
+these checks should pass:
 
-## Step 3 — Conditions for ONE supervised full diagnostic crawl
+1. The actual deployed Zyte egg/revision equals a reviewed,
+   green-CI commit with exactly three spiders and the pinned
+   460-ID source manifest.
+2. Real two-round Wave 1 and Wave 2 manual canaries have been
+   independently archived and inspected. No uninvestigated
+   source-selection, robots/access-policy or job-accounting
+   failure; known extraction defects are scoped and explicitly
+   held when unresolved.
+3. Every publisher URL intended for the broad run has an
+   individually reviewed ownership, robots, terms, scope and
+   retention decision. No implicit permission from manifest
+   presence or historical success. Denied/quarantined URLs
+   MUST be skipped and counted as held source Items.
+4. The operator explicitly approves **one finite** Zyte
+   diagnostic, checks its cost and schedules, and leaves
+   Supabase writes, automatic release alerts and advisor
+   approval completely disabled.
+5. Capture and retain all original job metadata, Items, Requests
+   and Logs; verify the 194/177/89 source-summary accounting
+   independently of semantic accuracy.
 
-Run ONE 460-ID accounting diagnostic **only after all of these**:
+**The 200 real pricing / 100 date human-gold thresholds are NOT
+prerequisites merely to collect this bounded diagnostic dataset.**
+The full run is a new observation for diagnosis, not a source
+of trusted recommendation facts. Its data can help prepare
+independently reviewed gold and discover difficult providers.
 
-1. Python 3.12 and 3.14 CI pass for the exact intended deployed
-   revision, which is verified as the Zyte egg in use, preserving
-   the three spiders and original source manifest.
-2. Both manually approved canary waves have been captured twice,
-   archived and independently reviewed. Previously observed pricing,
-   docs and changelog failure cases have been fixed or held as
-   explicit unknowns; real gold thresholds have been met.
-3. Every URL that will be fetched has an individual current
-   publisher ownership, robots, terms, product-scope and private
-   retention review. Existing quarantined IDs stay held unless
-   independently cleared. A denied URL is NEVER retried via evasion.
-4. The user deliberately authorizes a finite, supervised full
-   inventory diagnostic with clear Zyte budget, job monitoring and
-   complete archived Items/Requests/Logs. Automatic schedules,
-   production data writes and advisor-fact approval remain disabled.
-5. The operator preserves original 194/177/89 expected Item counts
-   and fails the quality review on missing IDs, unexpected redirects,
-   forbidden 429/403 behavior, wrong products, invented dates,
-   missing pricing dimensions or unreviewed accuracy.
+With the current registry, the three v0 quarantined URLs would
+produce **held, not fetched** status Items. At most 457 URLs
+are technically validation-eligible, but none is thereby
+publisher-authorized. Do not run the broad job before the
+individual publisher policy checks above.
 
-With current local registry restrictions, a supervised validation
-run could produce 460 **accounted-for** source Items, but the
-three quarantined URLs would be held and NOT fetched. It would
-have at most 457 technically permitted validation fetch candidates,
-and those 457 still need external publisher-specific permission.
-Do not equate source accounting with 460 lawful and correct fetches.
+## Step 4 — When to trust the results or enable recurring full monitoring
 
-**Do not schedule the full crawl automatically or turn its first
-results into AgentFuse recommendations.** Inspect and compare real
-evidence and source-level quality before proposing a repeat.
+This is a **strictly later** milestone than one supervised
+diagnostic run. The program's existing real-evidence checks
+must be satisfied:
 
-## Step 4 — Conditions for unattended monitoring
+- >=200 distinct archived real vendor rate comparisons,
+  >=99% agreement on decimal amount AND exact currency,
+  billing unit, model, service mode, region, plan and dimensions.
+  Unknown scope must not become a fully comparable rate.
+- >=100 genuinely human-reviewed release owner/date examples
+  with >=99% publication-day agreement, zero invented latest
+  days and no first-baseline/reorder false announcements.
+- P19A6 original-HTML independent full-page blind human
+  census across a preregistered 15–25-provider changelog
+  pilot, including missed events and access attrition.
+- Actual first-party documentation page scope and child-page
+  evidence reviewed; an HTTP-200 landing page alone is not
+  documentation coverage.
+- P08/P15B strict gates pass using **immutable real publisher
+  bytes and Zyte job archives**, dual blind human reviews and
+  >=95% usable collection over two rounds among source-policy
+  reviewed, collection-eligible sources. A self-written
+  accuracy JSON does not prove any of these.
+- Every publisher for ongoing monitoring obtains an individual,
+  Git-reviewed source lifecycle approval after policy and
+  repeatable collection assessment. Currently **zero** have it.
 
-Later than the one-time diagnostic: each monitored source must have
-its own Git-reviewed lifecycle collection approval, established
-publisher permission and repeated verified extraction. Currently
-zero qualify. No schedule activation, autonomous news feed or
-advisor fact may be inferred from green CI or a successful manual
-full-inventory accounting run.
+These checks must precede trusted recurring full collection
+or AgentFuse fact export. Do not turn archived HTTP-200 results
+into automatically approved price or release claims.
 
 ## Final recommendation
 
-**NO-GO now.** The next meaningful milestone is Wave 1 manual
-policy review and real Zyte canaries, followed by the source-bound
-human gold that exposes actual extraction failures. P20A only
-makes the next actions visible and pinned. Once you provide the
-authentic Items, Requests and Logs from those jobs, prioritize
-measured failures over additional speculative infrastructure.
+**NO-GO today.** First complete policy-reviewed, archived, two-round
+Wave 1 and Wave 2 live canaries and the broad-scope publisher policy
+preflight. After those pass, one supervised **diagnostic** inventory
+is sensible; it does not wait for every 200+ real rate and 100+
+real date reference label. Use the diagnostic originals plus
+independent human reviews to prove accuracy BEFORE recurring
+monitoring or recommendation export. P20A only prepares pinned
+dry-run plans, never jobs or permissions.
