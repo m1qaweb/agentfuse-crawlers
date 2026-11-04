@@ -49,6 +49,19 @@ def test_460_source_census_is_complete_with_real_restrictions():
         "NO_GO_PENDING_PER_SOURCE_APPROVAL"
     )
     assert report["real_accuracy_measured_by_this_preflight"] is False
+    assert report["diagnostic_collection_requires_completed_gold_benchmarks"] is False
+    assert report["trusted_monitoring_requires_real_human_gold"] is True
+    assert set(report["source_ids_held_and_not_fetched_under_current_policy"]) == {
+        "v0_docs", "v0_pricing", "v0_changelog"
+    }
+    assert any("two independently archived" in reason.lower()
+               for reason in report["diagnostic_run_blockers"])
+    assert any("200+" in reason for reason in
+               report["trusted_monitoring_blockers"])
+    assert not any("200+" in reason for reason in
+                   report["diagnostic_run_blockers"])
+    assert not any("100+" in reason for reason in
+                   report["diagnostic_run_blockers"])
     assert report["new_source_permissions"] == 0
     assert report["new_zyte_jobs"] == 0
     assert report["network_requests_performed"] == 0
