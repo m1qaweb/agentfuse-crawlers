@@ -601,7 +601,13 @@ def audit_bundle(bundle, *, holdout_key, files=None, allow_synthetic=False):
         row["rank"] = i
     for row in all_source_rows:
         if row["source_id"] in blocked:
-            row["rank"] = ""  # avoid exposing held-out ranking
+            # Retain all 460 configured IDs for accountability, but withhold
+            # parser outcomes and targeted risk cues from developer triage.
+            # The independent operator keeps the full immutable Items.
+            for field in SOURCE_FIELDS:
+                if field not in ("source_id", "category", "provider", "source_url"):
+                    row[field] = ""
+            row["next_action"] = "sealed_holdout_do_not_use_for_parser_tuning"
     result["review_queue"] = {
         "priority_ranked_development_count": len(prioritized),
         "blind_holdout_source_count": len(blocked),
@@ -613,10 +619,13 @@ def audit_bundle(bundle, *, holdout_key, files=None, allow_synthetic=False):
         "schema_version": VERSION,
         "kind": "p21a_source_risk_clusters_for_manual_replay_only",
         "groups": {
-            k: {"count": len(ids), "source_ids": sorted(ids),
+            k: {"count": len([sid for sid in ids if sid not in blocked]),
+                "source_ids": sorted(sid for sid in ids if sid not in blocked),
                 "next_action": RISKS[k]}
             for k, ids in sorted(risks.items())
         },
+        "sealed_holdout_source_count": len(blocked),
+        "holdout_outcome_details_redacted_from_dev_clusters": True,
         "source_risk_not_verified_impact": True,
         "publisher_facts_verified": False,
         "network_requests_performed": 0,
