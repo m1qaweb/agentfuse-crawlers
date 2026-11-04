@@ -90,6 +90,8 @@ def _https(value, *, expected_host=None, robots=False):
         if (u.scheme != "https" or not u.hostname
                 or u.username or u.password or u.port not in (None, 443)
                 or u.query or u.fragment
+                or u.hostname.lower() in {"localhost", "localhost.localdomain"}
+                or u.hostname.lower().endswith((".localhost", ".local"))
                 or (expected_host is not None
                     and u.hostname.lower() != expected_host.lower())
                 or (robots and u.path != "/robots.txt")):
@@ -118,7 +120,9 @@ def _review_valid(record, source, *, now):
             or record["decision"] not in ACCESS_STATES):
         raise ValueError("Source policy review changed exact pinned ID/URL/category")
     scopes = record["scopes"]
-    if (not isinstance(scopes, list) or len(set(scopes)) != len(scopes)
+    if (not isinstance(scopes, list)
+            or any(not isinstance(scope, str) for scope in scopes)
+            or len(set(scopes)) != len(scopes)
             or any(scope not in ACCESS_SCOPES for scope in scopes)):
         raise ValueError("Invalid reviewed access scope list")
     who = record["reviewed_by"]
@@ -245,7 +249,9 @@ def _plan_valid(plan, *, plan_id, now):
             or not all(isinstance(v, str) for v in ids)
             or len(set(ids)) != len(ids)
             or not isinstance(permitted, list)
-            or not permitted or len(set(permitted)) != len(permitted)
+            or not permitted
+            or not all(isinstance(v, str) for v in permitted)
+            or len(set(permitted)) != len(permitted)
             or any(x not in ids for x in permitted)
             or [x for x in ids if x in permitted] != permitted):
         raise ValueError("Bulk plan source/authorized ID scope is invalid")
@@ -311,6 +317,7 @@ def authorize_bulk_run(*, selected, category, cohort, collection_mode,
         "plan_registry_sha256": bulk_plan_revision_sha256(approved),
         "decision": "bulk_run_plan_not_present",
         "max_primary_requests": 0,
+        "max_redirects_per_source": 0,
         "plan_expires_at_utc": None,
     }
     if not selected or len(selected) > MAX_SCOPE_SOURCES:
@@ -363,6 +370,7 @@ def authorize_bulk_run(*, selected, category, cohort, collection_mode,
         "plan_id": plan_id, "plan_sha256": expected_plan,
         "decision": "exact_git_reviewed_bounded_run_plan",
         "max_primary_requests": len(permitted),
+        "max_redirects_per_source": plan["max_redirects_per_source"],
         "plan_expires_at_utc": plan["expires_at_utc"],
     })
     return result
