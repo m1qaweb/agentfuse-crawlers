@@ -517,6 +517,18 @@ def score_partial_pilot(plan, ledger, staged_root, *, selection_key, split_key):
         subset_report = None
         measured = {}
     else:
+        # Incomplete human review is a conspicuous BLOCKER, not a
+        # FileNotFound traceback or an invitation to count absent labels
+        # as zero false negatives.
+        for wave_input in subset["batches"]:
+            for field in ("reviewer_a", "reviewer_b"):
+                if not _safe_member_directory_or_none(
+                    staged_root, wave_input[field],
+                ):
+                    raise ValueError(
+                        "P19A6 requires both completed independent "
+                        "whole-page reviewer files for every captured wave"
+                    )
         subset_report = aggregate_release_pilot(
             subset, staged_root, split_key=split_key,
         )
