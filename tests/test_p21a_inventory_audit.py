@@ -243,7 +243,7 @@ def test_two_stage_same_host_redirect_uses_final_request_not_initial_308():
 def test_source_json_export_exact_pinned_sha_and_symlink_rejection(tmp_path):
     fake = tmp_path / "files"
     fake.mkdir()
-    name = "items_official_pricing_11.json"
+    name = "items_official_documentation_15.json"
     (fake / name).write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="changed"):
         _raw_exports(fake)
