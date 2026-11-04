@@ -236,11 +236,11 @@ def test_two_snapshot_rounds_must_have_unique_receipts_and_increasing_time(tmp_p
 
 @pytest.mark.parametrize("tamper,expected", [
     ("missing_source", "18-source"),
-    ("duplicate_id", "Reordered"),
-    ("swap_rows", "Reordered"),
-    ("source_url", "Reordered"),
+    ("duplicate_id", "reordered"),
+    ("swap_rows", "reordered"),
+    ("source_url", "reordered"),
     ("wrong_round", "round"),
-    ("missing_round", "Reordered"),
+    ("missing_round", "reordered"),
     ("fake_gold", "18-source"),
     ("wrong_plan_sha", "18-source"),
     ("status_without_html", "smuggle"),
