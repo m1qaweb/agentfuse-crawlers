@@ -450,6 +450,23 @@ def audit_bundle(bundle, *, holdout_key, files=None, allow_synthetic=False):
                 "external_publisher_accuracy_verified": False,
                 "next_action": RISKS[family],
             })
+        if category == "pricing":
+            # Reuse the existing P09A pricing auditor to independently
+            # reconcile observation counts, normalization blockers and risks.
+            existing_pricing_audit = inspect_pricing(items, expect_all=True)
+            if (existing_pricing_audit["observed_price_rows"] !=
+                    price_measured["retained_observations"]
+                    or existing_pricing_audit["review_quote_candidates"] !=
+                    price_measured["review_quote_candidates"]
+                    or existing_pricing_audit["comparable_candidates"] !=
+                    price_measured["fully_comparable_candidates"]):
+                raise ValueError("Independent pricing item audit disagrees")
+            price_measured["normalization_blockers_existing_auditor"] = (
+                existing_pricing_audit["normalization_blockers"]
+            )
+            price_measured["provenance_anomalies_existing_auditor"] = (
+                existing_pricing_audit["provenance_or_approval_anomalies"]
+            )
         if recorded_stats["captured_sources"] != statuses["captured"]:
             raise ValueError("Zyte log captured count differs from source records")
         category_reports[category] = {
