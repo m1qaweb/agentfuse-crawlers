@@ -193,7 +193,7 @@ def test_reviews_exact_wave_capture_ready_only_when_all_sources_have_own_evidenc
         plan, reviewed, source_ids=wave[:-1], selection_key=SELECTION,
     )
     assert subset_receipt["receipt_sha256"] == report["receipt_sha256"]
-    with pytest.raises(ValueError, match="exactly match"):
+    with pytest.raises(ValueError, match="ordered"):
         require_batch_capture_review(
             plan, reviewed, source_ids=list(reversed(wave)),
             selection_key=SELECTION,
