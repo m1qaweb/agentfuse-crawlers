@@ -1,0 +1,97 @@
+name: Prepare Zyte UI preflight (no crawl)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/manual-p20b-zyte-preflight.yml'
+      - 'scripts/prepare_zyte_ui_args.py'
+      - 'scripts/full_inventory_readiness.py'
+      - 'tests/test_p20b_zyte_ui_args.py'
+      - 'docs/P20B_NO_LOCAL_ZYTE_UI_GUIDE.md'
+
+permissions:
+  contents: read
+
+jobs:
+  no_network_preflight:
+    name: Make downloadable 460-source review + Zyte UI args
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: UTC
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out exact GitHub repository revision
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install repository dependencies (no publisher/Zyte access)
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pip install .
+      - name: Produce offline 460-source review and two manual canary waves
+        run: |
+          python -m scripts.full_inventory_readiness \
+            --out-dir output/private/p20b-preflight
+      - name: Produce exact copy/paste UI arguments for three full spiders
+        run: |
+          python -m scripts.prepare_zyte_ui_args \
+            --out-dir output/private/p20b-zyte-args
+      - name: Refuse unsafe scope or inferred permissions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          prefix = Path("output/private")
+          census = json.loads((prefix / "p20b-preflight" / "full_inventory_readiness.json").read_text())
+          guide = json.loads((prefix / "p20b-zyte-args" / "zyte_full_3_spiders_NOT_AUTHORIZED.json").read_text())
+          assert census["configured_sources"] == 460
+          assert census["category_counts"] == {"documentation": 194, "pricing": 177, "changelog": 89}
+          assert census["full_inventory_one_time_diagnostic_crawl"] == "NO_GO_PENDING_EVIDENCE"
+          assert census["full_inventory_automatic_monitoring"] == "NO_GO_PENDING_PER_SOURCE_APPROVAL"
+          assert census["network_requests_performed"] == census["new_zyte_jobs"] == 0
+          assert guide["full_diagnostic_approved_to_run"] is False
+          assert guide["network_requests_performed"] == guide["zyte_jobs_created"] == 0
+          assert len(guide["jobs"]) == 3
+          assert sum(j["configured_source_count"] for j in guide["jobs"]) == 460
+          for job in guide["jobs"]:
+              args = job["arguments"]
+              assert args["cohort"] == "all"
+              assert args["collection_mode"] == "validation"
+              assert args["confirm_full_inventory"] == "yes"
+              assert "source_ids" not in args and "limit" not in args
+              assert job["operator_review_status"].startswith("NOT_AUTHORIZED")
+          for wid in ("wave_01", "wave_02"):
+              w = json.loads((prefix / "p20b-preflight" / wid / "manual_canary_plan.json").read_text())
+              assert w["total_expected_jobs"] == 18 and w["execution_permitted"] is False
+              assert all(x["spider_args"]["source_ids"] == x["source_id"] for x in w["jobs"])
+          print("Offline ready. Exactly 460 accounted, 36 manual canary job specifications, ZERO Zyte jobs.")
+          print("Publisher policy and real-world accuracy NOT VERIFIED. Full run is not approved by this file.")
+          PY
+      - name: Upload downloadable operator materials (not approvals)
+        uses: actions/upload-artifact@v4
+        with:
+          name: p20b-zyte-no-local-preflight-${{ github.run_id }}
+          path: |
+            output/private/p20b-preflight/
+            output/private/p20b-zyte-args/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Explain what the artifact means
+        run: |
+          {
+            echo "### P20B preflight complete — NO Zyte crawl triggered"
+            echo ""
+            echo "Download the Actions artifact to obtain:"
+            echo "- full_inventory_readiness.json and all_460_source_review_queue.csv"
+            echo "- Wave 1 and Wave 2 exact two-round one-source Zyte manual canary plans"
+            echo "- READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt and CSV/JSON exact full-spider arguments"
+            echo ""
+            echo "**These arguments are NOT approval to run full source collection.**"
+            echo "Review publisher policies, complete real canaries, verify Zyte deployment, then authorize one supervised diagnostic."
+            echo "No source IDs, deployed spiders, schedules, permissions or production data were changed."
+          } >> "$GITHUB_STEP_SUMMARY"
