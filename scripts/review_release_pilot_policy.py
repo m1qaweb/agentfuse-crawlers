@@ -251,19 +251,30 @@ def require_batch_capture_review(plan, ledger, *, source_ids, selection_key):
     receipt = validate_policy_ledger(
         plan, ledger, selection_key=selection_key,
     )
-    matches = [
-        row for row in receipt["batches"]
-        if row["planned_source_ids"] == list(source_ids)
-    ]
+    if (not isinstance(source_ids, list) or not 1 <= len(source_ids) <= 5
+            or any(not isinstance(sid, str) for sid in source_ids)
+            or len(set(source_ids)) != len(source_ids)):
+        raise ValueError("Select 1-5 distinct exact frozen changelog sources")
+    matches = []
+    for wave in receipt["batches"]:
+        planned = wave["planned_source_ids"]
+        # Strict original order, one frozen wave only; no reordered or
+        # cross-wave capture that could hide denied publisher sources.
+        subset = [sid for sid in planned if sid in source_ids]
+        if subset == source_ids:
+            matches.append(wave)
     if len(matches) != 1:
         raise ValueError(
-            "Manual capture selection must exactly match a frozen pilot wave"
+            "Manual capture must match one ordered, nonempty frozen pilot wave subset"
         )
-    if not matches[0]["all_batch_sources_operator_attested_eligible"]:
+    permitted = set(matches[0]["operator_attested_capture_eligible_source_ids"])
+    if not set(source_ids) <= permitted:
         raise ValueError(
-            "At least one source in this frozen wave is held by "
-            "independent publisher-specific policy review"
+            "At least one requested publisher source is held by "
+            "source-specific policy review"
         )
+    # The receipt covers the WHOLE frozen plan, not just captured sources:
+    # blocked/unavailable sources stay visible to P19A6 attrition reporting.
     return receipt
 
 
