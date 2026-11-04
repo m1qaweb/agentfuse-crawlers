@@ -64,16 +64,26 @@ def capture_changelog_html(source_ids, out_dir, *, policy_review_note,
         waves = source_policy_preflight.get("batches") if isinstance(
             source_policy_preflight, dict
         ) else None
-        if (source_policy_preflight.get("kind") !=
-                "p19a5_offline_policy_preflight_not_permission"
+        def _allows(wave):
+            if not isinstance(wave, dict):
+                return False
+            planned = wave.get("planned_source_ids")
+            eligible = wave.get("operator_attested_capture_eligible_source_ids")
+            if not isinstance(planned, list) or not isinstance(eligible, list):
+                return False
+            # Retain full preregistration; only a reviewed ordered subset
+            # of ONE wave can be fetched by an explicit operator invocation.
+            return (
+                [sid for sid in planned if sid in source_ids] == source_ids
+                and set(source_ids) <= set(eligible)
+            )
+        if (not isinstance(source_policy_preflight, dict)
+                or source_policy_preflight.get("kind") !=
+                    "p19a5_offline_policy_preflight_not_permission"
                 or source_policy_preflight.get("approved_for_advisor") is not False
                 or not isinstance(waves, list)
-                or not any(
-                    wave.get("planned_source_ids") == list(source_ids)
-                    and wave.get("all_batch_sources_operator_attested_eligible") is True
-                    for wave in waves if isinstance(wave, dict)
-                )):
-            raise ValueError("No matching source-by-source operator policy preflight")
+                or sum(_allows(wave) for wave in waves) != 1):
+            raise ValueError("No matching source-specific reviewed pilot wave subset")
     if (not isinstance(policy_review_note, str)
             or not 30 <= len(policy_review_note.strip()) <= MAX_POLICY_NOTE):
         raise ValueError("Manual publisher policy note must be 30-500 chars")
