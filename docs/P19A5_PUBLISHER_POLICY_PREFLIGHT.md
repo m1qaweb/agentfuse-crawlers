@@ -125,11 +125,11 @@ explicit capture and operator policy flags:
       --policy-ledger output/private/changelog-pilot-policy-filled-1/source_policy_review_filled.json \
       --out-dir output/private/changelog-pilot-captures-1/wave_01
 
-The request must match **one entire original frozen wave, in its
-original order**, and every publisher in that wave must have an
-operator-attested eligible decision. A blocked, pending, missing,
-wrong-source or changed-terms decision causes failure BEFORE the
-network request. Real capture also performs fresh robots.txt checks
+**P19A6 update:** Manual captures may select an original-order,
+nonempty subset of one frozen wave, but ONLY its individually eligible
+P19A5-reviewed sources. Every publisher remains in the original sample
+denominator, including blocked, deferred and not-yet-captured sources.
+See P19A6_ATTRITION_AWARE_CHANGELOG_PILOT.md. Real capture also performs fresh robots.txt checks
 and refuses redirects/access challenges.
 
 The resulting P19A1 original-HTML capture audit binds the policy
@@ -153,18 +153,19 @@ offline and writes only *blank* P19A2 reviewer templates:
       --capture-root output/private/changelog-pilot-captures-1 \
       --out-dir output/private/changelog-pilot-staged-1
 
-The CLI checks every selected publisher decision, requires all
-original source captures, and matches each capture audit's policy
-SHA-256 with the independently recomputed preflight receipt.
+The original P19A4 full-cohort staging CLI remains all-or-none;
+P19A6 provides a separate attrition-aware staging and scoring path for
+individually permitted captures. Both bind P19A1 audits to the
+current source-specific P19A5 review receipt.
 It refuses inconsistent or missing waves and never fakes a human
 full-page census. Reviewers A and B must still supply independent
 real original-HTML evidence before P19A3 owner/date metrics.
 
 **If a source is blocked:** record the blocker, do NOT capture it,
 do NOT silently replace it, and do NOT declare pilot accuracy.
-The whole-cohort staging gate intentionally stays held. Future
-attrition-aware analysis must preserve the original 20-source
-selection as the denominator before accepting partial results.
+The P19A4 whole-cohort staging gate stays held. P19A6 now supports
+individual manual captures and offline attrition-aware diagnosis while
+retaining all 20 originally selected source IDs.
 
 ## Safety boundary
 
