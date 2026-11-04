@@ -111,10 +111,15 @@ def test_synthetic_full_460_source_accounting_and_two_distinct_reports():
     assert audit["evidence_and_semantic_quality"]["advisor_fact_approvals"] == 0
     assert len(rows) == 460
     assert len(requests) == 457
-    assert sum(g["count"] for g in groups["groups"].values()) == 460
+    assert sum(g["count"] for g in groups["groups"].values()) == 442
+    assert groups["sealed_holdout_source_count"] == 18
     assert holdout["source_count"] == 18
     assert all(len(ids) == 6 for ids in holdout["categories"].values())
     assert sum(not x["rank"] for x in rows) == 18
+    held = [x for x in rows if not x["rank"]]
+    assert all(not x["diagnostic_reasons"] and not x["risk_family"]
+               and not x["primary_error"] and not x["http_status"]
+               and not x["status"] for x in held)
     assert audit["input_integrity"]["nine_original_export_sha256_pins_checked"] is False
     assert audit["network_requests_performed"] == audit["new_zyte_jobs"] == 0
 
