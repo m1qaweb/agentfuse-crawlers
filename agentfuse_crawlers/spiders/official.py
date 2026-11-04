@@ -149,6 +149,7 @@ class OfficialBaseSpider(scrapy.Spider):
         self.bulk_plan_sha256 = ""
         self.bulk_authorized_ids = frozenset()
         self.bulk_max_primary_requests = 0
+        self.bulk_max_redirects_per_source = MAX_REDIRECTS
         self.bulk_plan_expires_at_utc = None
         self.validation_access_registry_sha256 = validation_access_revision_sha256()
         self.bulk_run_plan_registry_sha256 = bulk_plan_revision_sha256()
@@ -164,6 +165,10 @@ class OfficialBaseSpider(scrapy.Spider):
             self.bulk_plan_sha256 = decision["plan_sha256"]
             self.bulk_authorized_ids = decision["authorized_source_ids"]
             self.bulk_max_primary_requests = decision["max_primary_requests"]
+            if self.bulk_plan_id:
+                self.bulk_max_redirects_per_source = decision[
+                    "max_redirects_per_source"
+                ]
             self.bulk_plan_expires_at_utc = decision["plan_expires_at_utc"]
             self.bulk_gate_decision = decision["decision"]
         else:
@@ -257,6 +262,7 @@ class OfficialBaseSpider(scrapy.Spider):
             "bulk_run_plan_id": self.bulk_plan_id,
             "bulk_run_plan_sha256": self.bulk_plan_sha256,
             "bulk_run_expires_at_utc": self.bulk_plan_expires_at_utc,
+            "bulk_max_redirects_per_source": self.bulk_max_redirects_per_source,
             "bulk_source_authorized_by_reviewed_plan": bool(
                 self.bulk_validation_required
                 and source["id"] in self.bulk_authorized_ids
@@ -319,7 +325,7 @@ class OfficialBaseSpider(scrapy.Spider):
                 yield self._emit_status(record)
                 return
             depth = int(meta.get("source_redirect_depth", 0))
-            if depth >= MAX_REDIRECTS or _visible_url(target) in chain + [_visible_url(response.url)]:
+            if depth >= self.bulk_max_redirects_per_source or _visible_url(target) in chain + [_visible_url(response.url)]:
                 record.update(status="redirect_needs_review", error="redirect_limit_or_loop")
                 yield self._emit_status(record)
                 return
@@ -412,6 +418,10 @@ class OfficialBaseSpider(scrapy.Spider):
 
         if (source["category"] == "changelog"
                 and allowed_markdown_url(source)
+                # A Markdown alternate is a DIFFERENT publisher URL and
+                # is not covered by an exact source-URL bulk access review.
+                # Until separately approved, bulk jobs may NOT fetch it.
+                and not self.bulk_validation_required
                 and status not in {"blocked", "robots_or_policy_denied"}
                 and (not evidence.get("release_window_complete")
                      or evidence.get("release_event_count", 0) < 2)
