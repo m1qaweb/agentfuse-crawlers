@@ -118,32 +118,42 @@ def table_declarations(main):
     Table-local declarations are limited to recent standalone text nodes.
     Any intervening unrelated table or new h2 prevents inheritance. Multiple
     incompatible declarations for the same dimension remain unresolved.
-    The page-wide ALL currency declaration is accepted only if all explicit
-    ALL-currency declarations on this page agree and precede the first table.
+    A page-wide ALL-currency declaration must precede the first visible
+    table to be inherited. Any contradictory visible ALL-currency declaration
+    later on the page invalidates it for ALL tables (even earlier ones).
     """
     tables = [t for t in main.xpath(".//table[not(ancestor::table)]")
               if not in_explicitly_nonvisible_context(t)]
     if not tables:
         return {}
     first_table = tables[0]
-    global_currencies = []
-    # Check the document preface, never a price table, header cell or footer.
+    preface_currencies = []
+    all_visible_page_currencies = set()
+    before_first_table = True
+    # A global ALL-prices claim may be inherited only when it PRECEDES
+    # the first visible table. But contradictory global declarations
+    # ANYWHERE later on this visible page invalidate that inheritance
+    # across ALL tables, as pricing cards already do. Ignore invisible
+    # statements, table cells, sidebars and qualified exceptions.
     for node in main.iter():
         if node is first_table:
-            break
+            before_first_table = False
         statement = _leaf_statement(node)
-        if statement:
-            match = ALL_CURRENCY.search(statement)
-            if match:
-                value = match.group(1).upper()
-                if value in CURRENCY_CODES:
-                    global_currencies.append(_citation(
+        if not statement:
+            continue
+        match = ALL_CURRENCY.search(statement)
+        if match:
+            value = match.group(1).upper()
+            if value in CURRENCY_CODES:
+                all_visible_page_currencies.add(value)
+                if before_first_table:
+                    preface_currencies.append(_citation(
                         name="currency", value=value,
                         scope="page_all_prices", text=statement,
                     ))
     page_currency = (
-        global_currencies[0] if global_currencies
-        and len({c["value"] for c in global_currencies}) == 1 else None
+        preface_currencies[0] if preface_currencies
+        and len(all_visible_page_currencies) == 1 else None
     )
     result = {}
     pending = []
