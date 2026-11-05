@@ -240,8 +240,11 @@ def test_table_helper_skips_hidden_table_without_consuming_visible_unit_scope():
         table() +
         "</main>"
     )
-    scoped = table_declarations(root)
+    # Keep the lxml proxy strongly referenced: id(table) is this legacy
+    # helper's map-key contract, and lxml may recreate an unheld wrapper
+    # between independent XPath queries on Python 3.12.
     visible = root.xpath(".//table")[1]
+    scoped = table_declarations(root)
     assert list(scoped) == [id(visible)]
     assert scoped[id(visible)][0]["dimension"] == "billing_unit"
     assert scoped[id(visible)][0]["value"] == "per_1m_tokens"
