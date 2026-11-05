@@ -237,6 +237,10 @@ def test_real_offline_extraction_using_synthetic_bytes_three_categories(
             assert all(x["approved_for_advisor"] is False
                        for x in row["references"] + row["predictions"])
     form = fill_adjudicator(packet)
+    assert len(form["cases"]) >= 1, (
+        "At least one actual source-scoped synthetic replay must reach "
+        "third-review adjudication, not just exercise held paths"
+    )
     report, scored, rounds = accuracy.score_packet(
         plan, ledger, tmp_path, a, b, packet, form, now=NOW,
     )
