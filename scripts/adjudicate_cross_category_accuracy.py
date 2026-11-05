@@ -285,8 +285,6 @@ def build_packet(plan, ledger, capture_root, reviewer_a, reviewer_b, *, now=None
     review, rounds, consensus = reconcile(
         plan, ledger, capture_root, reviewer_a, reviewer_b, now=now,
     )
-    tasks_by_round = {(c["source_id"], c["round"]): c for c in ledger["rows"]
-                      for _ in ()}  # no implicit source replacement
     # Source identity from the frozen accession, NOT parser contents.
     from scripts.accession_cross_category_html import stage_data
     _, cases, _ = stage_data(plan, ledger, capture_root, now=now)
@@ -336,13 +334,19 @@ def build_packet(plan, ledger, capture_root, reviewer_a, reviewer_b, *, now=None
             )
             identity = identify_source_product(source, evidence)
             holds = _eligible_parser(source["category"], evidence, identity)
-            refs = _references(origin, consensus_case)
+            source_task = {
+                "task_id": entry["case_id"],
+                "source_id": origin["source_id"],
+                "category": origin["category"],
+                "source_url": origin["source_url"],
+            }
+            refs = _references(source_task, consensus_case)
             if source["category"] == "pricing" and any(
                 not _pricing_gold_complete(ref["reviewed_value"]) for ref in refs
             ):
                 holds.append("human_price_scope_not_fully_established")
             if not holds:
-                predictions, unqualified = _predictions(origin, evidence)
+                predictions, unqualified = _predictions(source_task, evidence)
                 entry["score_status"] = "requires_independent_adjudication"
                 entry["predictions"] = predictions
                 entry["references"] = refs
