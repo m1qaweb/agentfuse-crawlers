@@ -117,6 +117,8 @@ def _eligible_parser(category, evidence, identity):
     if category == "pricing":
         if evidence.get("pricing_inventory_complete") is not True:
             holds.append("pricing_page_inventory_incomplete")
+        if evidence.get("pricing_product_scope_unresolved"):
+            holds.append("pricing_product_scope_unresolved")
         if evidence.get("pricing_observation_limit_reached") or (
             evidence.get("pricing_table_scan_truncated")
         ) or evidence.get("pricing_rate_identity_collision_count"):
@@ -304,6 +306,7 @@ def build_packet(plan, ledger, capture_root, reviewer_a, reviewer_b, *, now=None
             "wave": origin["wave"], "round": origin["round"],
             "original_capture_state": origin["state"],
             "raw_html_sha256": origin.get("raw_html_sha256"),
+            "captured_at_utc": origin.get("captured_at_utc"),
             "review_status": verdict["dual_review_status"],
             "case_id": _id({
                 "task_id": plan["plan_sha256"]
@@ -460,6 +463,14 @@ def score_packet(plan, ledger, capture_root, reviewer_a, reviewer_b,
     if (not isinstance(actual, list) or len(actual) != len(cases)):
         raise ValueError("Missing or extra original source-round adjudication")
     case_index = {x["case_id"]: x for x in expected["adjudication_cases"]}
+    original_human_reviews = {}
+    for reviewer in (reviewer_a, reviewer_b):
+        for entry in reviewer["source_reviews"]:
+            key = (entry["source_id"], entry["round"])
+            if entry["reviewed_at_utc"] is not None:
+                original_human_reviews.setdefault(key, []).append(
+                    _utc(entry["reviewed_at_utc"])
+                )
     total, cat = Counter(), {k: Counter() for k in (
         "pricing", "changelog", "documentation",
     )}
@@ -476,6 +487,16 @@ def score_packet(plan, ledger, capture_root, reviewer_a, reviewer_b,
         ts = _utc(task["adjudicated_at_utc"])
         if ts > clock + timedelta(minutes=5):
             raise ValueError("Adjudicator timestamp claims the future")
+        earlier = original_human_reviews.get(
+            (info["source_id"], info["round"]), []
+        )
+        if (len(earlier) != 2
+                or not info["captured_at_utc"]
+                or ts < max(*earlier, _utc(info["captured_at_utc"]))):
+            raise ValueError(
+                "Third-person adjudication must follow BOTH completed human "
+                "reviews and its original publisher snapshot capture"
+            )
         _note(task["adjudication_note"], "complete source-round disposition")
         if any(not isinstance(x, list) for x in (
             task.get("matches"), task.get("unmatched_prediction_ids"),
