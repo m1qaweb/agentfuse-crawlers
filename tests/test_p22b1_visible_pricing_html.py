@@ -25,9 +25,10 @@ def analyze(markup, *, source=SOURCE, sid=SID):
     )
 
 
-def table(name="Visible Model", amount="USD 1.25 / 1M tokens"):
+def table(name="Visible Model", amount="USD 1.25 / 1M tokens",
+          caption="USD per 1M tokens"):
     return (
-        "<table><caption>USD per 1M tokens</caption>"
+        "<table><caption>" + caption + "</caption>"
         "<thead><tr><th>Model</th><th>Input price</th></tr></thead>"
         "<tbody><tr><th>" + name + "</th><td>" + amount +
         "</td></tr></tbody></table>"
@@ -109,7 +110,7 @@ def test_hidden_stale_table_must_not_create_a_second_comparable_price(container)
 ])
 def test_hidden_global_currency_never_normalizes_a_visible_dollar_price(hidden):
     ev = analyze(hidden + scopes(currency=False) + table(
-        amount="$1.25 / MTok"
+        amount="$1.25 / MTok", caption="Prices per 1M tokens"
     ))
     assert ev["pricing_observation_count"] == 1
     obs = ev["pricing_observations"][0]
@@ -153,7 +154,9 @@ def test_visible_conflicting_currency_must_remain_unresolved():
     ev = analyze(
         "<p>All prices are in USD.</p>"
         "<p>All prices are in EUR.</p>"
-        + scopes(currency=False) + table(amount="$1.25 / MTok")
+        + scopes(currency=False) + table(
+            amount="$1.25 / MTok", caption="Prices per 1M tokens"
+        )
     )
     obs = ev["pricing_observations"][0]
     assert obs["currency"] is None
