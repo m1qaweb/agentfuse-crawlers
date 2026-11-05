@@ -95,6 +95,31 @@ def _decimal(value):
         return None
 
 
+def _quoted_original_amount(quote, value):
+    """A typed price must contain its actual decimal in the original quote.
+
+    Exact numeric evidence only: do not infer 1.25 USD from a card saying
+    'Free', an unlabeled date, or a visually similar 125. We do not guess
+    comma-decimal locale formats; those remain held for manual review.
+    """
+    expected = _decimal(value)
+    if expected is None:
+        return False
+    for match in re.finditer(
+        r"(?<![A-Za-z0-9.])\d[\d,]*(?:\.\d+)?(?![A-Za-z0-9.])",
+        quote,
+    ):
+        token = match.group(0)
+        if "," in token and not re.fullmatch(
+            r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", token
+        ):
+            continue
+        actual = _decimal(token.replace(",", ""))
+        if actual is not None and actual == expected:
+            return True
+    return False
+
+
 def _pricing_gold_complete(gold):
     required = ("amount_decimal", "currency", "billing_unit",
                 "price_dimension", "model_or_service")
@@ -268,6 +293,15 @@ def _references(task, consensus):
             })
     else:
         for item in consensus["evidence"]:
+            if (category == "pricing"
+                    and not _quoted_original_amount(
+                        item["publisher_evidence_quote"],
+                        item["reviewed_value"]["amount_decimal"],
+                    )):
+                raise ValueError(
+                    "Human price amount absent from independently quoted "
+                    "original visible publisher evidence"
+                )
             references.append({
                 "reference_id": item["evidence_id"],
                 "category": category,
