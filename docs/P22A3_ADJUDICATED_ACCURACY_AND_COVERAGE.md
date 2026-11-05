@@ -46,6 +46,13 @@ can instead mark reviewed_not_applicable after genuine publisher review.
 The current parser's own region/tier fields are compared; its output
 cannot automatically establish that applicability was independently checked.
 
+Billing units are evaluated through a short, explicit same-denominator
+vocabulary contract: the human legacy alias per_million_tokens is
+identical to the deployed parser code per_1m_tokens. Per_1k_tokens is
+NOT the same denominator and cannot be converted or accepted
+automatically. Unknown human unit codes are held/refused, never
+reported as correct just because strings matched.
+
 A comparable parser rate's wrong amount, currency, model, unit, tier
 or region is **not** a TP even if adjudicated as the same physical cell.
 That pair produces one strict FP + one strict FN, while individual field
