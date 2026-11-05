@@ -29,6 +29,7 @@ from agentfuse_crawlers.sources import load_sources
 from scripts.accession_cross_category_html import _load as load_accession
 from scripts.compare_acquisition_snapshots import _snapshot_bytes
 from scripts.plan_documentation_children import _private_new_directory, _write_private
+from scripts.pricing_review_units import canonical_review_unit
 from scripts.reconcile_cross_category_reviews import reconcile
 from scripts.replay_release_snapshots import _digest
 from scripts.score_release_gold import _owner_node
@@ -125,6 +126,9 @@ def _pricing_gold_complete(gold):
                 "price_dimension", "model_or_service")
     return (
         all(gold.get(k) is not None for k in required)
+        and canonical_review_unit(
+            gold.get("billing_unit"), strict=False
+        ) is not None
         and gold.get("region_applicability") not in {"unknown", None}
         and gold.get("tier_applicability") not in {"unknown", None}
     )
@@ -436,8 +440,19 @@ def _price_field_exact(observed, expected):
         _decimal(observed.get("normalized_amount_decimal"))
         == _decimal(expected.get("amount_decimal"))
     )
-    for field in ("currency", "billing_unit", "price_dimension",
-                  "model_or_service", "region", "tier_or_plan"):
+    # Same-denominator vocabulary aliases are identical comparison units;
+    # do NOT rescale prices or treat unknown unit codes as equal.
+    prediction_unit = canonical_review_unit(
+        observed.get("billing_unit"), strict=False,
+    )
+    reference_unit = canonical_review_unit(
+        expected.get("billing_unit"), strict=False,
+    )
+    checks["billing_unit"] = bool(
+        prediction_unit is not None and prediction_unit == reference_unit
+    )
+    for field in ("currency", "price_dimension", "model_or_service",
+                  "region", "tier_or_plan"):
         checks[field] = _norm(observed.get(field) or "") == _norm(expected.get(field) or "")
     # The crawler's existing normalizer has no explicit reviewed region/tier
     # applicability flags. Only compare their observed values, never claim

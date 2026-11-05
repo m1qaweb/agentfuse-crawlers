@@ -297,7 +297,7 @@ def test_zero_and_incomplete_price_predictions_never_auto_match_truth():
     })
     fields = accuracy._price_field_exact({
         "normalized_amount_decimal": "1.2500", "currency": "USD",
-        "billing_unit": "per_million_tokens", "price_dimension": "input",
+        "billing_unit": "per_1m_tokens", "price_dimension": "input",
         "model_or_service": "ExampleX", "region": None, "tier_or_plan": None,
     }, gold)
     assert all(fields.values())
@@ -335,7 +335,7 @@ def synthetic_packet():
         },
         "observed_value": {
             "normalized_amount_decimal": "1.25", "currency": "USD",
-            "billing_unit": "per_million_tokens", "price_dimension": "input",
+            "billing_unit": "per_1m_tokens", "price_dimension": "input",
             "model_or_service": "DeepSeek Model X", "region": None,
             "tier_or_plan": None,
         },

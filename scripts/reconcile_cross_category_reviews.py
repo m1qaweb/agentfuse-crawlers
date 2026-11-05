@@ -31,6 +31,7 @@ from scripts.compare_acquisition_snapshots import _snapshot_bytes
 from scripts.plan_documentation_children import (
     _private_new_directory, _write_private,
 )
+from scripts.pricing_review_units import canonical_review_unit
 from scripts.replay_release_snapshots import _digest
 from scripts.score_release_gold import _review_label as validate_release_owner
 
@@ -136,6 +137,10 @@ def _rate_scope(kind, amount):
         "region", "tier_or_plan", "conditions",
     ):
         values[key] = _field(amount[key], label=key, maximum=300)
+    # Align ONLY semantically identical reviewed unit names with the
+    # deployed extractor's vocabulary. Unknown stays unknown; unsupported
+    # free text is refused, and 1k is NEVER converted into 1m.
+    values["billing_unit"] = canonical_review_unit(values["billing_unit"])
     # Unknown currency stays None. Never infer dollars from a $ symbol.
     if values["currency"] is not None and not re.fullmatch(
         r"[A-Z]{3}", values["currency"]

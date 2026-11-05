@@ -105,7 +105,7 @@ For each captured source-round:
     {
       "amount_decimal": "1.25",
       "currency": "USD",
-      "billing_unit": "per_million_tokens",
+      "billing_unit": "per_1m_tokens",
       "price_dimension": "input",
       "model_or_service": "EXACT_PUBLISHER_MODEL",
       "region": null,
@@ -114,6 +114,13 @@ For each captured source-round:
       "tier_applicability": "unknown",
       "conditions": null
     }
+
+Use the deployed parser's explicit billing-unit codes, such as
+per_1m_tokens, per_1k_tokens and per_token. For backward compatibility,
+the reviewed form accepts only a short audited same-denominator alias
+set (for example per_million_tokens becomes per_1m_tokens). It rejects
+other free text; it NEVER converts a 1k denominator into a 1m
+denominator or rescales a monetary amount.
 
 Use null for unknown currency, billing unit, tier, region or condition;
 never infer USD from a dollar sign, global region from silence, or
