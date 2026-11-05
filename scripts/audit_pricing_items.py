@@ -28,7 +28,9 @@ ROWS_FIELDS = (
     "parser_revision", "detected_price_entries", "card_count",
     "card_price_entries", "card_observations", "card_omitted",
     "card_oversized", "card_duplicates", "rate_identity_collisions",
-    "inventory_complete", "text_available", "approved_for_advisor",
+    "inventory_complete", "text_available",
+    "explicitly_hidden_subtrees_omitted", "pricing_visibility_revision",
+    "visible_static_html_only", "approved_for_advisor",
 )
 
 
@@ -58,6 +60,17 @@ def inspect(items, *, expect_all=False):
             anomalies += 1
         statuses[item.get("status", "unknown")] += 1
         parser_revisions[item.get("pricing_parser_revision") or "legacy_unversioned"] += 1
+        # P22B1: older held/archived Items may not carry visibility diagnostics.
+        # Missing is UNKNOWN, never rewrite to zero hidden subtrees.
+        hidden = item.get("pricing_explicitly_hidden_subtrees_omitted")
+        visibility = item.get("pricing_scope_visibility_revision")
+        if hidden is not None or visibility is not None:
+            if (type(hidden) is not int or not 0 <= hidden <= 500_000
+                    or visibility != "static_explicitly_nonvisible_html_exclusion_v1"
+                    or item.get("pricing_static_visible_page_only") is not True):
+                raise ValueError(
+                    "Malformed or inconsistent source-visible pricing audit metadata"
+                )
         records = item.get("pricing_observations") or []
         if not isinstance(records, list):
             raise ValueError("pricing_observations must be an array")
@@ -151,6 +164,11 @@ def inspect(items, *, expect_all=False):
             ),
             "inventory_complete": item.get("pricing_inventory_complete"),
             "text_available": bool(item.get("text") or item.get("text_sample")),
+            "explicitly_hidden_subtrees_omitted": hidden,
+            "pricing_visibility_revision": visibility,
+            "visible_static_html_only": (
+                True if visibility is not None else None
+            ),
             "approved_for_advisor": item.get("approved_for_advisor"),
         })
     if expect_all and seen != set(known):
@@ -195,6 +213,26 @@ def inspect(items, *, expect_all=False):
         },
         "status_counts": dict(sorted(statuses.items())),
         "parser_revisions": dict(sorted(parser_revisions.items())),
+        "visibility_summaries": {
+            "source_items_with_visible_html_audit": sum(
+                r["pricing_visibility_revision"] is not None
+                for r in source_rows
+            ),
+            "legacy_or_held_items_without_visibility_audit": sum(
+                r["pricing_visibility_revision"] is None
+                for r in source_rows
+            ),
+            "explicitly_hidden_subtrees_excluded": sum(
+                r["explicitly_hidden_subtrees_omitted"] or 0
+                for r in source_rows
+            ),
+            "sources_with_explicitly_hidden_content": sum(
+                (r["explicitly_hidden_subtrees_omitted"] or 0) > 0
+                for r in source_rows
+            ),
+            "publisher_price_completeness_verified": False,
+            "review_status": "unverified",
+        },
         "card_summaries": {
             "structured_cards_detected": sum(r["card_count"] for r in source_rows),
             "price_card_entries_examined": sum(
