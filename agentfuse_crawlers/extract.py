@@ -16,6 +16,7 @@ from lxml import etree, html
 
 from agentfuse_crawlers.release_events import extract_release_events
 from agentfuse_crawlers.pricing_evidence import extract_pricing_evidence
+from agentfuse_crawlers.pricing_visibility import prune_explicitly_nonvisible
 from agentfuse_crawlers.documentation_scope import (
     extract_documentation_evidence, inspect_documentation_dom,
 )
@@ -89,7 +90,14 @@ def _tag(element):
     return element.tag.lower() if isinstance(element.tag, str) else ''
 
 
-def _clean(node, *, category=None):
+def _clean(node, *, category=None, visibility_audit=None):
+    if category == "pricing":
+        # HTML marked hidden, inert or closed, or explicitly non-rendered by
+        # inline CSS, cannot supply a visible price or regional scope.
+        # This protects BOTH pricing tables and cards before normalization.
+        node, removed = prune_explicitly_nonvisible(node)
+        if visibility_audit is not None:
+            visibility_audit["explicitly_hidden_subtrees_omitted"] = removed
     for unwanted in list(node.xpath(NOISE_XPATH)):
         if unwanted.getparent() is None:
             continue
@@ -303,7 +311,8 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None,
     if not main_nodes:
         main_nodes = root.xpath('//body')
     main = max(main_nodes, key=lambda n: len(n.text_content())) if main_nodes else root
-    main = _clean(main, category=category)
+    visibility_audit = {}
+    main = _clean(main, category=category, visibility_audit=visibility_audit)
     heading1 = main.xpath('.//h1[1]')
     if heading1:
         title = re.sub(r'\s+', ' ', heading1[0].text_content()).strip() or title
@@ -364,9 +373,17 @@ def extract_evidence(raw_html, source_url, category=None, source_id=None,
             document_dom=doc_dom,
         ) if category == 'documentation' and source_id else {}
     )
+    pricing_visible_scope = ({
+        "pricing_explicitly_hidden_subtrees_omitted":
+            visibility_audit.get("explicitly_hidden_subtrees_omitted", 0),
+        "pricing_scope_visibility_revision":
+            "static_explicitly_nonvisible_html_exclusion_v1",
+        "pricing_static_visible_page_only": True,
+    } if category == "pricing" else {})
     return {
         **release_info,
         **pricing_details,
+        **pricing_visible_scope,
         **documentation_info,
         'title': title[:300],
         'text': text,

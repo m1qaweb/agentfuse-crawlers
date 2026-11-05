@@ -13,6 +13,7 @@ from agentfuse_crawlers.rate_units import (
     PRICE_MARKER, analyze_cell, clean,
 )
 from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
+from agentfuse_crawlers.pricing_visibility import in_explicitly_nonvisible_context
 from agentfuse_crawlers.pricing_cards import extract_card_evidence
 from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
 from agentfuse_crawlers.pricing_adapters import (
@@ -67,6 +68,10 @@ def _contexts(main):
     headings = {}
     tables = {}
     for node in main.iter():
+        # Hidden headings must not become the active product/region context
+        # for the next visible table, even in direct helper usage.
+        if in_explicitly_nonvisible_context(node):
+            continue
         tag = _tag(node)
         if tag in {"h2", "h3", "h4"}:
             level = int(tag[1])
@@ -259,7 +264,8 @@ def extract_pricing_evidence(main, source_url, source_id, *,
             or type(table_limit) is not int
             or not 1 <= table_limit <= MAX_SELECTED_TABLES):
         raise ValueError("pricing table window must be offset=0..700, limit=1..64")
-    all_tables = main.xpath(".//table[not(ancestor::table)]")
+    all_tables = [t for t in main.xpath(".//table[not(ancestor::table)]")
+                  if not in_explicitly_nonvisible_context(t)]
     table_context = _contexts(main)
     # P09A: strictly bounded declarations with original text provenance.
     # Never assume publisher-wide USD, a global region, or a default tier.
