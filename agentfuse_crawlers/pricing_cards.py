@@ -13,6 +13,7 @@ from agentfuse_crawlers.pricing_scope import (
     ALL_CURRENCY, _citation, _leaf_statement,
     _statement_declarations, scoped_text,
 )
+from agentfuse_crawlers.pricing_visibility import in_explicitly_nonvisible_context
 from agentfuse_crawlers.rate_units import (
     CURRENCY_CODES, PRICE_MARKER, NON_NUMERIC, analyze_cell, clean,
     detect_unit,
@@ -82,7 +83,8 @@ def _attr_text(node):
 
 
 def _is_card(node):
-    if _tag(node) not in {"article", "section", "div"}:
+    if (_tag(node) not in {"article", "section", "div"}
+            or in_explicitly_nonvisible_context(node)):
         return False
     value = _attr_text(node)
     if any(re.search(
@@ -113,7 +115,8 @@ def _is_card(node):
 
 
 def _eligible(node):
-    if node.xpath(BANNED_ANCESTORS) or node.xpath(".//table"):
+    if (in_explicitly_nonvisible_context(node)
+            or node.xpath(BANNED_ANCESTORS) or node.xpath(".//table")):
         return False
     if len(node.text_content()) > MAX_CARD_TEXT_CHARS:
         return False
@@ -179,7 +182,8 @@ def _card_declarations(card, *, page_currency=None, page_conflict=False):
     """Only standalone, card-local explicit scope; no unrelated page text."""
     raw = [page_currency] if page_currency else []
     for node in card.xpath(".//p|.//li|.//small|.//span|.//div"):
-        if node.xpath("ancestor::table|ancestor::nav|ancestor::footer"):
+        if (in_explicitly_nonvisible_context(node)
+                or node.xpath("ancestor::table|ancestor::nav|ancestor::footer")):
             continue
         if any(_tag(x) in {"p", "li", "small", "span", "div", "table", "h2", "h3"}
                for x in node.iterdescendants()):
