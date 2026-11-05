@@ -64,10 +64,15 @@ def inspect(items, *, expect_all=False):
         # Missing is UNKNOWN, never rewrite to zero hidden subtrees.
         hidden = item.get("pricing_explicitly_hidden_subtrees_omitted")
         visibility = item.get("pricing_scope_visibility_revision")
-        if hidden is not None or visibility is not None:
+        visible_only = item.get("pricing_static_visible_page_only")
+        if any(key in item for key in (
+                "pricing_explicitly_hidden_subtrees_omitted",
+                "pricing_scope_visibility_revision",
+                "pricing_static_visible_page_only",
+        )):
             if (type(hidden) is not int or not 0 <= hidden <= 500_000
                     or visibility != "static_explicitly_nonvisible_html_exclusion_v1"
-                    or item.get("pricing_static_visible_page_only") is not True):
+                    or visible_only is not True):
                 raise ValueError(
                     "Malformed or inconsistent source-visible pricing audit metadata"
                 )
