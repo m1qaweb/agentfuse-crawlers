@@ -14,6 +14,7 @@ import re
 from agentfuse_crawlers.rate_units import (
     CURRENCY_CODES, clean, detect_region, detect_tier, detect_unit,
 )
+from agentfuse_crawlers.pricing_visibility import in_explicitly_nonvisible_context
 
 CODES = r"(?:USD|EUR|GBP|CAD|AUD|JPY|INR|CHF)"
 ALL_CURRENCY = re.compile(
@@ -67,7 +68,9 @@ def _tag(node):
 
 def _leaf_statement(node):
     tag = _tag(node)
-    if tag not in TEXT_TAGS or node.xpath("ancestor::table|ancestor::nav|ancestor::footer"):
+    if (tag not in TEXT_TAGS
+            or in_explicitly_nonvisible_context(node)
+            or node.xpath("ancestor::table|ancestor::nav|ancestor::footer")):
         return ""
     # Never read a wrapper that may span multiple pricing tables, and never
     # treat embedded headings/nav as a page-wide scope declaration.
@@ -118,7 +121,8 @@ def table_declarations(main):
     The page-wide ALL currency declaration is accepted only if all explicit
     ALL-currency declarations on this page agree and precede the first table.
     """
-    tables = main.xpath(".//table[not(ancestor::table)]")
+    tables = [t for t in main.xpath(".//table[not(ancestor::table)]")
+              if not in_explicitly_nonvisible_context(t)]
     if not tables:
         return {}
     first_table = tables[0]
@@ -145,6 +149,8 @@ def table_declarations(main):
     pending = []
     recent = 0
     for node in main.iter():
+        if in_explicitly_nonvisible_context(node):
+            continue
         tag = _tag(node)
         if tag == "h2" or (
             tag == "table" and node.xpath("ancestor::table")
