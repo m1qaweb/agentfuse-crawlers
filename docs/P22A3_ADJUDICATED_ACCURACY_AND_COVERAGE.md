@@ -33,8 +33,13 @@ raw vendor HTML or private reviewer names belong in Git.
 The original P20A source-round denominator stays 36. Each category
 accounts for 6 original source IDs × 2 rounds = 12 source-rounds.
 
-A fully comparable price reference needs an exact monetary Decimal and
+A fully comparable price reference needs an exact monetary Decimal
+**numerically present in the uniquely quoted ORIGINAL visible HTML**, and
 verified-by-human explicit currency, unit, model/service and price direction.
+A "free" label, absent numeric rate, different amount, or ambiguous locale
+formatted number cannot be silently used as a rate. Re-review such evidence
+rather than entering a guessed price; these checks still cannot prove
+publisher origin or the legal access decision.
 Unknown **region or plan applicability blocks strict price scoring**, rather
 than assuming the vendor is global or has a default plan. Human reviewers
 can instead mark reviewed_not_applicable after genuine publisher review.
