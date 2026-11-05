@@ -50,6 +50,13 @@ New unverified pricing diagnostics:
   static_explicitly_nonvisible_html_exclusion_v1
 - pricing_static_visible_page_only: true
 
+The existing offline script scripts/audit_pricing_items.py now
+retains these fields per source in pricing_sources.csv and adds a
+visibility_summaries block to the JSON. In particular, pre-P22B1
+Items and policy-held no-HTML Items remain UNKNOWN (blank), never
+silently counted as zero hidden subtrees. Invalid, incomplete or
+forged visibility metric claims are rejected.
+
 All observations retain approved_for_advisor=false. No missing
 currency, region, plan or billing unit is inferred automatically.
 Previously valid visible table/card normalization should remain
