@@ -181,3 +181,68 @@ def test_p17b1_review_candidate_accidental_promotion_is_quality_anomaly(mutation
     report = inspect([record])
     assert report["provenance_or_approval_anomalies"] >= 1
     assert report["approved_for_advisor"] is False
+
+
+
+def test_p22b1_visible_scope_audit_preserves_legacy_unknown_and_new_known(tmp_path):
+    legacy = inspect([_item()])
+    assert legacy["visibility_summaries"][
+        "legacy_or_held_items_without_visibility_audit"
+    ] == 1
+    assert legacy["sources"][0]["explicitly_hidden_subtrees_omitted"] is None
+
+    current = _item()
+    current.update(
+        pricing_explicitly_hidden_subtrees_omitted=3,
+        pricing_scope_visibility_revision=(
+            "static_explicitly_nonvisible_html_exclusion_v1"
+        ),
+        pricing_static_visible_page_only=True,
+    )
+    report = inspect([current])
+    summary = report["visibility_summaries"]
+    assert summary == {
+        "source_items_with_visible_html_audit": 1,
+        "legacy_or_held_items_without_visibility_audit": 0,
+        "explicitly_hidden_subtrees_excluded": 3,
+        "sources_with_explicitly_hidden_content": 1,
+        "publisher_price_completeness_verified": False,
+        "review_status": "unverified",
+    }
+    assert report["sources"][0]["pricing_visibility_revision"] == (
+        "static_explicitly_nonvisible_html_exclusion_v1"
+    )
+    assert report["sources"][0]["visible_static_html_only"] is True
+    assert report["sources"][0]["approved_for_advisor"] is False
+    save(report, tmp_path)
+    rows = list(csv.DictReader((tmp_path / "pricing_sources.csv").open()))
+    assert rows[0]["explicitly_hidden_subtrees_omitted"] == "3"
+    assert rows[0]["visible_static_html_only"] == "True"
+    assert rows[0]["pricing_visibility_revision"] == (
+        "static_explicitly_nonvisible_html_exclusion_v1"
+    )
+
+
+@pytest.mark.parametrize("fields", [
+    {"pricing_explicitly_hidden_subtrees_omitted": -1},
+    {"pricing_explicitly_hidden_subtrees_omitted": 0},
+    {"pricing_explicitly_hidden_subtrees_omitted": "4",
+     "pricing_scope_visibility_revision":
+        "static_explicitly_nonvisible_html_exclusion_v1",
+     "pricing_static_visible_page_only": True},
+    {"pricing_explicitly_hidden_subtrees_omitted": 1,
+     "pricing_scope_visibility_revision": "forged",
+     "pricing_static_visible_page_only": True},
+    {"pricing_explicitly_hidden_subtrees_omitted": 1,
+     "pricing_scope_visibility_revision":
+        "static_explicitly_nonvisible_html_exclusion_v1",
+     "pricing_static_visible_page_only": False},
+    {"pricing_static_visible_page_only": True},
+    {"pricing_scope_visibility_revision":
+        "static_explicitly_nonvisible_html_exclusion_v1"},
+])
+def test_p22b1_malformed_or_partial_visible_scope_audit_fails_closed(fields):
+    record = _item()
+    record.update(fields)
+    with pytest.raises(ValueError, match="visibility|pricing audit"):
+        inspect([record])
