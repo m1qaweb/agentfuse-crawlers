@@ -313,6 +313,7 @@ def synthetic_packet():
         "category": "pricing", "wave": 2, "round": 1,
         "original_capture_state": "captured",
         "raw_html_sha256": "a"*64,
+        "captured_at_utc": _at(days=-1),
         "review_status": "agreed_two_reviewers_visible_page_inventory",
         "case_id": "case0001",
         "score_status": "requires_independent_adjudication",
@@ -381,16 +382,28 @@ def synthetic_packet():
     return packet
 
 
-def score_fake_packet(monkeypatch, *, change=None):
-    packet = synthetic_packet()
-    # Unit-test the scorer's disposition/invariants in isolation. A separate
-    # end-to-end synthetic test above proves live build_packet SHA binding.
+def score_fake_packet(monkeypatch, *, wrong_price=False):
+    expected = synthetic_packet()
+    if wrong_price:
+        expected["adjudication_cases"][0]["predictions"][0][
+            "observed_value"
+        ]["normalized_amount_decimal"] = "2.50"
+        expected["packet_sha256"] = accuracy._digest({
+            k: v for k, v in expected.items() if k != "packet_sha256"
+        })
+    packet = copy.deepcopy(expected)
+    # Isolate deterministic accounting and tamper handling; do not turn
+    # the fixture mutable packet into the independently recomputed source.
     monkeypatch.setattr(accuracy, "build_packet",
-                        lambda *args, **kwargs: copy.deepcopy(packet))
+                        lambda *args, **kwargs: copy.deepcopy(expected))
     plan = {"plan_sha256": packet["frozen_plan_sha256"]}
     a, b = (
-        {"reviewer_id": "Synthetic First Reviewer"},
-        {"reviewer_id": "Synthetic Second Reviewer"},
+        {"reviewer_id": "Synthetic First Reviewer",
+         "source_reviews": [{"source_id": "deepseek_pricing", "round": 1,
+                              "reviewed_at_utc": _at(days=-1)}]},
+        {"reviewer_id": "Synthetic Second Reviewer",
+         "source_reviews": [{"source_id": "deepseek_pricing", "round": 1,
+                              "reviewed_at_utc": _at(days=-1)}]},
     )
     form = fill_adjudicator(packet)
     task = form["cases"][0]
@@ -400,8 +413,6 @@ def score_fake_packet(monkeypatch, *, change=None):
         "prediction_id": "prediction-1", "reference_id": "reference-1",
         "same_visible_evidence_note": NOTE,
     }]
-    if change:
-        change(packet, form)
     return packet, form, lambda: accuracy.score_packet(
         plan, {}, None, a, b, packet, form, now=NOW,
     )
@@ -422,27 +433,16 @@ def test_valid_manual_cell_match_reports_one_strict_typed_rate_tp(monkeypatch):
 
 
 def test_wrong_monetary_amount_is_fp_and_fn_not_a_tp(monkeypatch):
-    def wrong(packet, form):
-        packet["adjudication_cases"][0]["predictions"][0][
-            "observed_value"
-        ]["normalized_amount_decimal"] = "2.50"
-    # Once a packet is tampered, score_packet's recomputed immutable packet
-    # must reject it; unit tests of field accuracy use the separate helper.
-    expected = accuracy._price_field_exact({
-        **synthetic_packet()["adjudication_cases"][0]["predictions"][0]["observed_value"],
-        "normalized_amount_decimal": "2.50",
-    }, synthetic_packet()["adjudication_cases"][0]["references"][0]["reviewed_value"])
-    assert expected["amount_decimal"] is False
-    packet, form, score = score_fake_packet(monkeypatch)
-    # Override the trusted fixture's frozen score input in this synthetic
-    # unit test ONLY, so the scorer gets the same new immutable packet.
-    wrong(packet, form)
-    packet["packet_sha256"] = accuracy._digest({
-        k: v for k, v in packet.items() if k != "packet_sha256"
-    })
-    form["frozen_packet_sha256"] = packet["packet_sha256"]
-    with pytest.raises(ValueError, match="CURRENT"):
-        score()
+    packet, form, score = score_fake_packet(monkeypatch, wrong_price=True)
+    report, _, _ = score()
+    assert report["by_category"]["pricing"]["tp"] == 0
+    assert report["by_category"]["pricing"]["fp"] == 1
+    assert report["by_category"]["pricing"]["fn"] == 1
+    assert report["by_category"]["pricing"]["precision"] == 0
+    assert report["by_category"]["pricing"]["recall"] == 0
+    assert report["by_category"]["pricing"]["field_exact_rate"][
+        "amount_decimal"
+    ] == 0
 
 
 @pytest.mark.parametrize("attack,expected", [
@@ -457,7 +457,7 @@ def test_wrong_monetary_amount_is_fp_and_fn_not_a_tp(monkeypatch):
     ("missing_reference_disposition", "INCOMPLETE"),
     ("foreign_prediction_id", "Cross-source"),
     ("foreign_reference_id", "Cross-source"),
-    ("invented_quote", "bound"),
+    ("invented_quote", "CURRENT"),
     ("future_clock", "future"),
     ("no_note", "Substantive"),
     ("tampered_frozen_packet", "CURRENT"),
