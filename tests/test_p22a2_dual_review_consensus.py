@@ -248,6 +248,9 @@ def test_actual_synthetic_byte_snapshots_and_two_independent_reviewers_agree(
     assert next(x for x in consensus if x["category"] == "pricing")[
         "evidence"
     ][0]["reviewed_value"]["amount_decimal"] == "1.25"
+    assert next(x for x in consensus if x["category"] == "pricing")[
+        "evidence"
+    ][0]["reviewed_value"]["billing_unit"] == "per_1m_tokens"
     private = tmp_path / "private-consensus"
     assert write_consensus((report, statuses, consensus), private) == private
     assert len(list(private.iterdir())) == 3
