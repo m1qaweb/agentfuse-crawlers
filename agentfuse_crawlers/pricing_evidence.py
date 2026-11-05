@@ -68,6 +68,10 @@ def _contexts(main):
     headings = {}
     tables = {}
     for node in main.iter():
+        # Hidden headings must not become the active product/region context
+        # for the next visible table, even in direct helper usage.
+        if in_explicitly_nonvisible_context(node):
+            continue
         tag = _tag(node)
         if tag in {"h2", "h3", "h4"}:
             level = int(tag[1])
