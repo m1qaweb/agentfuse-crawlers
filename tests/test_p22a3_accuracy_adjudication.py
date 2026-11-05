@@ -553,6 +553,47 @@ def test_docs_multiple_human_claims_same_topic_is_one_topic_reference():
     assert len(refs[0]["evidence_ids"]) == 2
 
 
+
+def test_human_pricing_rate_must_exist_as_number_in_original_quote():
+    assert accuracy._quoted_original_amount(
+        "Input price is USD 1.2500 per million tokens on this mock page.",
+        "1.25",
+    )
+    assert accuracy._quoted_original_amount(
+        "A fictional USD 1,250.50 rate per billing period.",
+        "1250.5",
+    )
+    assert not accuracy._quoted_original_amount(
+        "A fictional price is USD 125 per million tokens.",
+        "1.25",
+    )
+    assert not accuracy._quoted_original_amount(
+        "A fictional offer is free in this mock example.",
+        "0",
+    )
+    assert not accuracy._quoted_original_amount(
+        "Locale-specific amount is 1,25 EUR in this synthetic card.",
+        "1.25",
+    )
+    with pytest.raises(ValueError, match="absent"):
+        accuracy._references({
+            "task_id": "mock-source-round-1", "category": "pricing",
+        }, {"evidence": [{
+            "evidence_id": "mock-case-1",
+            "publisher_evidence_quote": (
+                "Mock price is USD 7.25, not the claimed USD 1.25."
+            ).replace("USD 1.25", "1.50 dollars"),
+            "reviewed_value": {"amount_decimal": "1.25"},
+        }]})
+
+
+def test_adjudicator_timestamp_must_follow_both_blind_reviews(monkeypatch):
+    packet, form, score = score_fake_packet(monkeypatch)
+    form["cases"][0]["adjudicated_at_utc"] = _at(days=-2)
+    with pytest.raises(ValueError, match="follow BOTH"):
+        score()
+
+
 def test_loader_rejects_oversized_original_review_json_and_symlink(tmp_path):
     huge = tmp_path / "too-big.json"
     huge.write_bytes(b"[" + b" " * 6_000_020 + b"]")
