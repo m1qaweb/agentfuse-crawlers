@@ -197,25 +197,35 @@ def validation_access_decision(source, *, scope="bulk_validation",
                                registry=None, now=None):
     if scope not in ACCESS_SCOPES:
         raise ValueError("Unknown validation access scope")
-    data = load_access_registry() if registry is None else validate_access_registry(
-        registry, now=now
-    )
+    # Revalidate even an already cached installed registry at the exact
+    # permission boundary; no injected/stale/mutated in-memory record can
+    # silently gain a single-source request by avoiding the initial load.
+    data = load_access_registry() if registry is None else registry
+    validate_access_registry(data, now=now)
     # Independently, the lifecycle registry may prohibit any source fetch.
     allowed_by_lifecycle, lifecycle_reason = collection_decision(
         source, mode="validation",
     )
     if not allowed_by_lifecycle:
         return False, lifecycle_reason
+    # A single exact-source validation is NOT exempt from the same
+    # Git-reviewed source/URL/terms/robots/retention check as bulk jobs.
+    # Keep legacy bulk reason strings stable for archived diagnostics.
+    prefix = "single_source" if scope == "single_validation" else "bulk_source"
     review = data["reviews"].get(source["id"])
     if not review:
-        return False, "bulk_source_policy_not_reviewed"
+        return False, prefix + "_policy_not_reviewed"
     if review["decision"] != "allowed_reviewed":
-        return False, "bulk_source_policy_denied_or_deferred"
+        return False, prefix + "_policy_denied_or_deferred"
     if _utc(review["expires_at_utc"]) <= _now(now):
-        return False, "bulk_source_policy_review_expired"
+        return False, prefix + "_policy_review_expired"
     if scope not in review["scopes"]:
-        return False, "bulk_source_review_scope_not_approved"
-    return True, "git_reviewed_source_bulk_validation_access"
+        return False, prefix + "_review_scope_not_approved"
+    return True, (
+        "git_reviewed_source_single_validation_access"
+        if scope == "single_validation"
+        else "git_reviewed_source_bulk_validation_access"
+    )
 
 
 def _urls_digest(selected):

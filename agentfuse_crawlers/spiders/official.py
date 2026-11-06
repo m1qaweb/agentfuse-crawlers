@@ -34,7 +34,7 @@ from agentfuse_crawlers.sources import (
 )
 from agentfuse_crawlers.validation_access import (
     authorize_bulk_run, bulk_plan_revision_sha256,
-    validation_access_revision_sha256,
+    validation_access_decision, validation_access_revision_sha256,
 )
 
 ALLOWED_HOSTS = sorted({urlsplit(s["url"]).hostname for s in load_sources()})
@@ -145,6 +145,9 @@ class OfficialBaseSpider(scrapy.Spider):
         self.bulk_validation_required = (
             collection_mode == "validation" and not single
         )
+        self.single_validation_required = (
+            collection_mode == "validation" and single
+        )
         self.bulk_plan_id = ""
         self.bulk_plan_sha256 = ""
         self.bulk_authorized_ids = frozenset()
@@ -215,6 +218,27 @@ class OfficialBaseSpider(scrapy.Spider):
                 # a network request must not silently shrink accounting.
                 yield self._emit_status(record)
                 continue
+            # P23B: even one explicitly selected source must have an
+            # existing, current, Git-reviewed exact-URL publisher access
+            # decision with single_validation scope. An ID, CLI argument,
+            # historical "proven" cohort or lifecycle status is not approval.
+            if self.single_validation_required:
+                single_allowed, single_reason = validation_access_decision(
+                    source, scope="single_validation",
+                )
+                if not single_allowed:
+                    record = self._base_record(source)
+                    record.update(
+                        status="source_single_validation_not_approved",
+                        error=single_reason,
+                        http_status=None,
+                        final_url="",
+                        policy_observation=(
+                            "not_fetched_by_single_source_access_gate"
+                        ),
+                    )
+                    yield self._emit_status(record)
+                    continue
             if (self.bulk_validation_required
                     and source["id"] not in self.bulk_authorized_ids):
                 record = self._base_record(source)
@@ -257,6 +281,7 @@ class OfficialBaseSpider(scrapy.Spider):
             "source_registry_sha256": self.source_registry_sha256,
             "validation_scope": self.validation_scope,
             "bulk_validation_required": self.bulk_validation_required,
+            "single_validation_access_required": self.single_validation_required,
             "bulk_access_registry_sha256": self.validation_access_registry_sha256,
             "bulk_run_plan_registry_sha256": self.bulk_run_plan_registry_sha256,
             "bulk_run_plan_id": self.bulk_plan_id,
@@ -324,6 +349,35 @@ class OfficialBaseSpider(scrapy.Spider):
                               redirect_review_target=_safe_redirect_review_target(target))
                 yield self._emit_status(record)
                 return
+            # An exact source-URL review does not grant rights to a
+            # DIFFERENT redirect target, even on the same first-party host.
+            # Hold changed-path/query targets for independent URL review.
+            # Other modes retain their existing P21B redirect policies.
+            if self.single_validation_required and target != source["url"]:
+                record.update(
+                    status="redirect_needs_review",
+                    error="single_source_redirect_target_requires_review",
+                    policy_observation=(
+                        "redirect_not_fetched_without_exact_url_review"
+                    ),
+                    redirect_review_target=_safe_redirect_review_target(target),
+                )
+                yield self._emit_status(record)
+                return
+            if self.single_validation_required:
+                still_allowed, single_reason = validation_access_decision(
+                    source, scope="single_validation",
+                )
+                if not still_allowed:
+                    record.update(
+                        status="redirect_needs_review",
+                        error=single_reason,
+                        policy_observation=(
+                            "redirect_not_fetched_due_to_source_access_gate"
+                        ),
+                    )
+                    yield self._emit_status(record)
+                    return
             depth = int(meta.get("source_redirect_depth", 0))
             if depth >= self.bulk_max_redirects_per_source or _visible_url(target) in chain + [_visible_url(response.url)]:
                 record.update(status="redirect_needs_review", error="redirect_limit_or_loop")
@@ -422,6 +476,9 @@ class OfficialBaseSpider(scrapy.Spider):
                 # is not covered by an exact source-URL bulk access review.
                 # Until separately approved, bulk jobs may NOT fetch it.
                 and not self.bulk_validation_required
+                # Single-source source_url review does not authorize the
+                # separately hosted/path-scoped Markdown alternate URL.
+                and not self.single_validation_required
                 and status not in {"blocked", "robots_or_policy_denied"}
                 and (not evidence.get("release_window_complete")
                      or evidence.get("release_event_count", 0) < 2)

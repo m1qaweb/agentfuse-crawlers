@@ -31,6 +31,7 @@ SKIPPED = {
     "source_quarantined", "source_retired",
     "source_not_validated_for_monitor",
     "source_bulk_validation_not_approved",
+    "source_single_validation_not_approved",
 }
 
 
@@ -202,6 +203,8 @@ def derive_diagnostics(record):
 
     if status == "source_bulk_validation_not_approved":
         fetch = "not_attempted_by_bulk_access_policy"
+    elif status == "source_single_validation_not_approved":
+        fetch = "not_attempted_by_single_source_access_policy"
     elif status in SKIPPED:
         fetch = "not_attempted_by_lifecycle"
     elif status in FAIL_FETCH:
@@ -215,6 +218,8 @@ def derive_diagnostics(record):
         policy = "quarantined_or_unresolved"
     elif status == "source_bulk_validation_not_approved":
         policy = "bulk_validation_unapproved"
+    elif status == "source_single_validation_not_approved":
+        policy = "single_validation_unapproved"
     elif status in {"robots_or_policy_denied", "source_access_limited"}:
         policy = "denied_or_limited"
     elif policy_state == "allowed_reviewed":

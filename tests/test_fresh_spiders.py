@@ -29,7 +29,7 @@ def test_only_three_spiders_are_used():
     ]
 
 
-def test_request_starts_from_exact_manifest_url_even_on_repeated_runs():
+def test_unreviewed_single_source_is_held_on_every_run():
     spider = ChangelogSpider(source_ids="openai_api_changelog")
 
     async def run():
@@ -37,9 +37,12 @@ def test_request_starts_from_exact_manifest_url_even_on_repeated_runs():
 
     run1, run2 = asyncio.run(run()), asyncio.run(run())
     assert len(run1) == len(run2) == 1
-    assert run1[0].url == run2[0].url
-    assert run1[0].dont_filter and run2[0].dont_filter
-    assert run1[0].meta["dont_redirect"] is True
+    assert all(not isinstance(x[0], Request) for x in (run1, run2))
+    assert run1[0]["source_id"] == run2[0]["source_id"] == "openai_api_changelog"
+    assert run1[0]["status"] == run2[0]["status"] == (
+        "source_single_validation_not_approved"
+    )
+    assert run1[0]["http_status"] is run2[0]["http_status"] is None
 
 
 def test_cross_host_https_or_http_redirect_is_rejected_without_new_request():
@@ -55,9 +58,11 @@ def test_cross_host_https_or_http_redirect_is_rejected_without_new_request():
         assert result[0]["status"] == "rejected_redirect"
 
 
-def test_same_host_redirect_is_followed_and_path_movement_reviewed():
+def test_legacy_monitor_mode_redirect_path_movement_requires_review():
     source = load_sources()[0]
-    spider = DocumentationSpider(source_ids=source["id"])
+    # Test parser-only handling, not permission for a monitoring GET.
+    # Single validation instead holds a different target URL (P23B).
+    spider = DocumentationSpider(source_ids=source["id"], collection_mode="monitor")
     first = list(spider.parse_page(response(source, 301, "/api/docs-new"), source))
     assert len(first) == 1 and isinstance(first[0], Request)
     assert first[0].meta["source_redirect_depth"] == 1
@@ -72,9 +77,10 @@ def test_same_host_redirect_is_followed_and_path_movement_reviewed():
     assert moved[0]["error"] == "source_path_redirected"
 
 
-def test_same_path_slash_redirect_remains_eligible_for_capture():
+def test_legacy_monitor_mode_slash_redirect_preserves_capture_semantics():
     source = load_sources()[0]
-    spider = DocumentationSpider(source_ids=source["id"])
+    # Parser-only legacy monitor behavior; not a publisher access approval.
+    spider = DocumentationSpider(source_ids=source["id"], collection_mode="monitor")
     first = list(spider.parse_page(response(source, 301, source["url"] + "/"), source))
     assert isinstance(first[0], Request)
     # Same-path redirects remain eligible when the fetched page also

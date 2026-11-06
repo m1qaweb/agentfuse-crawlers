@@ -214,8 +214,10 @@ def markdown_response(body, request, status=200, content_type="text/markdown"):
     )
 
 
-def test_claude_html_oversized_without_events_uses_exact_markdown_fallback():
-    spider = ChangelogSpider(cohort="candidate", source_ids=SID)
+def test_legacy_monitor_mode_markdown_fallback_remains_synthetic_only():
+    # Legacy markdown-path parsing is exercised without calling start() or
+    # authorizing a source. P23B never permits this GET in single validation.
+    spider = ChangelogSpider(cohort="candidate", source_ids=SID, collection_mode="monitor")
     html = "<main><h1>Claude Code changelog</h1><p>" + (
         "Full historical release details and updates. " * 10000
     ) + "</p></main>"
@@ -231,7 +233,7 @@ def test_claude_html_oversized_without_events_uses_exact_markdown_fallback():
 
 
 def test_markdown_alternate_returns_one_unverified_item_with_recent_versions():
-    spider = ChangelogSpider(cohort="candidate", source_ids=SID)
+    spider = ChangelogSpider(cohort="candidate", source_ids=SID, collection_mode="monitor")
     html = "<main><h1>Changelog</h1><p>" + (
         "Old undated changes. " * 15000
     ) + "</p></main>"
@@ -261,7 +263,7 @@ def test_markdown_alternate_returns_one_unverified_item_with_recent_versions():
 
 
 def test_unavailable_markdown_retains_primary_record_without_duplicate_item():
-    spider = ChangelogSpider(cohort="candidate", source_ids=SID)
+    spider = ChangelogSpider(cohort="candidate", source_ids=SID, collection_mode="monitor")
     html = "<main><h1>Changelog</h1><p>" + ("Archived updates. " * 20000) + "</p></main>"
     request = list(spider.parse_page(html_response(html), SOURCE))[0]
     primary = request.cb_kwargs["primary"]
@@ -277,7 +279,7 @@ def test_unavailable_markdown_retains_primary_record_without_duplicate_item():
 
 
 def test_markdown_fallback_wrong_content_type_not_assumed_usable():
-    spider = ChangelogSpider(cohort="candidate", source_ids=SID)
+    spider = ChangelogSpider(cohort="candidate", source_ids=SID, collection_mode="monitor")
     html = "<main><h1>Changelog</h1><p>" + ("Archived updates. " * 20000) + "</p></main>"
     request = list(spider.parse_page(html_response(html), SOURCE))[0]
     item = list(spider.parse_official_markdown(

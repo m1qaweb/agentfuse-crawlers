@@ -60,11 +60,16 @@ This runs the same no-publisher-fetch planning code.
 - **Arguments**: press the plus (+) icon and enter EACH key and value
   in its own row. Do not combine all key=value settings into one row.
 
-## Recommended NOW: one individually permitted validation source
+## P23B: one SOURCE is still NOT automatically authorized
 
-For example, after independently reviewing that official OpenAI API
-changelog page's access terms, robots, exact owner and research
-retention for THIS request:
+A single-source validation now REQUIRES an existing current Git-reviewed
+`single_validation` access record for the exact source ID/URL/category in the
+**deployed** package. With the currently empty registry, even the bounded
+example below produces a held Item and **zero source GETs**. Publisher
+terms/robots, ownership and private retention must be genuinely reviewed,
+recorded and deployed before attempting this example.
+
+ONLY AFTER a genuine source-specific review has been merged and deployed:
 
     Spider: official_changelogs
     Job Units: 1
@@ -75,6 +80,12 @@ retention for THIS request:
     cohort                        all
     source_ids                    openai_api_changelog
     collection_mode               validation
+
+The source access review is a separate gate; no ZIP argument, manifest
+hash, GitHub CI success, or older "proven" cohort substitutes for it.
+Same-host redirects to new URLs and Markdown alternates are held until their
+own independently reviewed exact-URL scope exists. See
+[the P23B operator runbook](P23B_SINGLE_SOURCE_VALIDATION_ACCESS.md).
 
 Use the planned three additional expected_* SHA pins from
 wave_01/manual_canary_job_args.csv for a strict, repeatable job.

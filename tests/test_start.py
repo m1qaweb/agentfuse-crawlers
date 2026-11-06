@@ -48,7 +48,7 @@ def test_spider_starts_with_allowlisted_sources(klass, category, cohort):
             )
 
 
-def test_limit_one_requires_bulk_review_but_exact_single_id_remains_available():
+def test_limit_one_needs_bulk_review_and_exact_single_requires_url_review():
     async def collect(spider):
         return [request async for request in spider.start()]
     # Using limit is not a safe substitute for selecting ONE exact URL.
@@ -57,9 +57,14 @@ def test_limit_one_requires_bulk_review_but_exact_single_id_remains_available():
     assert len(blocked) == 1 and not isinstance(blocked[0], scrapy.Request)
     assert blocked[0]["status"] == "source_bulk_validation_not_approved"
     explicit = PricingSpider(source_ids="openai_api_pricing")
-    request = asyncio.run(collect(explicit))
-    assert len(request) == 1 and isinstance(request[0], scrapy.Request)
-    assert request[0].cb_kwargs["source"]["id"] == "openai_api_pricing"
+    held = asyncio.run(collect(explicit))
+    assert len(held) == 1 and not isinstance(held[0], scrapy.Request)
+    assert held[0]["source_id"] == "openai_api_pricing"
+    assert held[0]["status"] == "source_single_validation_not_approved"
+    assert held[0]["error"] == "single_source_policy_not_reviewed"
+    assert held[0]["policy_observation"] == (
+        "not_fetched_by_single_source_access_gate"
+    )
 
 
 
