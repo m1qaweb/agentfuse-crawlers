@@ -169,7 +169,15 @@ def _audit_archive(root, job_id, source, access, now):
             or envelope.get("approved_for_advisor") is not False
             or envelope.get("source_evidence_is_unverified") is not True
             or job.get("unrecorded_argument_names") != []
-            or scope.get("safe_for_semantic_diff") is not True):
+            or scope.get("metadata_consistent") is not True
+            or scope.get("scope_count_matches_items") is not True
+            or scope.get("provenance_hashes_recorded") is not True
+            or scope.get("run_start_recorded") is not True
+            or scope.get("job_spider_matches_items") is not True
+            or scope.get("source_identity_mismatches") != 0):
+        # A finished Zyte job with no usable sources (e.g. HTTP 429 or a
+        # policy-held Item) is still valuable attrition evidence, even though
+        # archive_jobs marks it unsafe for SEMANTIC DIFF. Do not discard it.
         raise ValueError("Zyte archive is not one complete, unverified exact-source job")
     args = job["spider_args"]
     if (set(args) - {
