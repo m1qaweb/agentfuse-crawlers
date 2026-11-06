@@ -245,6 +245,12 @@ def run_window(raw, plan, window):
                 "table_offset": w["relevant_table_index"], "table_limit": 1,
             },
         )
+        if (replay.get("pricing_table_window_selected_indices")
+                != [w["all_table_index"]]
+                or replay.get("pricing_table_selected") != 1):
+            receipt["hold_reasons"].append(
+                "relevant_table_identity_changed_in_bounded_view"
+            )
         blockers = (
             ("parser_table_scan_truncated", replay.get("pricing_table_scan_truncated")),
             ("parser_row_window_truncated", replay.get("pricing_table_rows_incomplete")),
@@ -257,8 +263,13 @@ def run_window(raw, plan, window):
         for obs in replay.get("pricing_observations", []):
             if not str(obs.get("evidence_kind", "")).startswith("structured_table"):
                 continue  # Cards are deliberately separate, never repeated.
+            if obs.get("table_id") != table_meta["table_id"]:
+                receipt["hold_reasons"].append(
+                    "parser_table_id_changed_in_bounded_view"
+                )
+                break
             i, j = obs.get("row_index"), obs.get("column_index")
-            if (type(i) is not int or type(j) is not int
+            if (type(i) is not int or type(j) is not int or j < 0
                     or i not in range(len(keep))
                     or i < w["header_rows"]):
                 receipt["hold_reasons"].append("parser_row_coordinate_unmappable")
@@ -322,6 +333,7 @@ def assemble(raw, plan, receipts):
     if len(by_window) != len(plan["windows"]):
         raise ValueError("Frozen original row window identity collision")
     seen, ids, candidates, holds = set(), set(), [], []
+    comparable_identities = {}
     for rec in receipts:
         if (not isinstance(rec, dict)
                 or rec.get("window_id") not in by_window
@@ -342,6 +354,22 @@ def assemble(raw, plan, receipts):
             if identity in ids:
                 raise ValueError("Duplicate/overlapping row evidence identity")
             ids.add(identity)
+            if row["comparable_candidate_unverified"]:
+                typed_key = tuple(str(row.get(k) or "") for k in (
+                    "model_or_service", "price_dimension", "billing_unit",
+                    "currency", "region", "tier_or_plan",
+                ))
+                amount = row.get("normalized_amount_decimal")
+                if typed_key in comparable_identities:
+                    prior = comparable_identities[typed_key]
+                    if prior != amount:
+                        raise ValueError(
+                            "Conflicting exact typed rate identity across original row windows"
+                        )
+                    holds.append(
+                        "repeated_fully_scoped_rate_identity_requires_review"
+                    )
+                comparable_identities[typed_key] = amount
             candidates.append(row)
     if seen != set(by_window):
         raise ValueError("Gaps in same-original-snapshot row coverage")
