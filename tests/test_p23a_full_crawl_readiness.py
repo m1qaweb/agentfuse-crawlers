@@ -13,6 +13,7 @@ from agentfuse_crawlers.run_context import (
 from agentfuse_crawlers.source_lifecycle import registry_revision_sha256
 from agentfuse_crawlers.sources import load_sources, select_sources
 import agentfuse_crawlers.validation_access as policy
+from scripts.full_inventory_plan import build_full_inventory_plan
 from scripts.full_crawl_readiness import (
     FROZEN_MANIFEST_SHA256, build_readiness, write_readiness,
 )
@@ -260,3 +261,14 @@ def test_readiness_artifact_is_new_only_and_never_contains_private_human_notes(t
     assert all("evidence_note" not in r for r in actual)
     with pytest.raises((FileExistsError, ValueError, OSError)):
         write_readiness(report, rows, target)
+
+
+def test_legacy_457_technical_candidates_are_not_an_authorized_fetch_budget():
+    plan = build_full_inventory_plan(strategy="sharded", shard_size=25)
+    assert plan["expected_primary_source_fetches"] == 457
+    assert plan["expected_primary_source_fetches_semantics"] == (
+        "LIFECYCLE_ONLY_POTENTIAL_NOT_PUBLISHER_AUTHORIZATION"
+    )
+    assert plan["authorized_primary_source_fetches_by_this_plan"] == 0
+    assert all(job["authorized_primary_source_fetches_by_this_plan"] == 0
+               for job in plan["jobs"])
