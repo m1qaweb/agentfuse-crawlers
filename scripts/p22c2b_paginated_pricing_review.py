@@ -88,14 +88,23 @@ def freeze_blind_bundle(plan, ledger, capture_root, *, source_id, round_no=1,
             "unrecognized tables, complex spans, or unsafe review limits"
         )
     table_map = {x["table_id"]: x for x in row_plan["tables"]}
+    _, original_main = _main(original)
+    original_tables = _tables(original_main)
     pages = []
     for window in row_plan["windows"]:
         t = table_map[window["table_id"]]
         if window["span_or_nested_table_hold"]:
             raise ValueError("Complex source table cannot be paginated safely")
+        original_rows = _rows(original_tables[t["all_table_index"]])
         rows = [{
             "original_row_index": idx,
             "original_row_sha256": t["original_row_sha256"][idx],
+            "original_cells": [{
+                "original_column_index": col,
+                "original_cell_sha256": _cell_sha(cell),
+            } for col, cell in enumerate(
+                original_rows[idx].xpath("./th|./td")
+            )],
         } for idx in range(window["row_start"], window["row_end"])]
         pages.append({
             "page_id": sha([row_plan["plan_sha256"],
@@ -150,7 +159,13 @@ def blank_reviewer(bundle, letter):
             "page_id": page["page_id"], "review_completed": False,
             "reviewed_at_utc": None, "review_note": "",
             "row_reviews": [{
-                **row, "disposition": "not_reviewed", "labels": [],
+                "original_row_index": row["original_row_index"],
+                "original_row_sha256": row["original_row_sha256"],
+                "disposition": "not_reviewed",
+                "cell_reviews": [{
+                    **cell, "disposition": "not_reviewed",
+                } for cell in row["original_cells"]],
+                "labels": [],
             } for row in page["original_rows"]],
         } for page in bundle["pages"]],
         "parser_predictions_seen_before_review": False,
@@ -207,7 +222,9 @@ def _read_human(reviewer, bundle, original, row_plan, letter, *, now=None):
                         "rates_labeled", "explicit_no_relevant_rate", "ambiguous"
                     )
                     or not isinstance(row["labels"], list)
-                    or len(row["labels"]) > MAX_LABELS_PER_ROW):
+                    or len(row["labels"]) > MAX_LABELS_PER_ROW
+                    or not isinstance(row["cell_reviews"], list)
+                    or len(row["cell_reviews"]) != len(wanted["cell_reviews"])):
                 raise ValueError("Unreviewed/forged/duplicate original HTML row")
             idx = row["original_row_index"]
             if sha(html.tostring(
@@ -219,7 +236,37 @@ def _read_human(reviewer, bundle, original, row_plan, letter, *, now=None):
             if row["disposition"] != "rates_labeled" and row["labels"]:
                 raise ValueError("Unlabeled or ambiguous row cannot smuggle human prices")
             original_cells = all_rows[idx].xpath("./th|./td")
+            if len(original_cells) != len(wanted["cell_reviews"]):
+                raise ValueError("Original pricing row cell inventory drifted")
+            cell_states = {}
+            for cell_review, skeleton_cell in zip(
+                row["cell_reviews"], wanted["cell_reviews"]
+            ):
+                if (not isinstance(cell_review, dict)
+                        or set(cell_review) != set(skeleton_cell)
+                        or any(cell_review[key] != skeleton_cell[key]
+                               for key in ("original_column_index",
+                                           "original_cell_sha256"))
+                        or cell_review["disposition"] not in (
+                            "rates_labeled", "explicit_no_relevant_rate",
+                            "ambiguous",
+                        )):
+                    raise ValueError("Every ORIGINAL cell requires an exact independent disposition")
+                col = cell_review["original_column_index"]
+                if cell_review["original_cell_sha256"] != _cell_sha(
+                    original_cells[col]
+                ):
+                    raise ValueError("Original cell review hash changed")
+                cell_states[col] = cell_review["disposition"]
+            expected_row_state = (
+                "ambiguous" if "ambiguous" in cell_states.values() else
+                "rates_labeled" if "rates_labeled" in cell_states.values()
+                else "explicit_no_relevant_rate"
+            )
+            if row["disposition"] != expected_row_state:
+                raise ValueError("Row and full original-cell price dispositions disagree")
             enriched = []
+            labels_by_column = {col: 0 for col in cell_states}
             for item in row["labels"]:
                 if (not isinstance(item, dict)
                         or set(item) != {
@@ -232,6 +279,9 @@ def _read_human(reviewer, bundle, original, row_plan, letter, *, now=None):
                 col = item["original_column_index"]
                 if type(col) is not int or not 0 <= col < len(original_cells):
                     raise ValueError("Cross-column or foreign original price cell")
+                if cell_states[col] != "rates_labeled":
+                    raise ValueError("Human label found in unreviewed/no-rate original cell")
+                labels_by_column[col] += 1
                 cell = original_cells[col]
                 if item["original_cell_sha256"] != _cell_sha(cell):
                     raise ValueError("Original price cell SHA-256 mismatch")
@@ -266,9 +316,17 @@ def _read_human(reviewer, bundle, original, row_plan, letter, *, now=None):
                 if total_labels > MAX_LABELS_PER_SOURCE:
                     raise ValueError("Unbounded original pricing human labels")
                 enriched.append(ref)
+            if any(
+                disposition == "rates_labeled" and labels_by_column[col] == 0
+                for col, disposition in cell_states.items()
+            ):
+                raise ValueError("Rate-bearing original cell has no independent human label")
             reviewed.append({
                 "original_row_index": idx,
                 "disposition": row["disposition"],
+                "cell_dispositions": [
+                    [col, cell_states[col]] for col in sorted(cell_states)
+                ],
                 "labels": sorted(enriched, key=lambda x: x["reference_id"]),
             })
         result.append({
@@ -304,6 +362,7 @@ def reconcile_pages(bundle, original, row_plan, reviewer_a, reviewer_b, *,
             if ra["disposition"] == "ambiguous" or rb["disposition"] == "ambiguous":
                 ambiguous.append((a["page_id"], ra["original_row_index"]))
             elif (ra["disposition"] != rb["disposition"]
+                  or ra["cell_dispositions"] != rb["cell_dispositions"]
                   or ra["labels"] != rb["labels"]):
                 disputes.append((a["page_id"], ra["original_row_index"]))
             elif ra["disposition"] == "rates_labeled":
