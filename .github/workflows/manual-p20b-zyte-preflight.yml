@@ -17,6 +17,9 @@ on:
       - 'scripts/accession_cross_category_html.py'
       - 'tests/test_p22a1_cross_category_accession.py'
       - 'docs/P22A1_CROSS_CATEGORY_EVIDENCE_ACCESSION.md'
+      - 'scripts/p22c2_pilot_readiness.py'
+      - 'tests/test_p22c2_pilot_readiness.py'
+      - 'docs/P22C2A_ORIGINAL_PUBLISHER_PILOT_EVIDENCE_GATE.md'
 
 permissions:
   contents: read
@@ -52,6 +55,9 @@ jobs:
       - name: Freeze P22A1 18-source, 36-round original HTML study (BLANK only)
         run: |
           python -m scripts.accession_cross_category_html             --prepare             --out-dir output/private/p22a1-blank
+      - name: Prepare P22C2A six pricing sources / 12 rounds (BLANK only)
+        run: |
+          python -m scripts.p22c2_pilot_readiness --prepare             --out-dir output/private/p22c2a-blank
       - name: Audit P21B source-specific bulk permission gate offline
         run: |
           python -m scripts.audit_bulk_validation_policy             --out-dir output/private/p21b-bulk-policy
@@ -66,6 +72,7 @@ jobs:
           bulk = json.loads((prefix / "p21b-bulk-policy" / "bulk_validation_readiness.json").read_text())
           p22a = json.loads((prefix / "p22a1-blank" / "frozen_p20a_18_source_plan.json").read_text())
           blank = json.loads((prefix / "p22a1-blank" / "source_policy_and_capture_ledger_BLANK.json").read_text())
+          p22c2 = json.loads((prefix / "p22c2a-blank" / "p22c2a_six_pricing_sources_BLANK.json").read_text())
           assert census["configured_sources"] == 460
           assert census["category_counts"] == {"documentation": 194, "pricing": 177, "changelog": 89}
           assert census["full_inventory_one_time_diagnostic_crawl"] == "NO_GO_PENDING_EVIDENCE"
@@ -80,6 +87,19 @@ jobs:
           assert p22a["publisher_permissions_granted"] == 0
           assert blank["human_gold_supplied"] is False
           assert len(blank["rows"]) == 18
+          assert p22c2["frozen_p20a_plan_sha256"] == p22a["plan_sha256"]
+          assert p22c2["pricing_source_denominator"] == 6
+          assert p22c2["pricing_round_denominator"] == 12
+          assert len(p22c2["sources"]) == 6
+          assert sum(len(s["rounds"]) for s in p22c2["sources"]) == 12
+          assert all(x["publisher_policy_status"] == "not_reviewed"
+                     and x["original_html_status"] == "not_supplied"
+                     and x["approved_for_advisor"] is False
+                     for s in p22c2["sources"] for x in s["rounds"])
+          assert p22c2["publisher_permissions_granted"] == 0
+          assert p22c2["actual_publisher_html_captured"] == 0
+          assert p22c2["real_independent_human_labels"] == 0
+          assert p22c2["bulk_crawl_authorized"] is False
           assert all(len(row["rounds"]) == 2 for row in blank["rows"])
           assert all(round_["state"] == "not_attempted"
                      for row in blank["rows"] for round_ in row["rounds"])
@@ -109,6 +129,7 @@ jobs:
             output/private/p20b-zyte-args/
             output/private/p21b-bulk-policy/
             output/private/p22a1-blank/
+            output/private/p22c2a-blank/
           retention-days: 14
           if-no-files-found: error
       - name: Explain what the artifact means
@@ -122,6 +143,7 @@ jobs:
             echo "- READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt and CSV/JSON exact full-spider arguments"
             echo "- P21B bulk_validation_readiness.json and all_460_source_bulk_review_queue.csv"
             echo "- P22A1 BLANK frozen 18-source original HTML/policy study templates (NO HTML)"
+            echo "- P22C2A BLANK six-pricing-source, 12-round private pilot checklist (NO publisher access)"
             echo ""
             echo "**These arguments are NOT approval to run full source collection.**"
             echo "**P21B:** cohort=all plus confirm_full_inventory=yes now produces held Items without an exact Git-reviewed URL+run plan."
