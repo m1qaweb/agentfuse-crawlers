@@ -63,8 +63,8 @@ and ORIGINAL row SHA-256s. It exposes **no extracted rate values, model
 predictions or parser results to blind human reviewers**.
 
 For a 400-data-row table, 64 rows per page yields **seven pages**.
-Every original data row appears once, never just the rows the parser
-recognized as rates.
+Every original data row and each of its direct physical table cells
+appears once, never just the rows or cells the parser recognized as rates.
 
 ## Step 2 — genuine independent human A and B original-source reviews
 
@@ -78,10 +78,16 @@ before completing their own. In each BLANK form:
    and keep parser_predictions_seen_before_review=false.
 2. Complete **every** page: review_completed=true, genuine
    reviewed_at_utc after original capture, substantive review_note.
-3. For **every** original row select exactly one disposition:
-   rates_labeled, explicit_no_relevant_rate or ambiguous.
-4. For rates_labeled, record each real monetary rate (maximum 8 per
-   physical data row) using original_column_index, ORIGINAL cell SHA-256,
+3. For **every ORIGINAL CELL** in each row, fill cell_reviews with
+   rates_labeled, explicit_no_relevant_rate or ambiguous. A visible
+   model-name cell with no monetary price should be explicitly no-rate;
+   both input and output rate cells require their own decisions. The
+   row-level disposition must agree with all its cell decisions:
+   ambiguous if any cell is ambiguous; otherwise rates_labeled if any
+   cell has rate evidence; otherwise explicit_no_relevant_rate.
+4. For each rates_labeled CELL, record at least one real monetary rate
+   (maximum 8 distinct labels per physical data row) using
+   original_column_index, ORIGINAL cell SHA-256,
    a directly copied original visible CELL quote (not a guessed label),
    reviewed_value (amount/currency/unit/direction/model/region/tier/
    applicability/conditions) and a substantive review_note.
@@ -101,7 +107,8 @@ occur in many rows: original table/row/column SHA-bound locator is the
 identity, **not global quote uniqueness**.
 
 The two complete human forms must independently agree on **all** row
-dispositions and typed labels. A single disagreement, ambiguity,
+dispositions, all physical cell dispositions, and typed labels. A
+single disagreement, ambiguity,
 missing page or partial review stops scoring rather than silently
 discarding that row.
 
