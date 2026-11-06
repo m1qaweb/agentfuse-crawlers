@@ -110,6 +110,21 @@ def reviews(bundle, raw, *, status="rates_labeled", amount="0.50"):
             for row in p["row_reviews"]:
                 idx = row["original_row_index"]
                 row["disposition"] = status
+                for cell_review in row["cell_reviews"]:
+                    if status == "rates_labeled":
+                        cell_review["disposition"] = (
+                            "rates_labeled"
+                            if cell_review["original_column_index"] == 1
+                            else "explicit_no_relevant_rate"
+                        )
+                    elif status == "ambiguous":
+                        cell_review["disposition"] = (
+                            "ambiguous"
+                            if cell_review["original_column_index"] == 1
+                            else "explicit_no_relevant_rate"
+                        )
+                    else:
+                        cell_review["disposition"] = "explicit_no_relevant_rate"
                 if status == "rates_labeled":
                     cell = all_rows[source_page["all_table_index"]][idx].xpath(
                         "./th|./td"
@@ -200,6 +215,8 @@ def test_blank_paginated_original_cell_tasks_are_blind_and_complete(tmp_path):
         assert all(page["review_completed"] is False for page in template["pages"])
         assert all(
             row["disposition"] == "not_reviewed" and row["labels"] == []
+            and all(cell["disposition"] == "not_reviewed"
+                    for cell in row["cell_reviews"])
             for page in template["pages"] for row in page["row_reviews"]
         )
         assert not any("observed_value" in json.dumps(x)
@@ -291,6 +308,25 @@ def test_missing_page_and_row_cannot_be_reconciled(tmp_path):
     a, b = reviews(bundle, raw)
     a["pages"][0]["row_reviews"].pop(3)
     with pytest.raises(ValueError, match="price page"):
+        reconcile_pages(bundle, original, row_plan, a, b, now=NOW)
+
+
+def test_each_original_cell_must_be_disposed_even_when_row_is_marked_done(tmp_path):
+    plan, ledger, raw, _ = synthetic_capture(tmp_path, 3)
+    bundle, original, row_plan = freeze_blind_bundle(
+        plan, ledger, tmp_path, source_id=SID, now=NOW
+    )
+    a, b = reviews(bundle, raw)
+    a["pages"][0]["row_reviews"][0]["cell_reviews"][0][
+        "disposition"
+    ] = "not_reviewed"
+    with pytest.raises(ValueError, match="Every ORIGINAL cell"):
+        reconcile_pages(bundle, original, row_plan, a, b, now=NOW)
+    a, b = reviews(bundle, raw)
+    a["pages"][0]["row_reviews"][0]["cell_reviews"][1][
+        "disposition"
+    ] = "explicit_no_relevant_rate"
+    with pytest.raises(ValueError, match="Row and full original-cell"):
         reconcile_pages(bundle, original, row_plan, a, b, now=NOW)
 
 
