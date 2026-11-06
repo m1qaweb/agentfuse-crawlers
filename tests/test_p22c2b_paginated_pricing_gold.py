@@ -316,7 +316,7 @@ def test_duplicate_label_and_cross_cell_sha_fail_closed(tmp_path):
 @pytest.mark.parametrize("attack,part", [
     ("unknown_amount", "amount absent"),
     ("foreign_quote", "quote absent"),
-    ("false_source", "original"),
+    ("false_source", "independent blind reviewer"),
     ("bad_unit", "unit"),
     ("future_review", "future"),
     ("third_sees_predictions", "blind reviewer"),
