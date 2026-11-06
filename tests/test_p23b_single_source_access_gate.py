@@ -304,3 +304,28 @@ def test_bulk_still_requires_independent_run_plan_not_single_review(
     assert len(rows) == 3 and all(isinstance(row, dict) for row in rows)
     assert all(row["status"] == "source_bulk_validation_not_approved"
                for row in rows)
+
+
+def test_denied_single_access_is_separately_counted_in_scrapy_coverage():
+    from types import SimpleNamespace
+    from agentfuse_crawlers.extensions.coverage import SourceCoverageAudit
+
+    class Stats:
+        def __init__(self):
+            self.values = {}
+
+        def set_value(self, key, value):
+            self.values[key] = value
+
+    spider = DocumentationSpider(cohort="all", source_ids="openai_api_docs")
+    row = asyncio.run(_start(spider))[0]
+    stats = Stats()
+    audit = SourceCoverageAudit(SimpleNamespace(stats=stats))
+    audit.item_scraped(row, None, spider)
+    audit.summary(spider)
+    assert stats.values["agentfuse/coverage/single_access_held_sources"] == 1
+    assert stats.values["agentfuse/coverage/bulk_access_held_sources"] == 0
+    assert stats.values["agentfuse/coverage/reported_sources"] == 1
+    assert stats.values["agentfuse/coverage/missing_sources"] == 0
+    assert stats.values["agentfuse/coverage/captured_sources"] == 0
+    assert stats.values["agentfuse/run/quality_outcome"] == "no_usable_sources"
