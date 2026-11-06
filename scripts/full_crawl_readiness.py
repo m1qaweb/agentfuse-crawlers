@@ -195,7 +195,7 @@ def build_readiness(*, sources=None, access_registry=None, run_registry=None,
         "REAL_TWO_ROUND_CANARY_ARCHIVES_NOT_VERIFIED",
         "ZYTE_REMOTE_DEPLOYMENT_FINGERPRINT_NOT_INDEPENDENTLY_VERIFIED",
         "OPERATOR_BUDGET_AND_ONE_SHOT_APPROVAL_NOT_VERIFIED",
-        "P23B_SINGLE_SOURCE_ACCESS_ENFORCEMENT_NOT_YET_IMPLEMENTED",
+        "P23B_SINGLE_SOURCE_ACCESS_ENFORCEMENT_NOT_VERIFIED_ON_DEPLOYED_ZYTE",
     ]
     if totals["current_bulk_source_review_attestations"] < totals[
             "technical_validation_eligible"]:
