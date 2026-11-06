@@ -226,7 +226,10 @@ def test_stale_or_wrong_scoped_plan_is_held_without_publisher_fetch(breakage):
     elif breakage == "changed_manifest_sha":
         plan["manifest_sha256"] = "f" * 64
     elif breakage == "wrong_order":
+        # Keep the schema-required permitted subset ordering valid, then
+        # challenge the exact manifest-order/selection fingerprint gate.
         plan["source_ids"] = list(reversed(plan["source_ids"]))
+        plan["authorized_source_ids"] = list(reversed(plan["authorized_source_ids"]))
     else:
         plan["access_registry_sha256"] = "e" * 64
     report, rows = build_readiness(
