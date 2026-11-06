@@ -16,6 +16,8 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from lxml import html
+
 from agentfuse_crawlers.model_labels import visible_cell_text
 from agentfuse_crawlers.sources import load_sources
 from scripts.accession_cross_category_html import stage_data
@@ -115,6 +117,7 @@ def freeze_blind_bundle(plan, ledger, capture_root, *, source_id, round_no=1,
         "parser_package_sha256": row_plan["parser_package_sha256"],
         "source_id": source_id, "source_url": selected["source_url"],
         "round": round_no, "wave": selected["wave"],
+        "rows_per_window": rows_per_window,
         "original_html_sha256": selected["raw_html_sha256"],
         "captured_at_utc": selected["captured_at_utc"],
         "source_round_census": _round_census(cases),
@@ -207,7 +210,7 @@ def _read_human(reviewer, bundle, original, row_plan, letter, *, now=None):
                     or len(row["labels"]) > MAX_LABELS_PER_ROW):
                 raise ValueError("Unreviewed/forged/duplicate original HTML row")
             idx = row["original_row_index"]
-            if sha(__import__("lxml").html.tostring(
+            if sha(html.tostring(
                 all_rows[idx], encoding="utf-8", with_tail=False,
             )) != wanted["original_row_sha256"]:
                 raise ValueError("Human row reference original HTML SHA-256 mismatch")
@@ -331,6 +334,8 @@ def reconcile_pages(bundle, original, row_plan, reviewer_a, reviewer_b, *,
         "references": references if not (ambiguous or disputes) else [],
         "reviewer_a_id": left["reviewer_id"],
         "reviewer_b_id": right["reviewer_id"],
+        "complete_reviewer_a_form_sha256": sha(reviewer_a),
+        "complete_reviewer_b_form_sha256": sha(reviewer_b),
         "latest_review_a_utc": left["latest_reviewed_at_utc"],
         "latest_review_b_utc": right["latest_reviewed_at_utc"],
         "original_study_source_denominator": 18,
