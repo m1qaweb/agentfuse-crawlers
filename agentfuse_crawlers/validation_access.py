@@ -197,9 +197,11 @@ def validation_access_decision(source, *, scope="bulk_validation",
                                registry=None, now=None):
     if scope not in ACCESS_SCOPES:
         raise ValueError("Unknown validation access scope")
-    data = load_access_registry() if registry is None else validate_access_registry(
-        registry, now=now
-    )
+    # Revalidate even an already cached installed registry at the exact
+    # permission boundary; no injected/stale/mutated in-memory record can
+    # silently gain a single-source request by avoiding the initial load.
+    data = load_access_registry() if registry is None else registry
+    validate_access_registry(data, now=now)
     # Independently, the lifecycle registry may prohibit any source fetch.
     allowed_by_lifecycle, lifecycle_reason = collection_decision(
         source, mode="validation",
