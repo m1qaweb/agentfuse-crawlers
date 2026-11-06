@@ -162,13 +162,21 @@ def test_single_exact_manual_validation_remains_bounded(spider_type):
     spider = spider_type(cohort="all", source_ids=sid)
     emitted = asyncio.run(collect(spider))
     assert len(emitted) == 1
-    assert isinstance(emitted[0], Request)
-    assert emitted[0].cb_kwargs["source"]["id"] == sid
+    # P23B: being explicit is a SCOPE restriction, never access approval.
+    assert not isinstance(emitted[0], Request)
+    assert emitted[0]["source_id"] == sid
+    assert emitted[0]["status"] == "source_single_validation_not_approved"
+    assert emitted[0]["error"] == "single_source_policy_not_reviewed"
+    assert emitted[0]["http_status"] is None
+    assert emitted[0]["approved_for_advisor"] is False
     assert spider.validation_scope == "single_exact_source"
+    assert spider.single_validation_required is True
     assert spider.bulk_validation_required is False
     assert spider.bulk_authorized_ids == frozenset()
     assert spider.run_context["selection_source_count"] == 1
-    assert emitted[0].meta["dont_redirect"] is True
+    assert emitted[0]["quality_axes"]["fetch_status"] == (
+        "not_attempted_by_single_source_access_policy"
+    )
 
 
 def test_explicit_single_quarantined_never_fetches_even_with_old_confirmation():
