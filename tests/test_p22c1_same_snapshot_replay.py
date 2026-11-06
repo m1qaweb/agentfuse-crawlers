@@ -94,6 +94,51 @@ def test_400_original_rows_replay_with_real_parser_and_absolute_coordinates():
     assert receipts == run_all(raw, plan)
 
 
+
+def test_old_250_row_parser_limit_is_detected_without_claiming_real_accuracy():
+    from agentfuse_crawlers.extract import extract_evidence
+    raw = fake_html(400)
+    old = extract_evidence(
+        raw, SRC["url"], category="pricing", source_id=SRC["id"],
+    )
+    assert old["pricing_table_rows_incomplete"] is True
+    assert old["pricing_rows_examined"] == 249
+    assert old["pricing_inventory_complete"] is False
+    plan = make_plan(raw)
+    new = assemble(raw, plan, run_all(raw, plan))
+    assert new["report"]["recognized_row_window_coverage_complete"] is True
+    assert len(new["unverified_observations"]) >= 400
+    assert new["report"]["price_accuracy_measured"] is False
+    assert old["approved_for_advisor"] is False
+
+
+def test_per_window_observation_cap_is_a_hold_not_silent_300_candidate_loss():
+    columns = ["<th>Model</th>"] + [
+        f"<th>Input price {n}</th>" for n in range(5)
+    ]
+    body = "".join(
+        "<tr><th>Mock model %03d</th>%s</tr>" % (
+            row, "<td>USD 1.25 / 1M tokens</td>" * 5
+        ) for row in range(80)
+    )
+    raw = (
+        "<html><body><main><p>All prices are in USD.</p>"
+        "<p>Region: Global</p><p>Tier: Standard</p>"
+        "<table><thead><tr>" + "".join(columns) +
+        "</tr></thead><tbody>" + body +
+        "</tbody></table></main></body></html>"
+    ).encode()
+    plan = make_plan(raw, rows=80)
+    assert len(plan["windows"]) == 1
+    receipt = run_all(raw, plan)[0]
+    assert receipt["status"] == "held"
+    assert "parser_observation_budget_exceeded" in receipt["hold_reasons"]
+    assert receipt["observations"] == []
+    report = assemble(raw, plan, [receipt])["report"]
+    assert report["recognized_row_window_coverage_complete"] is False
+    assert report["unverified_observations"] == 0
+
+
 def test_all_windows_remain_bound_to_one_original_html_sha256():
     raw = fake_html(70)
     plan = make_plan(raw, rows=32)
