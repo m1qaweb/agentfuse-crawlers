@@ -20,6 +20,9 @@ on:
       - 'scripts/p22c2_pilot_readiness.py'
       - 'tests/test_p22c2_pilot_readiness.py'
       - 'docs/P22C2A_ORIGINAL_PUBLISHER_PILOT_EVIDENCE_GATE.md'
+      - 'scripts/full_crawl_readiness.py'
+      - 'tests/test_p23a_full_crawl_readiness.py'
+      - 'docs/P23A_FULL_CRAWL_READINESS_AUDIT.md'
 
 permissions:
   contents: read
@@ -61,6 +64,10 @@ jobs:
       - name: Audit P21B source-specific bulk permission gate offline
         run: |
           python -m scripts.audit_bulk_validation_policy             --out-dir output/private/p21b-bulk-policy
+      - name: Produce P23A unified exact-460 NO-GO audit (no network)
+        run: |
+          python -m scripts.full_crawl_readiness \
+            --out-dir output/private/p23a-readiness
       - name: Refuse unsafe scope or inferred permissions
         run: |
           python - <<'PY'
@@ -73,6 +80,13 @@ jobs:
           p22a = json.loads((prefix / "p22a1-blank" / "frozen_p20a_18_source_plan.json").read_text())
           blank = json.loads((prefix / "p22a1-blank" / "source_policy_and_capture_ledger_BLANK.json").read_text())
           p22c2 = json.loads((prefix / "p22c2a-blank" / "p22c2a_six_pricing_sources_BLANK.json").read_text())
+          p23a = json.loads((prefix / "p23a-readiness" / "full_crawl_readiness_NO_GO.json").read_text())
+          assert p23a["status"] == "NO_GO"
+          assert p23a["counts"]["configured_source_ids"] == 460
+          assert p23a["counts"]["technical_validation_eligible_NOT_permission"] == 457
+          assert p23a["counts"]["locally_valid_plan_eligible_source_ids_NOT_remote_verified"] == 0
+          assert p23a["bulk_run_approved"] is False
+          assert p23a["new_zyte_jobs"] == p23a["network_requests_performed"] == 0
           assert census["configured_sources"] == 460
           assert census["category_counts"] == {"documentation": 194, "pricing": 177, "changelog": 89}
           assert census["full_inventory_one_time_diagnostic_crawl"] == "NO_GO_PENDING_EVIDENCE"
@@ -130,6 +144,7 @@ jobs:
             output/private/p21b-bulk-policy/
             output/private/p22a1-blank/
             output/private/p22c2a-blank/
+            output/private/p23a-readiness/
           retention-days: 14
           if-no-files-found: error
       - name: Explain what the artifact means
@@ -144,6 +159,7 @@ jobs:
             echo "- P21B bulk_validation_readiness.json and all_460_source_bulk_review_queue.csv"
             echo "- P22A1 BLANK frozen 18-source original HTML/policy study templates (NO HTML)"
             echo "- P22C2A BLANK six-pricing-source, 12-round private pilot checklist (NO publisher access)"
+            echo "- P23A unified full_crawl_readiness_NO_GO.json and 460-ID source_dispositions_460.csv"
             echo ""
             echo "**These arguments are NOT approval to run full source collection.**"
             echo "**P21B:** cohort=all plus confirm_full_inventory=yes now produces held Items without an exact Git-reviewed URL+run plan."
