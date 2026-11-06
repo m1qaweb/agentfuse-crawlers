@@ -12,7 +12,7 @@ P21B moves the decision to the spider **before it yields a page Request**. Only 
 
 | Requested scope | Additional requirements | Available now? |
 |---|---|---|
-| One explicitly named configured source with source_ids=ONE_ID, zero offset and no limit | Existing lifecycle guard; real human must independently review publisher access and retention before running manually | Technically available, never automatically authorized |
+| One explicitly named configured source with source_ids=ONE_ID, zero offset and no limit | **P23B:** existing lifecycle guard **and current Git-reviewed exact source access record with single_validation scope** | NO — no packaged reviewed source records |
 | Default proven cohort (3), comma-separated source IDs, candidate chunks or limit/offset selection | Current publisher URL review, exact reviewed run plan and runtime hashes | NO — no reviewed plans |
 | Full category using cohort=all | confirm_full_inventory=yes AND source URL review AND exact reviewed run plan/runtime hashes | NO — confirmation is not permission |
 | Unattended monitoring | Existing independently approved validated_for_collection lifecycle | NO — no monitored sources are approved |
@@ -53,7 +53,7 @@ Do not commit publisher correspondence, confidential contractual terms, raw HTML
 
 ## Zyte arguments: before and after
 
-For ONE previously reviewed, exact source:
+For ONE source **only after** genuine source-specific ownership/robots/terms/private-retention review has been recorded in the Git-reviewed access registry AND deployed (P23B). With the current EMPTY registry this yields one policy-held Item and NO publisher source GET:
 
     Spider: official_changelogs
     Job Units: 1
@@ -62,7 +62,7 @@ For ONE previously reviewed, exact source:
     source_ids = openai_api_changelog
     collection_mode = validation
 
-This is a bounded example, not a statement that the publisher has approved it. Independent human publisher-policy review is still required.
+This is a bounded example, NOT evidence of any publisher's authorization. A CLI source ID and review of terms only in an operator's notes are no longer sufficient: the exact current source review must be accepted by the deployed policy registry. Changed-path redirects and separate Markdown alternates are also held in P23B until separately reviewed. See [P23B runbook](P23B_SINGLE_SOURCE_VALIDATION_ACCESS.md).
 
 For a FUTURE, separately authorized bulk diagnostic, the older arguments remain necessary but are insufficient on their own:
 
