@@ -159,10 +159,12 @@ def score_packet(plan, ledger, capture_root, frozen_bundle,
     if not isinstance(frozen_packet, dict) or frozen_packet != packet:
         raise ValueError("Third-human packet differs from CURRENT source/HTML/labels/parser")
     template = blank_third(packet)
-    if (not isinstance(third, dict) or set(third) != set(template)
+    if (not isinstance(third, dict)
+            or third.get("frozen_packet_sha256") != packet["packet_sha256"]):
+        raise ValueError("Third reviewer refers to stale or forged CURRENT original source packet")
+    if (set(third) != set(template)
             or any(third[key] != template[key] for key in (
-                "schema_version", "kind", "frozen_packet_sha256",
-                "approved_for_advisor",
+                "schema_version", "kind", "approved_for_advisor",
             ))
             or not isinstance(third.get("adjudicator_id"), str)
             or not REVIEWER.fullmatch(third["adjudicator_id"])
