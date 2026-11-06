@@ -126,6 +126,9 @@ def build_full_inventory_plan(*, strategy="sharded", shard_size=25,
                 "source_ids_csv": ",".join(ids),
                 "requested_count": len(ids),
                 "expected_primary_source_fetches": len(eligible),
+                # LEGACY technical capacity only: an actual GET also requires
+                # a current P21B URL review AND an exact Git-reviewed run plan.
+                "authorized_primary_source_fetches_by_this_plan": 0,
                 "expected_policy_skipped_source_ids": skipped,
                 "expected_policy_skips": len(skipped),
                 "spider_args": args,
@@ -177,6 +180,10 @@ def build_full_inventory_plan(*, strategy="sharded", shard_size=25,
         "source_ids": [s["id"] for s in manifest],
         "expected_policy_skipped_source_ids": sorted(quarantine),
         "expected_primary_source_fetches": 460 - len(quarantine),
+        "expected_primary_source_fetches_semantics": (
+            "LIFECYCLE_ONLY_POTENTIAL_NOT_PUBLISHER_AUTHORIZATION"
+        ),
+        "authorized_primary_source_fetches_by_this_plan": 0,
         "publisher_access_review_required_source_count": len(requested_unreviewed),
         "publisher_access_review_not_automatically_authorized": True,
         "static_warnings": warnings,
