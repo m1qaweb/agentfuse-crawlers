@@ -40,9 +40,10 @@ def test_exact_safely_pinned_460_source_3_spider_zyte_ui_jobs():
             "cohort": "all",
             "confirm_full_inventory": "yes",
             "collection_mode": "validation",
+        }
+        assert row["scope_fingerprints_reference_only"] == {
             "expected_manifest_sha256": manifest_sha256(),
-            "expected_selection_ids_sha256":
-                selection_ids_sha256(selected),
+            "expected_selection_ids_sha256": selection_ids_sha256(selected),
             "expected_source_registry_sha256": registry_revision_sha256(),
         }
         assert "source_ids" not in args
@@ -100,12 +101,22 @@ def test_operator_can_download_full_copy_paste_args_without_local_checkout(
     assert all(row["confirm_full_inventory"] == "yes" for row in rows)
     assert all(row["collection_mode"] == "validation" for row in rows)
     assert all("source_ids" not in row for row in rows)
+    assert all(row["expected_manifest_sha256"] == manifest_sha256()
+               for row in rows)
+    assert all(row["expected_source_registry_sha256"] ==
+               registry_revision_sha256() for row in rows)
+    assert all(row["expected_selection_ids_sha256"] ==
+               selection_ids_sha256(select_sources(row["category"], cohort="all"))
+               for row in rows)
+    assert all(row["expected_bulk_plan_sha256"] == "" for row in rows
+               if "expected_bulk_plan_sha256" in row)
     assert all(row["human_authorization_status"].startswith("NOT_AUTHORIZED")
                for row in rows)
     txt = (folder / "READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt").read_text()
     for x in ("SPIDER: official_changelogs", "SPIDER: official_pricing",
               "SPIDER: official_documentation", "confirm_full_inventory = yes",
               "cohort = all", "collection_mode = validation",
+              "the spider locates ONE exact current reviewed plan",
               "DO NOT add source_ids", "NOT AUTHORIZED"):
         assert x in txt
     if os.name == "posix":
