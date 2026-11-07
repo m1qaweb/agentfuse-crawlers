@@ -21,7 +21,7 @@ from scripts.archive_jobs import archive_job, archive_path
 from scripts.p23c1_zyte_canary_archive_gate import blank_receipts
 from scripts.p23c2_zyte_requests_logs_html_gate import audit_evidence
 from scripts.p23c3a_download_completed_zyte_evidence import (
-    _download_paged, _parse_page, _preflight,
+    _download_paged, _parse_page, _preflight, _url,
     download_existing_job_evidence,
 )
 
@@ -346,10 +346,9 @@ def test_tampered_or_incomplete_remote_evidence_refused_without_partial_files(
     args = fixture(tmp_path)
     client = args[-1]
     job = client.job_id
-    req_url = (
-        "https://storage.zyte.com/requests/" + job +
-        "?format=jl&meta=_key&count=32&start=" + job + "/0"
-    )
+    # Use the production's URL-encoded pagination cursor, not an
+    # approximate mock URL with unescaped slash characters.
+    req_url = _url("requests", job, 0, 32)
     if damage == "metadata_spider_changed":
         client.meta["spider"] = "wrong_spider"
     elif damage == "metadata_state_running":
