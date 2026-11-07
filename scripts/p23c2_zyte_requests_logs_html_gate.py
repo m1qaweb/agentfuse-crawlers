@@ -91,11 +91,15 @@ def blank_export_index(plan=None):
     }
 
 
-def _validate_index(index, item_receipts, plan):
+def _validate_index(index, item_receipts, plan, *, historical=False):
     expected = blank_export_index(plan)
     if (not isinstance(index, dict)
             or set(index) != INDEX_FIELDS
-            or any(index[k] != expected[k] for k in INDEX_FIELDS - {"rows"})
+            or any(index[k] != expected[k] for k in
+                   INDEX_FIELDS - ({"rows", "package_sha256"}
+                                   if historical else {"rows"}))
+            or (historical and index.get("package_sha256") !=
+                item_receipts.get("expected_package_sha256"))
             or not isinstance(index["rows"], list)
             or len(index["rows"]) != 18):
         raise ValueError("Missing, privileged or stale P23C2 evidence index")
@@ -317,14 +321,19 @@ def _log_diagnostics(rows, *, job, item):
 
 def audit_evidence(item_receipts, export_index, archive_root, export_root,
                    *, p22a1_ledger=None, html_root=None, access_registry=None,
-                   now=None):
+                   now=None, historical_policy_root=None,
+                   historical_egg_root=None):
     """Correlate archival evidence without converting it into permission/GO."""
     clock = _time(now)
     plan = frozen_plan()
-    _validate_index(export_index, item_receipts, plan)
+    historical = (historical_policy_root is not None or
+                  historical_egg_root is not None)
+    _validate_index(export_index, item_receipts, plan, historical=historical)
     c1_report, c1_rows = audit_items(
         item_receipts, archive_root, now=clock, access_registry=access_registry,
         plan=plan,
+        historical_policy_root=historical_policy_root,
+        historical_egg_root=historical_egg_root,
     )
     if (c1_report["original_selected_sources"] != 18
             or c1_report["original_source_round_denominator"] != 36):
@@ -467,6 +476,8 @@ def audit_evidence(item_receipts, export_index, archive_root, export_root,
         "source_manifest_sha256": manifest_sha256(),
         "source_lifecycle_sha256": registry_revision_sha256(),
         "p23c1_report_sha256": c1_report["report_sha256"],
+        "historical_original_policy_and_egg_provenance_replay": historical,
+        "historical_replay_grants_current_publisher_access": False,
         "p22a1_html_accession_sha256": (
             html_metrics["accession_sha256"] if html_metrics else None
         ),
@@ -578,6 +589,8 @@ def main():
     parser.add_argument("--export-root", type=Path)
     parser.add_argument("--p22a1-private-ledger", type=Path)
     parser.add_argument("--html-root", type=Path)
+    parser.add_argument("--historical-policy-root", type=Path)
+    parser.add_argument("--historical-egg-root", type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     args = parser.parse_args()
     if args.prepare:
@@ -585,6 +598,7 @@ def main():
             args.p23c1_private_receipts, args.raw_export_index,
             args.archive_root, args.export_root,
             args.p22a1_private_ledger, args.html_root,
+            args.historical_policy_root, args.historical_egg_root,
         )):
             parser.error("--prepare must not accept real private evidence")
         out = prepare(args.out_dir)
@@ -604,6 +618,8 @@ def main():
                 if args.p22a1_private_ledger else None
             ),
             html_root=args.html_root,
+            historical_policy_root=args.historical_policy_root,
+            historical_egg_root=args.historical_egg_root,
         )
         out = write_report(report, rows, args.out_dir)
         result = {
