@@ -387,6 +387,8 @@ def audit_evidence(item_receipts, export_index, archive_root, export_root,
                     logs = _log_diagnostics(raw, job=job, item=item)
                     log_status = "sha256_bound_jsonl_parsed_NOT_authenticated"
                     issues.update(logs["issues"])
+                    if not raw:
+                        issues.add("empty_logs_export_does_not_establish_full_job_trace")
                 else:
                     issues.add("logs_export_missing")
             elif ex["requests"] is not None or ex["logs"] is not None:
@@ -411,10 +413,16 @@ def audit_evidence(item_receipts, export_index, archive_root, export_root,
                         issues.add("separately_captured_html_outside_two_hour_window")
             elif html and html["state"] != "not_attempted":
                 html_status = "p22a1_" + html["state"]
-            if job_id is not None and c1["slot_state"] == (
-                    "http200_item_observed_NOT_ORIGINAL_HTML_VERIFIED"):
-                if not requests["primary_status_matches_item"]:
+            if job_id is not None:
+                if c1["slot_state"] != (
+                        "http200_item_observed_NOT_ORIGINAL_HTML_VERIFIED"):
+                    issues.add("source_item_not_usable_http200")
+                elif not requests["primary_status_matches_item"]:
                     issues.add("http200_item_not_corroborated_by_request")
+                if (job.get("close_reason") != "finished"
+                        and c1["slot_state"] ==
+                        "http200_item_observed_NOT_ORIGINAL_HTML_VERIFIED"):
+                    issues.add("zyte_job_close_reason_not_finished")
             if job_id is None:
                 state = c1["slot_state"]
             elif issues:
