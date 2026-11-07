@@ -66,8 +66,11 @@ For each legally permitted selected source:
    snippets, into an access-controlled offline directory. The Zyte API's
    Request objects require `time` (epoch milliseconds), `method`, `url`,
    `status`, `duration`, `rs`. Logs require `level` and `message`, with
-   optional `time`. Never put API keys in URLs or repository files. The
-   current P23C2 implementation **does not download** these exports.
+   optional `time`. Never put API keys in URLs or repository files.
+   **P23C3A now provides an optional read-only completed-job downloader** that
+   paginates the official Requests/Logs API and generates this P23C2 index
+   automatically. It does **not** start new jobs or access publisher URLs.
+   See [P23C3A operator commands](P23C3A_READONLY_COMPLETED_JOB_EVIDENCE_EXPORT.md).
 5. Obtain source-owned original publisher HTML via separately authorized
    P22A1 methods. A source-summary Item is **not** HTML and its text hash is
    **not** the original HTML-byte hash.
