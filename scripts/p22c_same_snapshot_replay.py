@@ -171,7 +171,7 @@ def plan_source(raw, *, source_id, expected_sha256, rows_per_window=64):
         "source_lifecycle_sha256": registry_revision_sha256(),
         "parser_package_sha256": package_fingerprint(),
         "pricing_parser_revision":
-            "evidence_quote_v5_inline_labeled_components",
+            "evidence_quote_v6_cloudflare_literal_components",
         "rows_per_window": rows_per_window,
         "inventory": inventory,
         "tables": meta, "windows": windows,
