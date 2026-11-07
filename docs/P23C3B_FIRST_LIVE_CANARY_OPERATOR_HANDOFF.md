@@ -93,8 +93,7 @@ unverified** weaknesses in these exact first-pilot sources:
 - **OpenAI API changelog:** HTTP 200 but release-event identity collisions
   and truncated text. A successful fetch is not an accurate release feed.
 
-The full [historical 460-Item / 992-Request triage]
-(P23D0_HISTORICAL_REAL_ZYTE_CANARY_DEFECT_TRIAGE.md)
+The full [historical 460-Item / 992-Request triage](P23D0_HISTORICAL_REAL_ZYTE_CANARY_DEFECT_TRIAGE.md)
 explains original source attrition and request counts. **These are dated,
 pre-P23B observations, not current publisher facts or permissions.**
 
