@@ -6,6 +6,7 @@ actual publisher origin, human permissions, remote deploy or pricing accuracy.
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
+import zipfile
 
 import pytest
 
@@ -570,9 +571,7 @@ def test_historical_context_is_fail_closed_to_forged_or_partial_evidence(
         egg_path.write_bytes(b"bad-egg-corruption")
     elif damage == "egg_policy_mismatch":
         other = _registry()
-        _, other_digest = _make_historic_egg(
-            tmp_path / "alternate" if False else tmp_path, other
-        )
+        _, other_digest = _make_historic_egg(tmp_path, other)
         other_path = egg_dir / (other_digest + ".egg")
         egg_path.write_bytes(other_path.read_bytes())
     elif damage == "single_root_only":
