@@ -40,9 +40,39 @@ PILOT_SOURCE_IDS = (
     "kiro_docs", "gemini_api_pricing", "openai_api_changelog",
 )
 CATEGORIES = ("documentation", "pricing", "changelog")
+# First-party research leads, NOT permission decisions or runtime policy.
+# Kept separate from the trusted P23B source-access registry and checked-in
+# only to help the actual human reviewer prioritize a genuine legal/robots
+# assessment before the first live Zyte call.
+POLICY_RESEARCH_AS_OF = "2026-11-07"
+PUBLIC_POLICY_RESEARCH = {
+    "kiro_docs": (
+        "HIGH_RISK_LINKED_AWS_SITE_TERMS",
+        "https://aws.amazon.com/terms/",
+        "Kiro docs footer links AWS Site Terms, which restrict data mining / robots. "
+        "Verify applicability and separate rights before any Kiro publisher GET. "
+        "Kiro robots.txt not verified through research interface.",
+    ),
+    "gemini_api_pricing": (
+        "ROBOTS_PUBLIC_READABLE_RIGHTS_UNRESOLVED",
+        "https://ai.google.dev/robots.txt",
+        "Public robots file disallows authuser-query URLs; this is NOT a "
+        "positive grant for automated scraping or HTML retention. "
+        "Human review of actual current robots, terms and rights required.",
+    ),
+    "openai_api_changelog": (
+        "ROBOTS_UNVERIFIED_TERMS_UNRESOLVED",
+        "https://openai.com/policies/",
+        "The public policy index distinguishes agreements; developer-subdomain "
+        "robots.txt could not be verified through research interface. "
+        "No publisher GET without independent human determination.",
+    ),
+}
 WORKLIST_FIELDS = (
     "source_id", "category", "publisher", "source_url", "robots_candidate_url",
     "publisher_access_registry_status", "local_single_scope_record_present",
+    "public_policy_research_as_of", "public_policy_research_status",
+    "public_policy_evidence_url", "public_policy_research_note",
     "human_owner_verification", "human_robots_review", "human_terms_review",
     "human_private_retention_review", "human_operator_decision",
     "next_operator_action",
@@ -97,6 +127,8 @@ def build_handoff(*, access_registry=None, now=None):
     if len(manifest) != 460:
         raise ValueError("Original source manifest changed")
     selected = _pilot_sources(frozen, manifest)
+    if set(PUBLIC_POLICY_RESEARCH) != set(PILOT_SOURCE_IDS):
+        raise ValueError("Policy research notes must cover exact frozen pilot IDs")
     # The actual deployed policy file is the only local review input.
     access = load_access_registry() if access_registry is None else access_registry
     validate_access_registry(access, now=clock)
@@ -123,6 +155,10 @@ def build_handoff(*, access_registry=None, now=None):
             # Candidate URL is NOT proof that robots exists or permits this crawl.
             "publisher_access_registry_status": reason,
             "local_single_scope_record_present": reviewed,
+            "public_policy_research_as_of": POLICY_RESEARCH_AS_OF,
+            "public_policy_research_status": PUBLIC_POLICY_RESEARCH[sid][0],
+            "public_policy_evidence_url": PUBLIC_POLICY_RESEARCH[sid][1],
+            "public_policy_research_note": PUBLIC_POLICY_RESEARCH[sid][2],
             "human_owner_verification": "NOT_ATTESTED_BY_THIS_PACKET",
             "human_robots_review": "NOT_ATTESTED_BY_THIS_PACKET",
             "human_terms_review": "NOT_ATTESTED_BY_THIS_PACKET",
