@@ -616,6 +616,9 @@ def test_historical_receipts_integrate_with_no_go_p23c2_and_readonly_preflight(
     )
     index = blank_export_index()
     index["package_sha256"] = package_sha
+    next(row for row in index["rows"] if row["source_id"] == source["id"])[
+        "rounds"
+    ][0]["zyte_job_id"] = job_id
     export_root = tmp_path / "raw"
     export_root.mkdir()
     report, rows = audit_evidence(
