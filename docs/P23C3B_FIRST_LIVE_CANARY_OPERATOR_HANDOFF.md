@@ -22,6 +22,27 @@ These three form an *initial execution subset*, not a replacement for the
 remaining original 15. If a site is denied or unresolved, **hold** its slots;
 do not replace it to artificially improve measured success rates.
 
+### P23C3C source-rights finding (November 7, 2026)
+
+The [first-party policy research memo](P23C3C_PUBLIC_PUBLISHER_POLICY_RESEARCH_2026-11-07.md)
+documents a significant additional risk: **Kiro's own documentation
+footer links to AWS Site Terms**, and those terms restrict robots/data
+mining and commercial use without appropriate permission. Do **not**
+choose Kiro as an automatically safe first canary; a reviewer must
+establish whether those terms apply and whether the intended work is
+separately licensed or expressly authorized.
+
+Google's public ai.google.dev robots file was readable and specifically
+disallows authuser-query URLs, but that does not grant automated crawling,
+reuse or retention rights. OpenAI's developer-subdomain robots file
+remained unverified through the research browser. **All three remain
+human-review pending** and the P23B access registry remains the sole
+local permission-status input.
+
+The downloadable human review CSV now contains **dated policy research
+flags and original evidence URLs**, separate from actual P23B review
+decisions. The paper/source findings never authorize Zyte publisher GETs.
+
 ## 2. Get a real, source-specific human review
 
 A human reviewer must examine each publisher's **actual**, current first-party:
