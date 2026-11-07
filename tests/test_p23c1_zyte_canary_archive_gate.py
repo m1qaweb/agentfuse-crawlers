@@ -389,3 +389,250 @@ def test_symlink_archives_and_private_output_overwrite_rejected(tmp_path):
     link.symlink_to(root, target_is_directory=True)
     with pytest.raises(ValueError, match="non-symlink"):
         audit_receipts(ledger, link, access_registry=_registry(), now=NOW)
+
+
+# P23D1A — historical immutable as-run policy + compiled egg provenance.
+# These are synthetic, private-only examples, NOT actual publisher approvals.
+
+
+def _make_historic_egg(tmp_path, historical_registry):
+    import zipfile
+    from importlib.resources import files
+
+    from scripts.verify_package_fingerprint import fingerprint_egg
+
+    root = files("agentfuse_crawlers")
+    out = tmp_path / "old-eggs"
+    out.mkdir(exist_ok=True)
+    temp = out / "pending.egg"
+    policy_content = json.dumps(
+        historical_registry, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+    def walk(folder, base=""):
+        for entry in sorted(folder.iterdir(), key=lambda node: node.name):
+            name = base + entry.name
+            if entry.is_dir():
+                yield from walk(entry, name + "/")
+            elif entry.is_file() and name.endswith((".py", ".json")):
+                data = (
+                    policy_content if name == "data/validation_access_reviews.json"
+                    else entry.read_bytes()
+                )
+                yield "agentfuse_crawlers/" + name, data
+
+    with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as egg:
+        for name, payload in walk(root):
+            egg.writestr(name, payload)
+    digest = fingerprint_egg(temp)
+    target = out / (digest + ".egg")
+    temp.rename(target)
+    return out, digest
+
+
+def _make_historic_policies(tmp_path, *registries):
+    out = tmp_path / "old-policies"
+    out.mkdir(exist_ok=True)
+    for registry in registries:
+        fingerprint = access.validation_access_revision_sha256(registry)
+        (out / (fingerprint + ".json")).write_text(
+            json.dumps(registry, indent=2), encoding="utf-8"
+        )
+    return out
+
+
+def test_archive_replay_survives_later_policy_revision_expiry_and_package_change(
+        tmp_path):
+    """Real-world case: source A reviewed, run, then source B is approved."""
+    ledger = blank_receipts()
+    src = _source(frozen_plan()["sources"][0]["source_id"])
+    past_policy = _registry(src)
+    policy_dir = _make_historic_policies(tmp_path, past_policy)
+    egg_dir, historical_sha = _make_historic_egg(tmp_path, past_policy)
+    assert historical_sha != package_fingerprint()
+    ledger["expected_package_sha256"] = historical_sha
+    jid = "883514/1/7501"
+    _slot(ledger, src["id"], 1, jid)
+    archive_root = tmp_path / "archives"
+    _fake_archive(
+        archive_root, src, past_policy, jid,
+        edits={"deployment_revision": historical_sha},
+    )
+    new_current = _registry()
+    # Original review is now EXPIRED. That does not erase historical Items.
+    clock = NOW + timedelta(days=40)
+    with pytest.raises(ValueError):
+        audit_receipts(
+            ledger, archive_root, now=clock, access_registry=new_current,
+        )
+    report, rows = audit_receipts(
+        ledger, archive_root, now=clock, access_registry=new_current,
+        historical_policy_root=policy_dir, historical_egg_root=egg_dir,
+    )
+    assert report["status"] == "NO_GO"
+    assert report[
+        "historical_source_round_package_and_review_snapshots_verified"
+    ] == 1
+    assert report["historical_provenance_replay_enabled_NOT_live_permission"]
+    assert report[
+        "historical_provenance_does_NOT_authorize_publisher_fetches"
+    ]
+    assert report["publisher_permission_independently_authenticated"] is False
+    assert report["two_round_canary_ready_for_full_inventory"] is False
+    assert len(rows) == 36
+    chosen = next(r for r in rows if r["zyte_job_id"] == jid)
+    assert chosen["policy_access_status"] == (
+        "historical_source_review_at_job_start_NOT_current_permission"
+    )
+    assert chosen["archive_item_integrity_checked"] is True
+
+
+def test_historical_two_rounds_keep_distinct_provenance_across_registry_edits(
+        tmp_path):
+    src = _source(frozen_plan()["sources"][0]["source_id"])
+    policy_one = _registry(src)
+    policy_two = deepcopy(policy_one)
+    policy_two["reviews"][src["id"]]["evidence_note"] += (
+        " Publisher policy rechecked independently and recorded as test."
+    )
+    policy_dir = _make_historic_policies(tmp_path, policy_one, policy_two)
+    egg_dir, sha1 = _make_historic_egg(tmp_path, policy_one)
+    _other, sha2 = _make_historic_egg(tmp_path, policy_two)
+    assert sha1 != sha2
+    ledger = blank_receipts()
+    ledger["expected_package_sha256"] = sha1
+    j1, j2 = "883514/1/7502", "883514/1/7503"
+    _slot(ledger, src["id"], 1, j1)
+    _slot(ledger, src["id"], 2, j2)
+    archive_root = tmp_path / "archives"
+    _fake_archive(
+        archive_root, src, policy_one, j1,
+        started_at=_time(timedelta(minutes=-35)),
+        edits={"deployment_revision": sha1},
+    )
+    _fake_archive(
+        archive_root, src, policy_two, j2,
+        started_at=_time(timedelta(minutes=-10)),
+        edits={"deployment_revision": sha2},
+    )
+    report, rows = audit_receipts(
+        ledger, archive_root, now=NOW + timedelta(days=40),
+        access_registry=_registry(),
+        historical_policy_root=policy_dir, historical_egg_root=egg_dir,
+    )
+    assert report[
+        "historical_source_round_package_and_review_snapshots_verified"
+    ] == 2
+    assert report["sources_with_two_distinct_archived_jobs"] == 1
+    assert report["sources_with_two_http200_items"] == 1
+    assert sum(r["archive_item_integrity_checked"] for r in rows) == 2
+    assert report["status"] == "NO_GO"
+
+
+@pytest.mark.parametrize("damage", [
+    "missing_policy", "policy_content_mismatch", "policy_symlink",
+    "missing_egg", "egg_bytes_corrupt", "egg_policy_mismatch",
+    "single_root_only", "old_context_without_opt_in",
+])
+def test_historical_context_is_fail_closed_to_forged_or_partial_evidence(
+        tmp_path, damage):
+    source = _source(frozen_plan()["sources"][0]["source_id"])
+    registry = _registry(source)
+    policy_dir = _make_historic_policies(tmp_path, registry)
+    egg_dir, digest = _make_historic_egg(tmp_path, registry)
+    ledger = blank_receipts()
+    ledger["expected_package_sha256"] = digest
+    jid = "883514/1/7551"
+    _slot(ledger, source["id"], 1, jid)
+    archive_root = tmp_path / "archives"
+    _fake_archive(
+        archive_root, source, registry, jid,
+        edits={"deployment_revision": digest},
+    )
+    policy_path = policy_dir / (
+        access.validation_access_revision_sha256(registry) + ".json"
+    )
+    egg_path = egg_dir / (digest + ".egg")
+    if damage == "missing_policy":
+        policy_path.unlink()
+    elif damage == "policy_content_mismatch":
+        bad = deepcopy(registry)
+        bad["reviews"][source["id"]]["evidence_note"] += " forged claim"
+        policy_path.write_text(json.dumps(bad))
+    elif damage == "policy_symlink":
+        other = tmp_path / "external-policy.json"
+        other.write_bytes(policy_path.read_bytes())
+        policy_path.unlink()
+        policy_path.symlink_to(other)
+    elif damage == "missing_egg":
+        egg_path.unlink()
+    elif damage == "egg_bytes_corrupt":
+        egg_path.write_bytes(b"bad-egg-corruption")
+    elif damage == "egg_policy_mismatch":
+        other = _registry()
+        _, other_digest = _make_historic_egg(
+            tmp_path / "alternate" if False else tmp_path, other
+        )
+        other_path = egg_dir / (other_digest + ".egg")
+        egg_path.write_bytes(other_path.read_bytes())
+    elif damage == "single_root_only":
+        with pytest.raises(ValueError, match="required together"):
+            audit_receipts(
+                ledger, archive_root, now=NOW, access_registry=_registry(),
+                historical_policy_root=policy_dir,
+            )
+        return
+    else:
+        with pytest.raises(ValueError):
+            audit_receipts(
+                ledger, archive_root, now=NOW, access_registry=_registry(),
+            )
+        return
+    with pytest.raises((ValueError, OSError, zipfile.BadZipFile)):
+        audit_receipts(
+            ledger, archive_root, now=NOW, access_registry=_registry(),
+            historical_policy_root=policy_dir, historical_egg_root=egg_dir,
+        )
+
+
+def test_historical_receipts_integrate_with_no_go_p23c2_and_readonly_preflight(
+        tmp_path):
+    from scripts.p23c2_zyte_requests_logs_html_gate import (
+        audit_evidence, blank_export_index,
+    )
+    from scripts.p23c3a_download_completed_zyte_evidence import _preflight
+
+    source = _source(frozen_plan()["sources"][0]["source_id"])
+    policy = _registry(source)
+    policy_dir = _make_historic_policies(tmp_path, policy)
+    egg_dir, package_sha = _make_historic_egg(tmp_path, policy)
+    ledger = blank_receipts()
+    ledger["expected_package_sha256"] = package_sha
+    job_id = "883514/1/7601"
+    _slot(ledger, source["id"], 1, job_id)
+    archive_root = tmp_path / "archives"
+    _fake_archive(
+        archive_root, source, policy, job_id,
+        edits={"deployment_revision": package_sha},
+    )
+    index = blank_export_index()
+    index["package_sha256"] = package_sha
+    export_root = tmp_path / "raw"
+    export_root.mkdir()
+    report, rows = audit_evidence(
+        ledger, index, archive_root, export_root,
+        now=NOW + timedelta(days=40), access_registry=_registry(),
+        historical_policy_root=policy_dir, historical_egg_root=egg_dir,
+    )
+    assert report["historical_original_policy_and_egg_provenance_replay"]
+    assert report["status"] == "NO_GO"
+    assert len(rows) == 36
+    assert "requests_export_missing" in rows[0]["issue_codes"]
+    assert "logs_export_missing" in rows[0]["issue_codes"]
+    context, jobs = _preflight(
+        ledger, archive_root, source["id"],
+        now=NOW + timedelta(days=40), access_registry=_registry(),
+        historical_policy_root=policy_dir, historical_egg_root=egg_dir,
+    )
+    assert jobs == [job_id]
+    assert context["status"] == "NO_GO"
