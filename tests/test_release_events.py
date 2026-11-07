@@ -54,6 +54,69 @@ def test_openai_month_group_produces_two_independent_dated_entries():
     assert found[1]["event_id"] != found[0]["event_id"]
 
 
+
+@pytest.mark.parametrize(("visible", "expected"), [
+    ("November 6, 2026", "2026-11-06"),
+    ("December 1, 2026", "2026-12-01"),
+    ("Nov 6, 2026", "2026-11-06"),
+    ("Dec 1, 2026", "2026-12-01"),
+    ("6 November 2026", "2026-11-06"),
+    ("1 December 2026", "2026-12-01"),
+])
+def test_all_november_december_publication_date_spellings(visible, expected):
+    """Full Nov/Dec names were previously rejected by DATE_WORDS."""
+    day, provenance = _date(visible)
+    assert day == expected and provenance == "explicit_date"
+    data = extract(
+        "<article><header><h2 id='dated-release'>New service API capability</h2>"
+        "<time itemprop='datePublished'>" + visible + "</time></header>"
+        "<p>A separately published, dated official change.</p></article>"
+    )
+    assert data["release_event_count"] == 1
+    event = data["release_events"][0]
+    assert event["published_at"] == expected
+    assert event["published_date_provenance"] == "adjacent_explicit_date"
+    assert data["latest_release_date_candidate"] == expected
+    assert event["approved_for_advisor"] is False
+    assert data["approved_for_advisor"] is False
+
+
+def test_november_and_december_standalone_datelines_keep_correct_order():
+    data = extract("""
+    <h1>API changelog</h1>
+    <p>December 1, 2026</p><h2 id="dec">Updated API execution limits</h2>
+    <p>New developer settings and configuration details.</p>
+    <p>November 6, 2026</p><h2 id="nov">Added model compatibility tools</h2>
+    <p>New API model settings and compatible features.</p>
+    """)
+    assert [(e["title"], e["published_at"]) for e in data["release_events"]] == [
+        ("Updated API execution limits", "2026-12-01"),
+        ("Added model compatibility tools", "2026-11-06"),
+    ]
+    assert data["release_order_direction"] == "newest_first"
+    assert data["latest_release_date_candidate"] == "2026-12-01"
+    assert data["release_event_identity_collision"] is False
+    assert data["release_identity_revision"] == "release_owner_date_scope_v4"
+    assert not data["latest_publication_verified"]
+
+
+@pytest.mark.parametrize("invalid", [
+    "November 31, 2026",
+    "December 32, 2026",
+    "November 6, 2026 — planned deprecation",
+    "Published this November 6, 2026",
+])
+def test_full_month_names_do_not_turn_bad_dates_or_prose_into_publications(invalid):
+    assert _date(invalid)[0] is None
+    data = extract(
+        "<h2>Version v2.4.0</h2>"
+        "<p>This version documents a planned November 6, 2026 sunset, "
+        "not the release publication date.</p>"
+    )
+    assert data["release_events"][0]["published_at"] is None
+    assert data["latest_release_date_candidate"] is None
+
+
 def test_kiro_dateline_before_heading_is_attached_to_release():
     found = events("""
     <h1>Changelog</h1><p>Oct 28, 2026</p>

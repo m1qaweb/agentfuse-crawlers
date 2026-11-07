@@ -23,7 +23,12 @@ MAX_EXCERPT = 1200
 MAX_TITLE = 180
 DATE_ISO = re.compile(r"(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])")
 DATE_WORDS = re.compile(
+    # Explicit month-day-year publication datelines must cover ALL twelve
+    # spelled-out month names. The previous pattern recognized Jan-Oct,
+    # but rejected "November 6, 2026" and "December 1, 2026" while their
+    # abbreviations passed, dropping real-looking event date markers.
     r"(January|February|March|April|May|June|July|August|September|October|"
+    r"November|December|"
     r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+"
     r"([0-3]?\d)(?:st|nd|rd|th)?[,]?\s+(20\d{2})", re.I
 )
@@ -607,7 +612,11 @@ def extract_release_events(main, source_url, source_id):
         # A changed event-ID algorithm requires a NEW baseline compared with
         # older archived Items. Same schema of event fields is not the same
         # semantic identity revision. Never issue hundreds of false news.
-        "release_identity_revision": "release_owner_date_scope_v3",
+        # A parser change that recognizes previously omitted release dates
+        # must create a NEW evidence baseline before any cross-run comparison.
+        # Some generic headings use the day in their provisional review-only
+        # identity; reusing v3 could fabricate a "first-seen" event on upgrade.
+        "release_identity_revision": "release_owner_date_scope_v4",
         "release_events": events,
         "release_event_count": entries_seen,
         "release_recent_event_count": len(events),
