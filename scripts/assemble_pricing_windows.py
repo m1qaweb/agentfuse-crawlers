@@ -13,7 +13,7 @@ from pathlib import Path
 
 from agentfuse_crawlers.sources import load_sources
 
-REVISION = "evidence_quote_v5_inline_labeled_components"
+REVISION = "evidence_quote_v6_cloudflare_literal_components"
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SAFE_NAME = re.compile(r"^[a-z0-9_]{1,90}$")
 IDENTITY_FIELDS = (
@@ -96,9 +96,27 @@ def _verify_row(row, source):
                 or item.get("approved_for_advisor") is not False):
             raise ValueError("Unapproved and exact source-linked observations required")
         table_id = item.get("table_id")
-        if item.get("evidence_kind") == "structured_table":
+        if item.get("evidence_kind") in {
+            "structured_table", "structured_table_labeled_inline_component",
+        }:
             if table_id not in {x.get("table_id") for x in table_evidence}:
                 raise ValueError("Rate references a table outside this window")
+            if item["evidence_kind"] == "structured_table_labeled_inline_component":
+                if (type(item.get("inline_component_index")) is not int
+                        or type(item.get("inline_component_count")) is not int
+                        or not 2 <= item["inline_component_count"] <= 4
+                        or not 0 <= item["inline_component_index"] <
+                            item["inline_component_count"]
+                        or not isinstance(item.get("inline_component_evidence_sha256"), str)
+                        or not SHA256.fullmatch(
+                            item["inline_component_evidence_sha256"]
+                        )
+                        or not isinstance(item.get("raw_parent_cell_text"), str)
+                        or not item["raw_parent_cell_text"]
+                        or item.get("comparable_candidate") is not False
+                        or item.get("review_quote_candidate") is not False
+                        or item.get("normalized_amount_decimal") is not None):
+                    raise ValueError("Unsafe or unbound inline rate review component")
         elif item.get("evidence_kind") == "structured_card":
             if start != 0:
                 raise ValueError("Card evidence must appear only in first table window")
