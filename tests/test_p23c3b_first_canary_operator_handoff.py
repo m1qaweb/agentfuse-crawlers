@@ -126,6 +126,34 @@ def test_exact_three_frozen_sources_and_six_manual_jobs_are_held():
         }
 
 
+def test_public_policy_research_is_source_specific_and_never_permission():
+    report = handoff.build_handoff(access_registry=_empty_registry(), now=NOW)
+    rows = {row["source_id"]: row for row in report["sources"]}
+    assert set(rows) == set(handoff.PILOT_SOURCE_IDS)
+    assert all(row["public_policy_research_as_of"] == "2026-11-07"
+               for row in rows.values())
+    assert rows["kiro_docs"]["public_policy_research_status"] == (
+        "HIGH_RISK_LINKED_AWS_SITE_TERMS"
+    )
+    assert rows["kiro_docs"]["public_policy_evidence_url"] == (
+        "https://aws.amazon.com/terms/"
+    )
+    assert rows["gemini_api_pricing"]["public_policy_research_status"] == (
+        "ROBOTS_PUBLIC_READABLE_RIGHTS_UNRESOLVED"
+    )
+    assert rows["openai_api_changelog"]["public_policy_research_status"] == (
+        "ROBOTS_UNVERIFIED_TERMS_UNRESOLVED"
+    )
+    assert all(row["human_terms_review"] == "NOT_ATTESTED_BY_THIS_PACKET"
+               and row["human_operator_decision"] ==
+               "PENDING_INDEPENDENT_HUMAN_REVIEW"
+               and row["local_single_scope_record_present"] is False
+               for row in rows.values())
+    assert all(job["operator_canary_authorization"] == "NOT_AUTHORIZED_BY_PACKET"
+               and job["zyte_job_id"] is None for job in report["jobs"])
+    assert report["execution_permitted"] is False
+
+
 def test_actual_current_registry_never_promotes_into_zyte_operator_approval():
     # Future real publisher reviews may appear; the handoff still cannot
     # claim human permission, remote deploy verification, or a crawl GO.
