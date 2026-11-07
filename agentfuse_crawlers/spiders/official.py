@@ -405,10 +405,16 @@ class OfficialBaseSpider(scrapy.Spider):
             )
             return
 
-        # Defense in depth: even if a callback is handed a different
-        # first-party final URL by middleware or a third-party downloader,
-        # the exact-URL human review for validation cannot cover its HTML.
-        # Do not run extractors or attach substantive content to that Item.
+        # Some servers return a landing page with 200 after redirect.
+        # Preserve the existing cross-host rejection as the first guard.
+        if not _allowed_redirect(response.url, source):
+            record.update(status="rejected_redirect", error="unexpected_final_host")
+            yield self._emit_status(record)
+            return
+        # Defense in depth: even if a callback is handed a *different*
+        # first-party final URL by middleware or an alternate downloader,
+        # the exact-URL review for validation cannot cover that page.
+        # Hold before extracting or retaining any substantive HTML.
         if ((self.single_validation_required or self.bulk_validation_required)
                 and response.url != source["url"]):
             record.update(
@@ -417,12 +423,6 @@ class OfficialBaseSpider(scrapy.Spider):
                 policy_observation="response_url_not_in_exact_review_scope",
                 redirect_review_target=_safe_redirect_review_target(response.url),
             )
-            yield self._emit_status(record)
-            return
-        # Some servers return a landing page with 200 after redirect. The
-        # same-origin host does not prove this is still the requested doc.
-        if not _allowed_redirect(response.url, source):
-            record.update(status="rejected_redirect", error="unexpected_final_host")
             yield self._emit_status(record)
             return
         if response.status == 429:
