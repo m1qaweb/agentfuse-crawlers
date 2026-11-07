@@ -79,6 +79,30 @@ after a genuine review, or leave the source **not_reviewed**. **Never set**
 terms. Written permission or a competent human review may be necessary for
 some sources; this document cannot provide it.
 
+### P23D0: Real historical failure evidence (November 4, 2026)
+
+The previously supplied genuine November 4 Zyte export bundle (nine files
+matching P21A's pinned SHA-256 hashes) showed three specific **archived,
+unverified** weaknesses in these exact first-pilot sources:
+
+- **Kiro docs:** HTTP 200 but likely JavaScript shell with insufficient
+  content; separate Kiro/AWS site-term restrictions remain unresolved.
+- **Gemini pricing:** HTTP **301 rejected redirect**. Human review must
+  separately verify the current exact URL and canonical ownership, not
+  assume that non-disallowing robots rules mean a useful source GET.
+- **OpenAI API changelog:** HTTP 200 but release-event identity collisions
+  and truncated text. A successful fetch is not an accurate release feed.
+
+The full [historical 460-Item / 992-Request triage]
+(P23D0_HISTORICAL_REAL_ZYTE_CANARY_DEFECT_TRIAGE.md)
+explains original source attrition and request counts. **These are dated,
+pre-P23B observations, not current publisher facts or permissions.**
+
+The GitHub review CSV now adds labeled historical status, HTTP status,
+diagnostic reasons and review action **without changing access decisions
+or permitting any job**. Do not retry a historic 301 blindly or
+auto-fetch alternate URLs.
+
 ## 3. Obtain the operator packet from GitHub without a local clone
 
 After this PR merges:
