@@ -18,6 +18,7 @@ from agentfuse_crawlers.pricing_cards import extract_card_evidence
 from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
 from agentfuse_crawlers.pricing_adapters import (
     family_for_source, explicit_inline_components,
+    cloudflare_explicit_token_components,
     fireworks_scoped_legend, fireworks_triplet_components,
     REVISION as ADAPTER_REVISION,
 )
@@ -375,6 +376,15 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     footnotes=info["footnotes"],
                     family_profile=family_profile,
                 )
+                if not explicit_parts:
+                    explicit_parts = cloudflare_explicit_token_components(
+                        raw, column_header=header, model_label=model,
+                        row_header=row_label,
+                        table_context=info["heading_context"],
+                        table_caption=caption,
+                        footnotes=info["footnotes"],
+                        family_profile=family_profile,
+                    )
                 if not explicit_parts and fireworks_legend:
                     explicit_parts = fireworks_triplet_components(
                         raw, column_header=header, model_label=model,
@@ -541,7 +551,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "evidence_quote_v5_inline_labeled_components",
+        "pricing_parser_revision": "evidence_quote_v6_cloudflare_literal_components",
         "pricing_inline_adapter_revision": ADAPTER_REVISION,
         "pricing_inline_adapter_family": (
             family_profile["page_family_candidate"] if family_profile else None
@@ -584,6 +594,12 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         "pricing_product_scope_unresolved": scope_unresolved,
         "pricing_price_cells_examined": potential_rate_cells,
         "pricing_inline_rate_cells_split": inline_cells_split,
+        "pricing_cloudflare_explicit_token_cells_split": sum(
+            x.get("inline_component_parent_identity_review_status") ==
+                "unverified_cloudflare_literal_token_component"
+            and x.get("inline_component_index") == 0
+            for x in observations
+        ),
         "pricing_legend_backed_triplet_cells_split": sum(
             x.get("inline_component_parent_identity_review_status") ==
                 "unverified_fireworks_legend_triplet"

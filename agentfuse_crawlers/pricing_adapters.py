@@ -19,7 +19,7 @@ from agentfuse_crawlers.rate_units import (
 )
 from agentfuse_crawlers.sources import load_sources
 
-REVISION = "p17b1_review_only_price_family_v1"
+REVISION = "p23d4_review_only_price_family_v2"
 MAX_SEGMENTS = 4
 MAX_RAW_CELL = 700
 MAX_RATE_SEGMENT = 210
@@ -198,6 +198,115 @@ def explicit_inline_components(raw_cell, *, model_label, row_header,
         dimensions.add(dimension)
     return explicit
 
+
+
+# P23D4: Cloudflare's verified *historical Items* contained many cells of
+# the literal form "$0.027 per M input tokens $0.201 per M output tokens".
+# Source HTML has not been independently reauthenticated; this is STRICTLY
+# a review-only extraction shape for the exact manifest URL and table header.
+# M is the publisher's literal million-token denominator, not a guessed unit.
+_CF_RATE = r"\$\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,8})?\s+per\s+M"
+CLOUDFLARE_TOKEN_COMPONENTS = re.compile(
+    rf"^\s*({_CF_RATE}\s+input\s+tokens)\s+"
+    rf"(?:({_CF_RATE}\s+cached\s+input\s+tokens)\s+)?"
+    rf"({_CF_RATE}\s+output\s+tokens)\s*$",
+    re.I,
+)
+
+
+def cloudflare_explicit_token_components(raw_cell, *, column_header,
+                                        model_label, row_header,
+                                        table_context, table_caption,
+                                        footnotes, family_profile):
+    """Only directly labeled Cloudflare token rates, NEVER cost rankings.
+
+    Do not transform neuron-metered rates, 1k-neuron denominators, plan
+    totals, mixed currencies, temporal rates, arbitrary multi-price cells,
+    changed source paths or another publisher's pricing HTML.
+    """
+    if (family_profile is None
+            or family_profile.get("source_id") != "cloudflare_workers_ai_pricing"
+            or family_profile.get("page_family_candidate") !=
+                "request_credit_metering"
+            or not isinstance(raw_cell, str)
+            or not 1 <= len(raw_cell) <= MAX_RAW_CELL
+            or clean(column_header, 100).casefold() != "price in tokens"
+            or not isinstance(model_label, str)
+            or not model_label.startswith("@cf/")
+            or not model_label[4:]
+            or footnotes
+            or TEMPORAL.search(raw_cell)
+            or CONDITIONAL.search(raw_cell)
+            or UNSAFE_SCOPE_WORDS.search(raw_cell)
+            or DATE_OR_CONDITION.search(raw_cell)
+            or FOOTNOTE_MARK.search(raw_cell)):
+        return None
+    # A conflicting nearby table unit cannot be silently replaced with
+    # the "per M tokens" denominator visible inside each exact segment.
+    from agentfuse_crawlers.rate_units import detect_unit
+    explicit_context_unit = detect_unit(table_caption, table_context)
+    if explicit_context_unit not in (None, "per_1m_tokens"):
+        return None
+    match = CLOUDFLARE_TOKEN_COMPONENTS.fullmatch(raw_cell)
+    if match is None:
+        return None
+    pairs = [("input", match.group(1))]
+    if match.group(2) is not None:
+        pairs.append(("cached_input", match.group(2)))
+    pairs.append(("output", match.group(3)))
+    if len(PRICE_MARKER.findall(raw_cell)) != len(pairs):
+        return None
+
+    results = []
+    for index, (dimension, visible_rate) in enumerate(pairs):
+        cell = analyze_cell(
+            visible_rate, model_label=model_label,
+            column_header=dimension.replace("_", " "),
+            row_header=row_header, table_context=table_context,
+            table_caption=table_caption, footnotes="",
+        )
+        if (cell["price_state"] != "numeric_candidate"
+                or cell["price_dimension"] != dimension
+                or cell["observed_single_amount_decimal"] is None
+                or cell["billing_unit"] not in (None, "per_1m_tokens")):
+            return None
+
+        # "per M <component> tokens" is an explicit local denominator.
+        # CURRENCY REMAINS UNKNOWN when the source prints only "$";
+        # never silently infer USD even though this is a US company.
+        cell["billing_unit"] = "per_1m_tokens"
+        cell["billing_unit_literal"] = (
+            "per M " + dimension.replace("_", " ") + " tokens"
+        )
+        cell["normalization_blockers"] = [
+            reason for reason in cell["normalization_blockers"]
+            if reason != "missing_explicit_billing_unit"
+        ]
+        cell.update({
+            "raw_parent_cell_text": clean(raw_cell, MAX_RAW_CELL),
+            "inline_component_label": dimension.replace("_", " "),
+            "inline_component_index": index,
+            "inline_component_count": len(pairs),
+            "inline_component_evidence_sha256": hashlib.sha256(
+                (raw_cell + "|" + dimension + "|" + visible_rate).encode("utf-8")
+            ).hexdigest(),
+            "inline_component_parent_identity_review_status":
+                "unverified_cloudflare_literal_token_component",
+            "family_adapter_revision": REVISION,
+            "family_adapter_candidate_only": True,
+            "source_product_owner_verified": False,
+            "approved_for_advisor": False,
+        })
+        cell["normalized_amount_decimal"] = None
+        cell["comparable_candidate"] = False
+        cell["review_quote_amount_decimal"] = None
+        cell["review_quote_candidate"] = False
+        cell["normalization_blockers"] = list(dict.fromkeys([
+            *cell["normalization_blockers"],
+            "cloudflare_literal_tokens_require_independent_publisher_gold",
+        ]))
+        results.append(cell)
+    return results
 
 
 # P17B1 extension: exact first-party, nearby legend-backed pricing triplets.

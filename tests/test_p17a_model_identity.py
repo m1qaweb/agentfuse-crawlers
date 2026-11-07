@@ -57,7 +57,7 @@ def test_prominent_model_strong_separates_description_without_guessing():
     )
     result = rates(example)
     assert result["pricing_parser_revision"] == (
-        "evidence_quote_v5_inline_labeled_components"
+        "evidence_quote_v6_cloudflare_literal_components"
     )
     assert result["pricing_model_label_recovered_rows"] == 1
     assert result["pricing_model_identity_review_rows"] == 0

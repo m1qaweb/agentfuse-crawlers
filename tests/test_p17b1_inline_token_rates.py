@@ -87,7 +87,7 @@ def test_family_profiles_are_exact_source_review_only_and_never_approve_prices()
 def test_explicit_three_amounts_become_three_unapproved_typed_review_rows():
     ev = parse(row(COMPOUND))
     assert ev["pricing_parser_revision"] == (
-        "evidence_quote_v5_inline_labeled_components"
+        "evidence_quote_v6_cloudflare_literal_components"
     )
     assert ev["pricing_inline_adapter_revision"] == REVISION
     assert ev["pricing_inline_adapter_family"] == "model_token_matrix"
@@ -360,7 +360,7 @@ def _fireworks_capture(**kwargs):
 def test_fireworks_official_semantic_legend_creates_six_unverified_rates():
     p = _fireworks_capture()
     assert p["pricing_parser_revision"] == (
-        "evidence_quote_v5_inline_labeled_components"
+        "evidence_quote_v6_cloudflare_literal_components"
     )
     assert p["pricing_inline_adapter_family"] == "model_token_matrix"
     assert p["pricing_price_cells_examined"] == 2
