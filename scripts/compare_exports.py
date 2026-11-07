@@ -177,6 +177,9 @@ def _healthy(row):
     if row.get("category") == "changelog" and row.get("release_events_schema") == "1.1":
         return bool(
             row.get("release_window_complete")
+            # Reject even a mislabelled captured Item when a GitHub UI
+            # error placeholder may have hidden or corrupted release cards.
+            and not row.get("release_github_ui_error_placeholder_count", 0)
             and not row.get("release_event_evidence_lost")
             and not row.get("release_event_identity_collision")
             and not row.get("release_recent_body_loss_count", 0)
