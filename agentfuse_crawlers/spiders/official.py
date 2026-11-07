@@ -349,14 +349,21 @@ class OfficialBaseSpider(scrapy.Spider):
                               redirect_review_target=_safe_redirect_review_target(target))
                 yield self._emit_status(record)
                 return
-            # An exact source-URL review does not grant rights to a
-            # DIFFERENT redirect target, even on the same first-party host.
-            # Hold changed-path/query targets for independent URL review.
-            # Other modes retain their existing P21B redirect policies.
-            if self.single_validation_required and target != source["url"]:
+            # P23D1B: BOTH single-source and bulk validation review the
+            # exact original manifest URL, not every path on its hostname.
+            # A plan's max_redirects_per_source is a resource ceiling, NOT
+            # permission to request another URL. Deny changed query,
+            # path, scheme, or port even if the host is first party.
+            # Legacy monitoring retains separate, pre-existing handling.
+            if ((self.single_validation_required or self.bulk_validation_required)
+                    and target != source["url"]):
                 record.update(
                     status="redirect_needs_review",
-                    error="single_source_redirect_target_requires_review",
+                    error=(
+                        "single_source_redirect_target_requires_review"
+                        if self.single_validation_required else
+                        "bulk_source_redirect_target_requires_review"
+                    ),
                     policy_observation=(
                         "redirect_not_fetched_without_exact_url_review"
                     ),
@@ -398,6 +405,20 @@ class OfficialBaseSpider(scrapy.Spider):
             )
             return
 
+        # Defense in depth: even if a callback is handed a different
+        # first-party final URL by middleware or a third-party downloader,
+        # the exact-URL human review for validation cannot cover its HTML.
+        # Do not run extractors or attach substantive content to that Item.
+        if ((self.single_validation_required or self.bulk_validation_required)
+                and response.url != source["url"]):
+            record.update(
+                status="redirect_needs_review",
+                error="unreviewed_validation_response_url",
+                policy_observation="response_url_not_in_exact_review_scope",
+                redirect_review_target=_safe_redirect_review_target(response.url),
+            )
+            yield self._emit_status(record)
+            return
         # Some servers return a landing page with 200 after redirect. The
         # same-origin host does not prove this is still the requested doc.
         if not _allowed_redirect(response.url, source):
