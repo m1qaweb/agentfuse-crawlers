@@ -77,7 +77,7 @@ def _parse_page(raw, kind, job_id, offset, max_page):
         # Ordinal verification is mandatory. Never silently accept truncated
         # or overlapping storage pagination and call that a complete export.
         expected_key = f"{job_id}/{offset + i}"
-        if item.pop("_key", None) != expected_key:
+        if item.get("_key") != expected_key:
             raise ValueError("Missing/duplicated/out-of-order official Zyte _key")
         if kind == "requests":
             _check_request_schema(item)
