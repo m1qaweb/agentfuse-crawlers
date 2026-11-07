@@ -153,16 +153,14 @@ For each spider enter:
     confirm_full_inventory       yes
     collection_mode              validation
 
-Add the exact, category-specific three SHA pins in the ZIP's
-zyte_full_3_spiders_NOT_AUTHORIZED.csv as extra Argument rows:
-
-    expected_manifest_sha256
-    expected_selection_ids_sha256
-    expected_source_registry_sha256
-
-The first and third hashes match across all three jobs. The
-selection_ids hash differs by spider. Never copy the changelog
-selection hash into the pricing or docs job.
+**No more argument rows are needed for the full category.**
+The new no-crawl ZIP still includes optional exact source fingerprints in
+`zyte_full_3_spiders_NOT_AUTHORIZED.csv` as reference metadata; the
+running spider and its uniquely matched approved plan verify the exact
+manifest, selected IDs, source URLs and lifecycle internally.
+The first and third reference hashes match across all three jobs; the
+selection IDs hash differs by spider. An explicit mismatched hash will
+still be rejected if supplied.
 
 **Remove or omit source_ids, limit and offset** from any previous
 test's Arguments before full inventory; otherwise you may
