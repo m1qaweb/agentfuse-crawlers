@@ -419,4 +419,4 @@ def test_page_rejects_wrong_ordinal_and_non_object():
             "logs", "883514/1/100", 0, 40,
         )
     with pytest.raises(ValueError, match="object"):
-        _parse_page(b'[]\\n', "logs", "883514/1/100", 0, 40)
+        _parse_page(b'[]\n', "logs", "883514/1/100", 0, 40)
