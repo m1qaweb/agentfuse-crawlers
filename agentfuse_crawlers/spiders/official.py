@@ -34,6 +34,7 @@ from agentfuse_crawlers.sources import (
 )
 from agentfuse_crawlers.validation_access import (
     authorize_bulk_run, bulk_plan_revision_sha256,
+    matching_full_inventory_plan,
     validation_access_decision, validation_access_revision_sha256,
 )
 
@@ -157,6 +158,30 @@ class OfficialBaseSpider(scrapy.Spider):
         self.validation_access_registry_sha256 = validation_access_revision_sha256()
         self.bulk_run_plan_registry_sha256 = bulk_plan_revision_sha256()
         if self.bulk_validation_required:
+            # For an explicitly confirmed ENTIRE category, an installed
+            # uniquely matching Git-reviewed plan already pins the source IDs,
+            # URL set, human policy reviews and request budget. Derive the
+            # three operator hashes from the running package instead of
+            # forcing manual copy/paste into the Zyte UI. No matching plan
+            # leaves the existing zero-request hold unchanged.
+            full_category_auto = (
+                cohort == "all" and source_ids is None
+                and limit is None and self.offset == 0
+                and confirm_full_inventory == "yes"
+                and bulk_run_plan_id is None
+                and expected_bulk_plan_sha256 is None
+                and expected_deployment_package_sha256 is None
+            )
+            if full_category_auto:
+                reviewed = matching_full_inventory_plan(
+                    selected=self.selected, category=self.category,
+                    cohort=self.cohort,
+                )
+                if reviewed is not None:
+                    bulk_run_plan_id, expected_bulk_plan_sha256 = reviewed
+                    expected_deployment_package_sha256 = (
+                        self.run_context["deployment_revision"]
+                    )
             decision = authorize_bulk_run(
                 selected=self.selected, category=self.category, cohort=self.cohort,
                 collection_mode=self.collection_mode, plan_id=bulk_run_plan_id,
