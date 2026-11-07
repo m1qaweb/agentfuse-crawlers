@@ -233,7 +233,7 @@ def test_upgrade_from_prior_month_parser_v3_cannot_create_false_release_alert():
     prior = copy.deepcopy(new)
     prior["release_identity_revision"] = "release_owner_date_scope_v3"
     prior["content_sha256"] = "0" * 64
-    assert new["release_identity_revision"] == "release_owner_date_scope_v4"
+    assert new["release_identity_revision"] == "release_owner_date_scope_v5"
     assert new["release_events"][0]["published_at"] == "2026-11-06"
     changes = compare({SID: new}, {SID: prior})
     assert [x["change_type"] for x in changes] == ["new_baseline"]
