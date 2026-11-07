@@ -29,6 +29,9 @@ on:
       - 'scripts/p23c2_zyte_requests_logs_html_gate.py'
       - 'tests/test_p23c2_zyte_requests_logs_html_gate.py'
       - 'docs/P23C2_ZYTE_REQUESTS_LOGS_ORIGINAL_HTML_AUDIT.md'
+      - 'scripts/p23c3b_first_canary_operator_handoff.py'
+      - 'tests/test_p23c3b_first_canary_operator_handoff.py'
+      - 'docs/P23C3B_FIRST_LIVE_CANARY_OPERATOR_HANDOFF.md'
 
 permissions:
   contents: read
@@ -82,6 +85,10 @@ jobs:
         run: |
           python -m scripts.p23c2_zyte_requests_logs_html_gate \
             --prepare --out-dir output/private/p23c2-blank
+      - name: Generate P23C3B first real-canary operator packet (THREE sources, NO APPROVAL)
+        run: |
+          python -m scripts.p23c3b_first_canary_operator_handoff \
+            --out-dir output/private/p23c3b-first-canary
       - name: Refuse unsafe scope or inferred permissions
         run: |
           python - <<'PY'
@@ -97,6 +104,21 @@ jobs:
           p23a = json.loads((prefix / "p23a-readiness" / "full_crawl_readiness_NO_GO.json").read_text())
           p23c1 = json.loads((prefix / "p23c1-blank" / "zyte_canary_job_receipts_BLANK.json").read_text())
           p23c2 = json.loads((prefix / "p23c2-blank" / "raw_requests_logs_receipt_index_BLANK.json").read_text())
+          first_pilot = json.loads((prefix / "p23c3b-first-canary" / "first_3_source_canary_handoff_NO_GO.json").read_text())
+          assert first_pilot["status"] == "NO_GO_PENDING_REAL_SOURCE_REVIEW_AND_OPERATOR"
+          assert first_pilot["execution_permitted"] is False
+          assert first_pilot["canary_jobs_started"] == 0
+          assert first_pilot["publisher_network_requests_performed"] == 0
+          assert first_pilot["publisher_permission_independently_authenticated"] is False
+          assert first_pilot["remote_zyte_deployment_independently_verified"] is False
+          assert first_pilot["initial_pilot_source_ids"] == ["kiro_docs", "gemini_api_pricing", "openai_api_changelog"]
+          assert first_pilot["initial_pilot_sources"] == 3
+          assert first_pilot["initial_pilot_manual_job_specs"] == 6
+          assert first_pilot["original_plan_sha256"] == p23c1["frozen_plan_sha256"]
+          assert len(first_pilot["jobs"]) == 6
+          assert all(j["operator_canary_authorization"] == "NOT_AUTHORIZED_BY_PACKET"
+                     and j["zyte_job_id"] is None and j["advisor_approved"] is False
+                     for j in first_pilot["jobs"])
           assert p23c2["frozen_plan_sha256"] == p23c1["frozen_plan_sha256"]
           assert p23c2["approved_for_advisor"] is False
           assert len(p23c2["rows"]) == 18
@@ -177,6 +199,7 @@ jobs:
             output/private/p23a-readiness/
             output/private/p23c1-blank/
             output/private/p23c2-blank/
+            output/private/p23c3b-first-canary/
           retention-days: 14
           if-no-files-found: error
       - name: Explain what the artifact means
@@ -194,6 +217,7 @@ jobs:
             echo "- P23A unified full_crawl_readiness_NO_GO.json and 460-ID source_dispositions_460.csv"
             echo "- P23C1 BLANK 18-source/36-round immutable Zyte archive receipt ledger (no jobs)"
             echo "- P23C2 BLANK 18-source/36-round raw Zyte Requests/Logs receipt ledger (no network)"
+            echo "- P23C3B first three-source manual canary review queue and six NOT_AUTHORIZED Zyte UI job specs"
             echo ""
             echo "**These arguments are NOT approval to run full source collection.**"
             echo "**P21B:** cohort=all plus confirm_full_inventory=yes now produces held Items without an exact Git-reviewed URL+run plan."
