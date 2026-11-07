@@ -96,7 +96,7 @@ def test_november_and_december_standalone_datelines_keep_correct_order():
     assert data["release_order_direction"] == "newest_first"
     assert data["latest_release_date_candidate"] == "2026-12-01"
     assert data["release_event_identity_collision"] is False
-    assert data["release_identity_revision"] == "release_owner_date_scope_v4"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
     assert not data["latest_publication_verified"]
 
 
@@ -115,6 +115,138 @@ def test_full_month_names_do_not_turn_bad_dates_or_prose_into_publications(inval
     )
     assert data["release_events"][0]["published_at"] is None
     assert data["latest_release_date_candidate"] is None
+
+
+
+# These invented minimal layouts reproduce categories of false event candidates
+# found in the hash-pinned genuine November 4 Zyte Items. They contain no
+# copyrighted vendor release copy, use no network and verify NO approval.
+
+
+def _github_release_listing(markup, *, source_id="mastra_changelog",
+                            source_url="https://github.com/mastra-ai/mastra/releases"):
+    return extract_evidence(
+        "<html><head><title>Release listing</title></head>"
+        "<body><main>" + markup + "</main></body></html>",
+        source_url, category="changelog", source_id=source_id,
+    )
+
+
+@pytest.mark.parametrize("ui_heading", [
+    "Uh oh!", "UH OH", "Sorry, something went wrong.",
+    "Sorry, something went wrong",
+])
+def test_github_release_ui_errors_never_become_vendor_events_or_latest(ui_heading):
+    data = _github_release_listing("""
+    <h2>2026-11-06</h2><h3 id="good-1">Release v3.1.0</h3>
+    <p>A synthetic newly published upstream revision with descriptive text.</p>
+    <h2>2026-11-05</h2><h3>""" + ui_heading + """</h3>
+    <p>Temporary hosting interface error, not a vendor announcement.</p>
+    <time datetime="2026-11-05"></time>
+    <h2>2026-11-04</h2><h3 id="good-2">Release v3.0.0</h3>
+    <p>A separate synthetic source-owned revision, not a model fact.</p>
+    """)
+    assert data["release_github_ui_error_placeholder_count"] == 1
+    assert data["release_github_commit_metadata_skipped_count"] == 0
+    assert data["release_ui_contamination_requires_review"] is True
+    assert data["release_event_count"] == 2
+    assert [x["published_at"] for x in data["release_events"]] == [
+        "2026-11-06", "2026-11-04",
+    ]
+    assert all("wrong" not in x["title"].lower()
+               and "uh oh" not in x["title"].lower()
+               for x in data["release_events"])
+    assert data["release_window_complete"] is False
+    assert data["latest_release_date_candidate"] is None
+    assert data["latest_release_date_status"] == (
+        "ambiguous_github_ui_error_placeholder"
+    )
+    assert data["release_window_coverage_status"] == (
+        "incomplete_github_ui_error_placeholder"
+    )
+    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert assess_capture("changelog", data, data["text"]) == (
+        "needs_review", "github_release_ui_error_placeholder"
+    )
+    assert all(x["approved_for_advisor"] is False for x in data["release_events"])
+
+
+def test_github_signature_metadata_is_not_a_source_owned_release():
+    data = _github_release_listing("""
+    <h2>2026-11-06</h2>
+    <h3>11f3c74 This commit was created on GitHub.com and signed with GitHub's verified signature.</h3>
+    <time datetime="2026-11-06"></time>
+    <p>Generic platform-signature user interface details.</p>
+    <h2>2026-11-04</h2><h3 id="actual-v2">Release v2.4.0</h3>
+    <p>Official upstream release description with source-owned version context.</p>
+    """, source_id="chroma_changelog",
+         source_url="https://github.com/chroma-core/chroma/releases")
+    assert data["release_event_count"] == 1
+    assert data["release_github_ui_error_placeholder_count"] == 0
+    assert data["release_github_commit_metadata_skipped_count"] == 1
+    assert data["release_events"][0]["title"] == "Release v2.4.0"
+    assert data["release_events"][0]["published_at"] == "2026-11-04"
+    assert data["latest_release_date_candidate"] == "2026-11-04"
+    assert data["latest_publication_verified"] is False
+    assert data["approved_for_advisor"] is False
+
+
+def test_github_ui_error_only_yields_no_synthetic_vendor_events():
+    data = _github_release_listing("""
+    <h1>Uh oh!</h1><p>Something on the hosting website went wrong.</p>
+    """)
+    assert data["release_event_count"] == 0
+    assert data["release_events"] == []
+    assert data["release_github_ui_error_placeholder_count"] == 1
+    assert data["latest_release_date_candidate"] is None
+    assert assess_capture("changelog", data, data["text"]) == (
+        "needs_review", "github_release_ui_error_placeholder"
+    )
+
+
+def test_non_github_release_heading_same_words_is_not_globally_suppressed():
+    data = extract("""
+    <h2>2026-11-06</h2><h3>Uh oh!</h3>
+    <p>Original published item containing an unusual but literal title.</p>
+    """)
+    assert data["release_event_count"] == 1
+    assert data["release_events"][0]["title"] == "Uh oh!"
+    assert data["release_github_ui_error_placeholder_count"] == 0
+    assert data["release_github_commit_metadata_skipped_count"] == 0
+    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+
+
+def test_offline_comparator_rejects_mislabelled_github_ui_error_items():
+    broken = _github_release_listing("""
+    <h2>2026-11-06</h2><h3>Version v9.1.0</h3>
+    <p>One synthetic release with a first-party date.</p>
+    <h2>2026-11-05</h2><h3>Sorry, something went wrong.</h3>
+    <p>A hosting UI error is not a vendor update.</p>
+    """)
+    assert broken["release_github_ui_error_placeholder_count"] == 1
+    old = snapshot("2026-11-06T00:00:00Z", broken)
+    new = snapshot("2026-11-07T00:00:00Z", broken)
+    # A dishonest or buggy exporter could incorrectly mark a broken page
+    # as "captured" and supply a true window flag. _healthy must check
+    # the error marker independently, not silently compare vendor releases.
+    for record in (old, new):
+        record["release_window_complete"] = True
+        record["release_github_ui_error_placeholder_count"] = 1
+        record["status"] = "captured"
+    changes = compare({SID: new}, {SID: old})
+    assert changes[0]["change_type"] == "not_captured"
+    assert review_queue({SID: new}, {SID: old}, changes) == []
+
+
+def test_github_ui_error_words_inside_prose_are_not_filtered_as_headings():
+    data = _github_release_listing("""
+    <h2>2026-11-06</h2><h3>Version v2.5.1</h3>
+    <p>The release fixes a message that previously displayed Uh oh! to users
+    when they tried to access a disabled integration.</p>
+    """)
+    assert data["release_event_count"] == 1
+    assert data["release_github_ui_error_placeholder_count"] == 0
+    assert data["release_events"][0]["title"] == "Version v2.5.1"
 
 
 def test_kiro_dateline_before_heading_is_attached_to_release():

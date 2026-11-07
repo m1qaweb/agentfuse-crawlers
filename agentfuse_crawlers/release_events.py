@@ -160,6 +160,30 @@ def _generic_dated_title(title):
     return tokens in GENERIC_DATED_HEADINGS
 
 
+# Only GitHub's RELEASES listing UI is in scope. Never infer this is a
+# publisher statement, a new vendor release, or a site-wide failure.
+# A broken "Uh oh!" card contaminates feed completeness; an incidental
+# signed-commit metadata label is discarded without declaring an outage.
+GITHUB_UI_ERROR_TITLES = frozenset({
+    "uh oh", "uh oh!", "sorry, something went wrong",
+    "sorry, something went wrong.",
+})
+GITHUB_SIGNATURE_HEADING = re.compile(
+    r"^(?:[0-9a-f]{7,40}\s+)?this commit was created on github\.com "
+    r"and signed with github",
+    re.I,
+)
+
+
+def _github_release_listing_ui_marker(title):
+    value = _normalize(title).casefold()
+    if value in GITHUB_UI_ERROR_TITLES:
+        return "error_placeholder"
+    if GITHUB_SIGNATURE_HEADING.match(value):
+        return "commit_signature_metadata"
+    return ""
+
+
 def _inline_heading(text, group):
     """Accept a date at the START of a heading, not any date in its body.
 
@@ -453,6 +477,16 @@ def extract_release_events(main, source_url, source_id):
     date_group_active = False
     pending_date = False
     entries_seen = 0
+    # The November 4 real, hash-pinned Zyte Items include GitHub release
+    # pages with UI error and signature headings promoted as releases.
+    # Filter only literal GitHub listing UI markers, never generic text or
+    # publishers hosted on other domains.
+    github_listing = urlsplit(source_url).hostname in {"github.com", "www.github.com"}
+    github_ui_errors = 0
+    github_ui_metadata = 0
+    # After a skipped non-release heading, an adjacent HTML <time> may
+    # belong to that UI card. Refuse to inherit it into the next release.
+    ignore_dates_until_new_heading = False
 
     def finish():
         nonlocal current, entries_seen
@@ -485,6 +519,24 @@ def extract_release_events(main, source_url, source_id):
 
     for typ, text, node, level in _signals(main):
         if typ == "heading":
+            if github_listing:
+                marker = _github_release_listing_ui_marker(text)
+                if marker:
+                    finish()
+                    if marker == "error_placeholder":
+                        github_ui_errors += 1
+                    else:
+                        github_ui_metadata += 1
+                    # No date or month group adjacent to a failed GitHub
+                    # UI component can justify an actual release event.
+                    month_group = None
+                    date_context = (None, "", "")
+                    context_heading_level = None
+                    date_group_active = False
+                    pending_date = False
+                    ignore_dates_until_new_heading = True
+                    continue
+            ignore_dates_until_new_heading = False
             # H1 normally identifies the entire page; it is not a release
             # event unless it explicitly contains a version or a dateline.
             if level == 1 and not VERSION.search(text) and not _date(text)[0]:
@@ -545,6 +597,8 @@ def extract_release_events(main, source_url, source_id):
             if not date_group_active:
                 date_context = (None, "", "")
         elif typ in {"date", "timestamp"}:
+            if ignore_dates_until_new_heading:
+                continue
             parsed, kind = _date(text, month_group)
             if typ == "timestamp" and not parsed:
                 continue
@@ -605,6 +659,7 @@ def extract_release_events(main, source_url, source_id):
         }
     )
     reliable_date = bool(dated_order_ok and dated and not collision
+                         and not github_ui_errors
                          and view["recent_body_loss_count"] == 0)
     latest = max(dated) if reliable_date else None
     return {
@@ -616,9 +671,12 @@ def extract_release_events(main, source_url, source_id):
         # must create a NEW evidence baseline before any cross-run comparison.
         # Some generic headings use the day in their provisional review-only
         # identity; reusing v3 could fabricate a "first-seen" event on upgrade.
-        "release_identity_revision": "release_owner_date_scope_v4",
+        "release_identity_revision": "release_owner_date_scope_v5",
         "release_events": events,
         "release_event_count": entries_seen,
+        "release_github_ui_error_placeholder_count": github_ui_errors,
+        "release_github_commit_metadata_skipped_count": github_ui_metadata,
+        "release_ui_contamination_requires_review": bool(github_ui_errors),
         "release_recent_event_count": len(events),
         # Historical retention is separate from completeness of the newest
         # recognized window. A publisher may have hundreds of old releases.
@@ -650,12 +708,14 @@ def extract_release_events(main, source_url, source_id):
         "release_event_identity_collision": collision,
         "latest_release_date_candidate": latest,
         "latest_release_date_status": (
+            "ambiguous_github_ui_error_placeholder" if github_ui_errors else
             "ambiguous_undated_or_collision"
             if newest_undated or collision or view["order"] in {"mixed", "unknown"}
             else "event_date_candidate_only" if latest else "unknown"
         ),
-        "release_window_complete": view["window_complete"],
+        "release_window_complete": view["window_complete"] and not github_ui_errors,
         "release_window_coverage_status": (
+            "incomplete_github_ui_error_placeholder" if github_ui_errors else
             "ordered_recognized_events_on_fetched_page"
             if view["window_complete"] else "unverified_order_or_entry_evidence"
         ),

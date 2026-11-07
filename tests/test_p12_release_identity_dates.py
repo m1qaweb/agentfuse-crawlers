@@ -57,7 +57,7 @@ def test_repeating_generic_titles_two_dates_are_distinct_but_review_only(title):
     assert all(e["identity_basis"] == "date_scoped_generic_heading_review_only"
                and e["release_identity_requires_manual_review"]
                for e in item["release_events"])
-    assert item["release_identity_revision"] == "release_owner_date_scope_v4"
+    assert item["release_identity_revision"] == "release_owner_date_scope_v5"
     assert item["latest_publication_verified"] is False
     assert item["approved_for_advisor"] is False
     reversed_item = crawl("<h2>October, 2026</h2>" + second + first)
@@ -233,12 +233,46 @@ def test_upgrade_from_prior_month_parser_v3_cannot_create_false_release_alert():
     prior = copy.deepcopy(new)
     prior["release_identity_revision"] = "release_owner_date_scope_v3"
     prior["content_sha256"] = "0" * 64
-    assert new["release_identity_revision"] == "release_owner_date_scope_v4"
+    assert new["release_identity_revision"] == "release_owner_date_scope_v5"
     assert new["release_events"][0]["published_at"] == "2026-11-06"
     changes = compare({SID: new}, {SID: prior})
     assert [x["change_type"] for x in changes] == ["new_baseline"]
     assert review_queue({SID: new}, {SID: prior}, changes) == []
     assert _release_delta(new, prior) == []
+
+
+def test_github_ui_filter_v4_to_v5_is_new_baseline_not_vendor_release():
+    # GitHub UI error cards and signature metadata could be treated as
+    # vendor events in the previous HTML extractor revision. Migration
+    # must not declare the remaining source events "new" to customers.
+    from agentfuse_crawlers.extract import extract_evidence
+
+    source_url = "https://github.com/chroma-core/chroma/releases"
+    sid = "chroma_changelog"
+    data = extract_evidence(
+        "<html><main><h2>2026-11-06</h2><h3>Uh oh!</h3>"
+        "<h2>2026-11-04</h2><h3>Version v2.0.0</h3>"
+        "<p>Sample independent source-owned release notes.</p>"
+        "</main></html>",
+        source_url, category="changelog", source_id=sid,
+    )
+    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert data["release_github_ui_error_placeholder_count"] == 1
+    new = snapshot(data)
+    new["source_id"] = sid
+    new["source_url"] = source_url
+    # Force a healthy synthetic comparator record solely to test revision
+    # isolation. Production quality NEVER marks a UI-error page captured.
+    new["release_github_ui_error_placeholder_count"] = 0
+    new["release_window_complete"] = True
+    old = copy.deepcopy(new)
+    old["release_identity_revision"] = "release_owner_date_scope_v4"
+    old["content_sha256"] = "f" * 64
+    assert compare({sid: new}, {sid: old})[0]["change_type"] == "new_baseline"
+    assert review_queue(
+        {sid: new}, {sid: old}, compare({sid: new}, {sid: old})
+    ) == []
+    assert _release_delta(new, old) == []
 
 
 def test_markdown_identity_revision_explicit_without_publication_date():

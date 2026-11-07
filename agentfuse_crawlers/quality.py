@@ -84,6 +84,12 @@ def assess_capture(category, evidence, text, *, cache_warnings=(), cached=False)
         return "needs_review", "server_cached_response_over_one_day"
     if "server_date_in_future" in cache_warnings:
         return "needs_review", "invalid_future_server_date"
+    # GitHub's releases UI may render "Uh oh!" or "Sorry, something
+    # went wrong" beneath a valid page status. Even if OTHER release cards
+    # are dated, this feed is incomplete and must not be marked captured.
+    if (category == "changelog"
+            and evidence.get("release_github_ui_error_placeholder_count", 0)):
+        return "needs_review", "github_release_ui_error_placeholder"
     if category == "documentation" and evidence.get("documentation_evidence_schema") == "1.0":
         if evidence.get("documentation_static_capture_status") == "javascript_shell_suspected":
             return "needs_review", "documentation_javascript_shell_suspected"
