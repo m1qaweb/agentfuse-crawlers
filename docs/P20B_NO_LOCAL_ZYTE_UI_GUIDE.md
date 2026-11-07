@@ -120,9 +120,13 @@ access reviews and zero authorized run plans.
 
 Only after independently reviewing each publisher's exact URL,
 robots/terms and private retention, and adding a separate short-lived
-Git-reviewed run plan, can a bulk validation job supply
-bulk_run_plan_id, expected_bulk_plan_sha256 and
-expected_deployment_package_sha256. There is NO valid plan ID today.
+Git-reviewed run plan, can a bulk validation job fetch permitted sources.
+P23E0 makes `bulk_run_plan_id`, `expected_bulk_plan_sha256` and
+`expected_deployment_package_sha256` **unnecessary to type for an
+explicitly confirmed full-category job**: the spider auto-finds exactly
+one packaged reviewed plan and validates the source/URL/expiry/budget
+checks before any GET. Absent/ambiguous/unapproved plans still do not fetch.
+There is NO valid plan ID today.
 See docs/P21B_ENFORCED_BULK_ACCESS_RUNBOOK.md.
 
 ## FUTURE ONLY: one full-inventory diagnostic (not now)
