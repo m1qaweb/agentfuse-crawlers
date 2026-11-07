@@ -493,9 +493,34 @@ def test_optional_p22a1_html_is_cross_checked_but_not_same_job_proof(tmp_path):
 
 def test_p22a1_html_with_wrong_source_or_snapshot_hash_is_rejected(tmp_path):
     args = populated(tmp_path)
-    ledger = blank_html_ledger()
+    ledger = blank_html_ledger(frozen_plan())
     html_root = tmp_path / "html"
     html_root.mkdir()
     ledger["rows"][0]["source_id"] = "wrong_source"
     with pytest.raises(ValueError):
         audit_tuple(args, p22a1_ledger=ledger, html_root=html_root)
+
+
+def test_matching_http_404_still_held_as_unusable_not_clean(tmp_path):
+    src = chosen()
+    requests = [robots(src), primary(src, status=404)]
+    args = populated(
+        tmp_path, requests=requests, status=404, item_status="needs_review",
+    )
+    report, rows = audit_tuple(args)
+    assert rows[0]["primary_status_matches_item"] is True
+    assert "source_item_not_usable_http200" in rows[0]["issue_codes"]
+    assert rows[0]["source_round_evidence_state"] == (
+        "held_for_source_round_evidence_review"
+    )
+    assert report["status"] == "NO_GO"
+
+
+def test_empty_zyte_log_export_is_attrition_not_success(tmp_path):
+    args = populated(tmp_path, logs=[])
+    report, rows = audit_tuple(args)
+    assert rows[0]["log_record_count"] == 0
+    assert "empty_logs_export_does_not_establish_full_job_trace" in (
+        rows[0]["issue_codes"]
+    )
+    assert report["full_460_source_diagnostic_approved"] is False
