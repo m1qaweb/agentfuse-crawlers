@@ -16,6 +16,19 @@ These **original Wave 1 sources** are proposed as an initial three-category pilo
 | Pricing | gemini_api_pricing | https://ai.google.dev/gemini-api/docs/pricing |
 | Changelog | openai_api_changelog | https://developers.openai.com/api/docs/changelog |
 
+### Initial public policy reconnaissance — November 7, 2026 (NOT approval)
+
+These are research leads for the **human reviewer**, not positive review
+records or legal determinations. None has passed all required source-specific
+checks; keep all three in not_reviewed until actual operator research:
+
+- **Google Gemini pricing:** public [ai.google.dev/robots.txt](https://ai.google.dev/robots.txt) was readable and specifically disallows URLs containing the authuser query parameter. This alone does **not** establish positive permission for a Zyte crawl or retained original HTML; a reviewer must check current page-specific terms and retention rights. The [Gemini API Additional Terms](https://ai.google.dev/gemini-api/terms) govern the API service; their applicability to scraping public pricing documentation is a separate question.
+- **Kiro docs:** [kiro.dev/robots.txt](https://kiro.dev/robots.txt) could not be verified through this research interface. [AWS Service Terms](https://aws.amazon.com/service-terms/) explicitly address Kiro, but this is not a public-docs crawling grant. Hold until robots, applicable site terms and retention rights are independently checked.
+- **OpenAI API changelog:** [developers.openai.com/robots.txt](https://developers.openai.com/robots.txt) could not be verified through this interface. Review the [OpenAI policy collection](https://openai.com/policies/) and the agreement actually governing this use; consumer terms, developer agreements and public-docs permissions are not interchangeable. Hold without a current first-party robot/terms review.
+
+**Never translate accessible HTML, a non-disallowing robots directive, or
+successful HTTP 200 into affirmative publisher authorization.**
+
 Do not replace a denied source in the scientific 18-source cohort. After a genuine review is merged, separately confirm the exact deployed Zyte package SHA and manual cost approval. Run a bounded **single original source ID**, then a separate second round, using the P20A source/manifest scope arguments. Do NOT run the full inventory. Keep access denials and 403/429 responses as explicit attrition.
 
 ## 1. Archive the already-completed real job's metadata and Items
