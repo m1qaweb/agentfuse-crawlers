@@ -216,6 +216,28 @@ def test_non_github_release_heading_same_words_is_not_globally_suppressed():
     assert data["release_identity_revision"] == "release_owner_date_scope_v5"
 
 
+def test_offline_comparator_rejects_mislabelled_github_ui_error_items():
+    broken = _github_release_listing("""
+    <h2>2026-11-06</h2><h3>Version v9.1.0</h3>
+    <p>One synthetic release with a first-party date.</p>
+    <h2>2026-11-05</h2><h3>Sorry, something went wrong.</h3>
+    <p>A hosting UI error is not a vendor update.</p>
+    """)
+    assert broken["release_github_ui_error_placeholder_count"] == 1
+    old = snapshot("2026-11-06T00:00:00Z", broken)
+    new = snapshot("2026-11-07T00:00:00Z", broken)
+    # A dishonest or buggy exporter could incorrectly mark a broken page
+    # as "captured" and supply a true window flag. _healthy must check
+    # the error marker independently, not silently compare vendor releases.
+    for record in (old, new):
+        record["release_window_complete"] = True
+        record["release_github_ui_error_placeholder_count"] = 1
+        record["status"] = "captured"
+    changes = compare({SID: new}, {SID: old})
+    assert changes[0]["change_type"] == "not_captured"
+    assert review_queue({SID: new}, {SID: old}, changes) == []
+
+
 def test_github_ui_error_words_inside_prose_are_not_filtered_as_headings():
     data = _github_release_listing("""
     <h2>2026-11-06</h2><h3>Version v2.5.1</h3>
