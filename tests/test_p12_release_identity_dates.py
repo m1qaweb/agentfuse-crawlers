@@ -57,7 +57,7 @@ def test_repeating_generic_titles_two_dates_are_distinct_but_review_only(title):
     assert all(e["identity_basis"] == "date_scoped_generic_heading_review_only"
                and e["release_identity_requires_manual_review"]
                for e in item["release_events"])
-    assert item["release_identity_revision"] == "release_owner_date_scope_v3"
+    assert item["release_identity_revision"] == "release_owner_date_scope_v4"
     assert item["latest_publication_verified"] is False
     assert item["approved_for_advisor"] is False
     reversed_item = crawl("<h2>October, 2026</h2>" + second + first)
@@ -220,6 +220,25 @@ def test_parser_revision_migration_is_baseline_not_alert():
     assert review_queue({SID: data}, {SID: old},
                         compare({SID: data}, {SID: old})) == []
     assert _release_delta(data, old) == []
+
+
+def test_upgrade_from_prior_month_parser_v3_cannot_create_false_release_alert():
+    # A November page that was previously missing its date now has a
+    # recognisable first-party date, but this is a parser upgrade.
+    # A new publication must NOT be inferred from a changed parser.
+    new = snapshot(crawl(
+        "<p>November 6, 2026</p><h2>New API capability</h2>"
+        "<p>Changelog source text used for a date-regression test.</p>"
+    ))
+    prior = copy.deepcopy(new)
+    prior["release_identity_revision"] = "release_owner_date_scope_v3"
+    prior["content_sha256"] = "0" * 64
+    assert new["release_identity_revision"] == "release_owner_date_scope_v4"
+    assert new["release_events"][0]["published_at"] == "2026-11-06"
+    changes = compare({SID: new}, {SID: prior})
+    assert [x["change_type"] for x in changes] == ["new_baseline"]
+    assert review_queue({SID: new}, {SID: prior}, changes) == []
+    assert _release_delta(new, prior) == []
 
 
 def test_markdown_identity_revision_explicit_without_publication_date():
