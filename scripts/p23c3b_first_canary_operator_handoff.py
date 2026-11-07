@@ -44,6 +44,59 @@ CATEGORIES = ("documentation", "pricing", "changelog")
 # Kept separate from the trusted P23B source-access registry and checked-in
 # only to help the actual human reviewer prioritize a genuine legal/robots
 # assessment before the first live Zyte call.
+# P21A verified original Nov 4 source Items export byte digests, *not* proof
+# of publisher accuracy, ongoing conditions, or lawful collection today.
+# The first-canary diagnostics below are transcribed from these hash-pinned
+# historical Items (NEVER from the current live publisher). Do not interpret
+# a historical redirect or parsing failure as a present-day publisher fact.
+HISTORICAL_NOV04_ITEM_SHA256 = {
+    "documentation": "9e8166b9bc43baf4efe60d95fb3f728f0374d16b9530fcff44aaadcb1e492e78",
+    "pricing": "e55b786b3d7f9d8290432a343220e827e81e0beba4ad41651c9abe8e37b10663",
+    "changelog": "3a06ffb552493e89ec04c76d0d4cac4a108b587a8b6bb7bd5e11b25e3cac188c",
+}
+HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS = {
+    "kiro_docs": {
+        "item_status": "needs_review",
+        "http_status": 200,
+        "reason_codes": [
+            "documentation_javascript_shell_suspected",
+            "documentation_insufficient_content",
+            "documentation_child_links_not_approved_for_crawl",
+        ],
+        "review_action": (
+            "Check whether current approved exact URL is a JavaScript-only "
+            "shell; never auto-fetch child pages without their own review."
+        ),
+    },
+    "gemini_api_pricing": {
+        "item_status": "rejected_redirect",
+        "http_status": 301,
+        "reason_codes": [
+            "cross_host_or_non_https_redirect",
+            "source_redirect_requires_review",
+        ],
+        "review_action": (
+            "Historic primary URL returned rejected HTTP 301: verify "
+            "current canonical target and source-specific rights OFFLINE "
+            "before any new Zyte job. Never auto-follow unreviewed redirects."
+        ),
+    },
+    "openai_api_changelog": {
+        "item_status": "needs_review",
+        "http_status": 200,
+        "reason_codes": [
+            "release_event_identity_collision",
+            "source_product_alias_not_in_title",
+            "text_exceeds_capture_limit",
+        ],
+        "review_action": (
+            "Check multiple distinct source-owned release identities "
+            "and full datelines against original permitted HTML; no "
+            "trustworthy latest release claim without independent review."
+        ),
+    },
+}
+HISTORICAL_SIGNALS_AS_OF = "2026-11-04"
 POLICY_RESEARCH_AS_OF = "2026-11-07"
 PUBLIC_POLICY_RESEARCH = {
     "kiro_docs": (
@@ -73,6 +126,10 @@ WORKLIST_FIELDS = (
     "publisher_access_registry_status", "local_single_scope_record_present",
     "public_policy_research_as_of", "public_policy_research_status",
     "public_policy_evidence_url", "public_policy_research_note",
+    "historical_nov04_item_status_UNVERIFIED",
+    "historical_nov04_http_status_UNVERIFIED",
+    "historical_nov04_reason_codes_UNVERIFIED",
+    "historical_nov04_review_action_NOT_AUTHORIZATION",
     "human_owner_verification", "human_robots_review", "human_terms_review",
     "human_private_retention_review", "human_operator_decision",
     "next_operator_action",
@@ -129,6 +186,11 @@ def build_handoff(*, access_registry=None, now=None):
     selected = _pilot_sources(frozen, manifest)
     if set(PUBLIC_POLICY_RESEARCH) != set(PILOT_SOURCE_IDS):
         raise ValueError("Policy research notes must cover exact frozen pilot IDs")
+    if (set(HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS) != set(PILOT_SOURCE_IDS)
+            or set(HISTORICAL_NOV04_ITEM_SHA256) != set(CATEGORIES)
+            or any(len(sha) != 64 for sha in
+                   HISTORICAL_NOV04_ITEM_SHA256.values())):
+        raise ValueError("Historic pinned Nov 4 real-data signals incomplete")
     # The actual deployed policy file is the only local review input.
     access = load_access_registry() if access_registry is None else access_registry
     validate_access_registry(access, now=clock)
@@ -159,6 +221,15 @@ def build_handoff(*, access_registry=None, now=None):
             "public_policy_research_status": PUBLIC_POLICY_RESEARCH[sid][0],
             "public_policy_evidence_url": PUBLIC_POLICY_RESEARCH[sid][1],
             "public_policy_research_note": PUBLIC_POLICY_RESEARCH[sid][2],
+            "historical_nov04_item_status_UNVERIFIED":
+                HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS[sid]["item_status"],
+            "historical_nov04_http_status_UNVERIFIED":
+                HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS[sid]["http_status"],
+            "historical_nov04_reason_codes_UNVERIFIED": ",".join(
+                HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS[sid]["reason_codes"]
+            ),
+            "historical_nov04_review_action_NOT_AUTHORIZATION":
+                HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS[sid]["review_action"],
             "human_owner_verification": "NOT_ATTESTED_BY_THIS_PACKET",
             "human_robots_review": "NOT_ATTESTED_BY_THIS_PACKET",
             "human_terms_review": "NOT_ATTESTED_BY_THIS_PACKET",
@@ -225,6 +296,11 @@ def build_handoff(*, access_registry=None, now=None):
         "initial_pilot_source_ids": list(PILOT_SOURCE_IDS),
         "initial_pilot_sources": 3,
         "initial_pilot_manual_job_specs": 6,
+        "historical_nov04_signals_as_of_NOT_CURRENT": HISTORICAL_SIGNALS_AS_OF,
+        "historical_nov04_verified_original_item_sha256_NOT_PUBLISHER_AUTH": (
+            HISTORICAL_NOV04_ITEM_SHA256.copy()
+        ),
+        "historical_real_data_confers_permissions_or_accuracy": False,
         "local_reviewed_single_validation_sources_NOT_PERMISSION": len(
             allowed_by_local_registry
         ),
@@ -286,6 +362,10 @@ def write_handoff(report, out_dir):
                 "This packet issues ZERO requests and ZERO access approvals.\n"
                 "Three original wave-1 sources, six possible MANUAL job specs.\n"
                 "It DOES NOT independently authenticate permissions or remote Zyte deployment.\n"
+                "Nov 4 archived source status / HTTP / reasons are HISTORICAL ONLY.\n"
+                "Historic Gemini pricing was HTTP 301 rejected redirect;\n"
+                "historic Kiro docs appeared JS-shell-only and OpenAI changelog\n"
+                "had release-identity collisions. This is NOT live evidence.\n"
                 "The sources may remain blocked in the actual deployed spider.\n"
                 "Never infer permission from source_url, robots candidate or an API/terms link.\n"
                 "Complete actual P23B publisher-specific reviews and manual operator signoff.\n"

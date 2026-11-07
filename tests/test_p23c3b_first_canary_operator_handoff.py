@@ -287,3 +287,72 @@ def test_operator_packet_does_not_mutate_registry_across_multiple_builds():
         report = handoff.build_handoff(access_registry=registry, now=NOW)
         assert report["publisher_network_requests_performed"] == 0
     assert json.dumps(registry, sort_keys=True) == snapshot
+
+
+def test_nov04_signals_match_existing_p21a_hash_pinned_original_exports():
+    # P21A's verified original Nov 4 nine-file dashboard baseline, not
+    # real current publisher permissions, prices or release accuracy.
+    from scripts.audit_nov04_inventory import BASELINES
+    observed = handoff.HISTORICAL_NOV04_ITEM_SHA256
+    assert observed == {
+        category: setup["sha"]["items"]
+        for category, setup in BASELINES.items()
+    }
+    assert handoff.HISTORICAL_SIGNALS_AS_OF == "2026-11-04"
+    signals = handoff.HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS
+    assert set(signals) == set(handoff.PILOT_SOURCE_IDS)
+    assert signals["kiro_docs"]["item_status"] == "needs_review"
+    assert signals["kiro_docs"]["http_status"] == 200
+    assert "documentation_javascript_shell_suspected" in (
+        signals["kiro_docs"]["reason_codes"]
+    )
+    assert signals["gemini_api_pricing"]["item_status"] == "rejected_redirect"
+    assert signals["gemini_api_pricing"]["http_status"] == 301
+    assert "source_redirect_requires_review" in (
+        signals["gemini_api_pricing"]["reason_codes"]
+    )
+    assert signals["openai_api_changelog"]["item_status"] == "needs_review"
+    assert signals["openai_api_changelog"]["http_status"] == 200
+    assert "release_event_identity_collision" in (
+        signals["openai_api_changelog"]["reason_codes"]
+    )
+
+
+def test_historical_failure_signals_do_not_bypass_human_review(tmp_path):
+    report = handoff.build_handoff(
+        access_registry=_empty_registry(), now=NOW,
+    )
+    assert report["historical_nov04_signals_as_of_NOT_CURRENT"] == "2026-11-04"
+    assert report["historical_real_data_confers_permissions_or_accuracy"] is False
+    assert report["local_reviewed_single_validation_sources_NOT_PERMISSION"] == 0
+    assert report["execution_permitted"] is False
+    assert report["remote_zyte_deployment_independently_verified"] is False
+    assert report["initial_pilot_manual_job_specs"] == 6
+    assert all(j["operator_canary_authorization"] == "NOT_AUTHORIZED_BY_PACKET"
+               and j["zyte_job_id"] is None for j in report["jobs"])
+    rows = {r["source_id"]: r for r in report["sources"]}
+    assert rows["gemini_api_pricing"]["historical_nov04_http_status_UNVERIFIED"] == 301
+    assert "rejected" not in rows["kiro_docs"]["historical_nov04_item_status_UNVERIFIED"]
+    assert rows["openai_api_changelog"]["historical_nov04_item_status_UNVERIFIED"] == "needs_review"
+    assert all(r["human_operator_decision"] == "PENDING_INDEPENDENT_HUMAN_REVIEW"
+               for r in report["sources"])
+    out = tmp_path / "first-real-canary"
+    handoff.write_handoff(report, out)
+    with (out / "human_first_source_review_queue_NOT_APPROVED.csv").open(
+            encoding="utf-8-sig", newline="") as handle:
+        csv_rows = list(csv.DictReader(handle))
+    assert len(csv_rows) == 3
+    assert csv_rows[1]["historical_nov04_http_status_UNVERIFIED"] == "301"
+    assert all("historical_nov04_reason_codes_UNVERIFIED" in x for x in csv_rows)
+    assert all(x["human_operator_decision"] == "PENDING_INDEPENDENT_HUMAN_REVIEW"
+               for x in csv_rows)
+
+
+def test_historic_signals_cannot_be_swapped_for_unselected_source(monkeypatch):
+    monkeypatch.setattr(
+        handoff, "HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS",
+        {**handoff.HISTORICAL_NOV04_FIRST_SOURCE_SIGNALS,
+         "not_in_first_wave": {"item_status": "captured"}},
+    )
+    with pytest.raises(ValueError, match="Historic pinned"):
+        handoff.build_handoff(access_registry=_empty_registry(), now=NOW)
