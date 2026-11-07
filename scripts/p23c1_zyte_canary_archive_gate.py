@@ -29,6 +29,9 @@ from agentfuse_crawlers.validation_access import (
 )
 from scripts.accession_cross_category_html import frozen_plan, validate_plan
 from scripts.archive_jobs import JOB_ID, SPIDERS, archive_path, load_archive
+from scripts.p23d1a_historical_provenance import (
+    SHA as HISTORICAL_SHA, verify_historical_context,
+)
 from scripts.plan_documentation_children import (
     _private_new_directory, _safe_csv, _write_private,
 )
@@ -97,12 +100,24 @@ def blank_receipts(plan=None):
     }
 
 
-def _validate_receipts(plan, receipts):
+def _validate_receipts(plan, receipts, *, historical=False):
     expected = blank_receipts(plan)
+    # The original ledger's expected package was frozen at preparation.
+    # A later policy PR changes the package digest. Historical replay
+    # validates the actual *per-job* egg separately, never against main.
     if (not isinstance(receipts, dict)
             or set(receipts) != LEDGER_FIELDS
             or any(receipts[k] != expected[k] for k in
-                   LEDGER_FIELDS - {"rows"})
+                   LEDGER_FIELDS - (
+                       {"rows", "expected_package_sha256"} if historical
+                       else {"rows"}
+                   ))
+            or (historical and (
+                not isinstance(receipts["expected_package_sha256"], str)
+                or not HISTORICAL_SHA.fullmatch(
+                    receipts["expected_package_sha256"]
+                )
+            ))
             or not isinstance(receipts["rows"], list)
             or len(receipts["rows"]) != 18):
         raise ValueError("Missing/stale/privileged frozen P23C1 receipt ledger")
@@ -152,7 +167,8 @@ def _ensure_archive(root, job_id):
     return folder
 
 
-def _audit_archive(root, job_id, source, access, now):
+def _audit_archive(root, job_id, source, access, now, *,
+                   historical_package_sha256=None):
     envelope, records = load_archive(_ensure_archive(root, job_id))
     job = envelope["job"]
     scope = envelope["source_scope"]
@@ -211,7 +227,9 @@ def _audit_archive(root, job_id, source, access, now):
             or item.get("source_registry_sha256") != registry_revision_sha256()
             or item.get("bulk_access_registry_sha256") !=
                 validation_access_revision_sha256(access)
-            or item.get("deployment_revision") != package_fingerprint()
+            or item.get("deployment_revision") != (
+                historical_package_sha256 or package_fingerprint()
+            )
             or item.get("zyte_job_id") != job_id
             or item.get("approved_for_advisor") is not False):
         raise ValueError("Zyte Item is not bound to exact reviewed P23B deployed scope")
@@ -252,11 +270,16 @@ def _audit_archive(root, job_id, source, access, now):
 
 
 def audit_receipts(receipts, archive_root, *, access_registry=None, now=None,
-                   plan=None):
+                   plan=None, historical_policy_root=None,
+                   historical_egg_root=None):
     """Verify only supplied existing archives; never contact Zyte/publishers."""
     plan = frozen_plan() if plan is None else plan
     sources = _source_map(plan)
-    _validate_receipts(plan, receipts)
+    historical = historical_policy_root is not None or historical_egg_root is not None
+    if historical and (historical_policy_root is None
+                       or historical_egg_root is None):
+        raise ValueError("Historical policy and matching package roots required together")
+    _validate_receipts(plan, receipts, historical=historical)
     clock = _clock(now)
     access = load_access_registry() if access_registry is None else access_registry
     validate_access_registry(access, now=clock)
@@ -265,6 +288,7 @@ def audit_receipts(receipts, archive_root, *, access_registry=None, now=None,
             or any(p.is_symlink() for p in root.parents)):
         raise ValueError("Existing private non-symlink archive root required")
     rows, source_pairs, counts = [], [], Counter()
+    historic_contexts = 0
     for entry in receipts["rows"]:
         source = sources[entry["source_id"]]
         reviewed, reason = validation_access_decision(
@@ -274,14 +298,34 @@ def audit_receipts(receipts, archive_root, *, access_registry=None, now=None,
         round_states = []
         for slot in entry["rounds"]:
             rid = slot["zyte_job_id"]
-            if rid is not None and not reviewed:
-                raise ValueError(
-                    "Archive submitted for source without CURRENT reviewed single "
-                    "access: " + source["id"] + ": " + reason
+            historical_bound = False
+            if rid is not None and historical:
+                # Read the original job's immutable Item to select its
+                # own policy snapshot and matching compiled egg. A later
+                # current policy revocation/expiry cannot delete past data.
+                _env, archived_items = load_archive(_ensure_archive(root, rid))
+                if len(archived_items) != 1:
+                    raise ValueError("Historical replay requires exactly one Item")
+                past_access, past_package = verify_historical_context(
+                    archived_items[0],
+                    policy_root=historical_policy_root,
+                    egg_root=historical_egg_root,
                 )
-            result = None if rid is None else _audit_archive(
-                root, rid, source, access, clock,
-            )
+                result = _audit_archive(
+                    root, rid, source, past_access, clock,
+                    historical_package_sha256=past_package,
+                )
+                historic_contexts += 1
+                historical_bound = True
+            else:
+                if rid is not None and not reviewed:
+                    raise ValueError(
+                        "Archive submitted for source without CURRENT reviewed single "
+                        "access: " + source["id"] + ": " + reason
+                    )
+                result = None if rid is None else _audit_archive(
+                    root, rid, source, access, clock,
+                )
             if result is not None:
                 starts.append(result["job_started_at_utc"])
                 state = result["slot_state"]
@@ -296,6 +340,8 @@ def audit_receipts(receipts, archive_root, *, access_registry=None, now=None,
                 "wave": entry["wave"],
                 "source_id": source["id"], "category": source["category"],
                 "round": slot["round"], "policy_access_status": (
+                    "historical_source_review_at_job_start_NOT_current_permission"
+                    if historical_bound else
                     "local_review_attestation_present_NOT_permission"
                     if reviewed else reason
                 ),
@@ -333,6 +379,10 @@ def audit_receipts(receipts, archive_root, *, access_registry=None, now=None,
         "source_lifecycle_registry_sha256": registry_revision_sha256(),
         "source_access_registry_sha256": validation_access_revision_sha256(access),
         "expected_local_package_fingerprint_NOT_REMOTE_PROOF": package_fingerprint(),
+        "historical_source_round_package_and_review_snapshots_verified":
+            historic_contexts,
+        "historical_provenance_replay_enabled_NOT_live_permission": historical,
+        "historical_provenance_does_NOT_authorize_publisher_fetches": True,
         "original_selected_sources": 18,
         "original_source_round_denominator": 36,
         "source_rounds_with_immutable_item_archives": sum(
@@ -435,10 +485,14 @@ def main():
     mode.add_argument("--audit", action="store_true")
     p.add_argument("--private-receipts", type=Path)
     p.add_argument("--archive-root", type=Path)
+    p.add_argument("--historical-policy-root", type=Path)
+    p.add_argument("--historical-egg-root", type=Path)
     p.add_argument("--out-dir", type=Path, required=True)
     args = p.parse_args()
     if args.prepare:
-        if args.private_receipts is not None or args.archive_root is not None:
+        if (args.private_receipts is not None or args.archive_root is not None
+                or args.historical_policy_root is not None
+                or args.historical_egg_root is not None):
             p.error("--prepare must not accept private evidence")
         out = prepare(args.out_dir)
         info = {"mode": "blank_only", "status": "NO_GO",
@@ -448,6 +502,8 @@ def main():
             p.error("--audit requires private receipts and archive root")
         report, rows = audit_receipts(
             _read_json(args.private_receipts), args.archive_root,
+            historical_policy_root=args.historical_policy_root,
+            historical_egg_root=args.historical_egg_root,
         )
         out = write_audit(report, rows, args.out_dir)
         info = {
