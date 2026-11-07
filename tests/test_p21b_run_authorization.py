@@ -459,7 +459,7 @@ def test_exact_source_redirect_cap_is_enforced_in_synthetic_approved_run(
     )
     response = HtmlResponse(
         url=source["url"], status=301, request=req,
-        headers={"Location": "/new-path", "Content-Type": "text/html"},
+        headers={"Location": source["url"], "Content-Type": "text/html"},
         body=b"<main>Moved</main>", encoding="utf-8",
     )
     result = list(spider.parse_page(response, source))
@@ -468,6 +468,131 @@ def test_exact_source_redirect_cap_is_enforced_in_synthetic_approved_run(
     assert result[0]["error"] == "redirect_limit_or_loop"
     assert result[0]["approved_for_advisor"] is False
 
+
+
+
+@pytest.mark.parametrize("category,spider_type", [
+    ("documentation", DocumentationSpider),
+    ("pricing", PricingSpider),
+    ("changelog", ChangelogSpider),
+])
+@pytest.mark.parametrize("variation", [
+    "different_path", "different_query", "explicit_port", "same_host_fragment",
+])
+def test_bulk_reviewed_exact_url_never_fetches_changed_same_host_target(
+        monkeypatch, category, spider_type, variation):
+    """No valid original URL review also grants a second same-host URL."""
+    from scrapy.http import HtmlResponse
+
+    selected, registry, plans, pid, signed = fake_case(category=category)
+    _mock_private_registries(monkeypatch, registry, plans)
+    spider = spider_type(
+        cohort="all",
+        source_ids=",".join(s["id"] for s in selected),
+        collection_mode="validation",
+        bulk_run_plan_id=pid,
+        expected_bulk_plan_sha256=signed,
+        expected_deployment_package_sha256=package_fingerprint(),
+    )
+    assert spider.bulk_validation_required is True
+    assert spider.single_validation_required is False
+    assert spider.bulk_max_redirects_per_source == 3
+    source = selected[0]
+    parts = urlsplit(source["url"])
+    if variation == "different_path":
+        target = parts._replace(path="/unreviewed-new-docs", query="").geturl()
+    elif variation == "different_query":
+        target = parts._replace(query="authuser=synthetic-test-secret").geturl()
+    elif variation == "explicit_port":
+        # Network host is unchanged, but the exact URL review does not
+        # include a :443 variant and no transparent redirect is granted.
+        target = parts._replace(
+            netloc=parts.hostname + ":443", query=""
+        ).geturl()
+    else:
+        target = parts._replace(fragment="unreviewed").geturl()
+    req = Request(
+        source["url"], meta={
+            "source_redirect_chain": [], "source_redirect_depth": 0,
+            "dont_redirect": True,
+        }
+    )
+    response = HtmlResponse(
+        url=source["url"], status=301, request=req,
+        headers={"Location": target, "Content-Type": "text/html"},
+        body=b"<main>Redirect</main>", encoding="utf-8",
+    )
+    emitted = list(spider.parse_page(response, source))
+    assert len(emitted) == 1 and isinstance(emitted[0], dict)
+    row = emitted[0]
+    assert row["status"] == "redirect_needs_review"
+    assert row["error"] == "bulk_source_redirect_target_requires_review"
+    assert row["policy_observation"] == "redirect_not_fetched_without_exact_url_review"
+    assert row["approved_for_advisor"] is False
+    assert row["source_url"] == source["url"]
+    assert row.get("text") is None
+    assert "synthetic-test-secret" not in str(row)
+    assert "?" not in row["redirect_review_target"]
+
+
+@pytest.mark.parametrize("category,spider_type", [
+    ("documentation", DocumentationSpider),
+    ("pricing", PricingSpider),
+    ("changelog", ChangelogSpider),
+])
+def test_bulk_does_not_extract_unreviewed_final_url_even_if_200(
+        monkeypatch, category, spider_type):
+    """Defense in depth for a callback handed a different final URL."""
+    from scrapy.http import HtmlResponse
+
+    selected, registry, plans, pid, signed = fake_case(category=category)
+    _mock_private_registries(monkeypatch, registry, plans)
+    spider = spider_type(
+        cohort="all",
+        source_ids=",".join(s["id"] for s in selected),
+        collection_mode="validation",
+        bulk_run_plan_id=pid,
+        expected_bulk_plan_sha256=signed,
+        expected_deployment_package_sha256=package_fingerprint(),
+    )
+    source = selected[0]
+    unexpected = urlsplit(source["url"])._replace(
+        path="/not-in-reviewed-source-manifest", query=""
+    ).geturl()
+    req = Request(unexpected, meta={"dont_redirect": True})
+    response = HtmlResponse(
+        url=unexpected, status=200, request=req,
+        headers={"Content-Type": "text/html"},
+        body=b"<main>Deliberately forged, high quality content and prices.</main>",
+        encoding="utf-8",
+    )
+    rows = list(spider.parse_page(response, source))
+    assert len(rows) == 1 and isinstance(rows[0], dict)
+    assert rows[0]["status"] == "redirect_needs_review"
+    assert rows[0]["error"] == "unreviewed_validation_response_url"
+    assert rows[0]["policy_observation"] == "response_url_not_in_exact_review_scope"
+    assert rows[0]["approved_for_advisor"] is False
+    assert "Deliberately forged" not in str(rows[0])
+    assert rows[0]["final_url"] == unexpected
+
+
+def test_single_source_final_url_defense_in_depth_matches_bulk_policy():
+    from scrapy.http import HtmlResponse
+
+    source = next(s for s in load_sources() if s["id"] == "openai_api_docs")
+    spider = DocumentationSpider(cohort="all", source_ids=source["id"])
+    other = urlsplit(source["url"])._replace(path="/unapproved-second-path").geturl()
+    response = HtmlResponse(
+        url=other, status=200,
+        request=Request(other, meta={"dont_redirect": True}),
+        body=b"<main>A well-formed page at a different URL</main>",
+        encoding="utf-8", headers={"Content-Type": "text/html"},
+    )
+    output = list(spider.parse_page(response, source))
+    assert len(output) == 1 and isinstance(output[0], dict)
+    assert output[0]["status"] == "redirect_needs_review"
+    assert output[0]["error"] == "unreviewed_validation_response_url"
+    assert output[0]["approved_for_advisor"] is False
 
 def test_access_and_plan_registries_reject_unhashable_source_inputs():
     source = load_sources()[0]

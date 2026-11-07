@@ -84,7 +84,9 @@ Additional mandatory rows, only after genuine Git-reviewed records exist:
 ## Engineering limits and failure behavior
 
 - A reviewed category run can include at most 200 source IDs and no more initial page Requests than explicitly authorized source IDs.
-- Same-host redirect depth respects each reviewed plan cap (0 to 3). Cross-host redirects remain blocked.
+- **P23D1B: no validation-mode request may follow a different URL**, including a same-host path/query/port/fragment change, even if a reviewed bulk plan sets `max_redirects_per_source=3`. A redirect count is a **request ceiling, never a license or per-target access review**. Both single and bulk source validation emit `redirect_needs_review` and a sanitized target instead of making a second GET. A source URL migration needs independent publisher review and a reviewed manifest/policy update before any new request. Existing separately authorized monitoring retains its prior redirect behavior.
+- Even a synthetic HTTP 200 callback arriving at a different source URL is held *before* any parsing or substantive HTML extraction; this is a defense-in-depth validation gate, not an authentication mechanism for response bytes.
+- Cross-host redirects remain rejected. Any identical-URL redirect loop is stopped by the original redirect-loop/cap checks.
 - A separately hosted official Markdown alternate is a DIFFERENT URL and is disabled in bulk mode pending a separate URL-specific review.
 - Existing robots.txt obedience, two total concurrent requests, one per domain, three-second delay, limited server-error retries and no proxy/CAPTCHA/access-control evasion remain.
 - Even 200 responses remain unverified and never auto-approve an AgentFuse price or announcement.
