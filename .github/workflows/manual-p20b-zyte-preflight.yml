@@ -23,6 +23,9 @@ on:
       - 'scripts/full_crawl_readiness.py'
       - 'tests/test_p23a_full_crawl_readiness.py'
       - 'docs/P23A_FULL_CRAWL_READINESS_AUDIT.md'
+      - 'scripts/p23c1_zyte_canary_archive_gate.py'
+      - 'tests/test_p23c1_zyte_canary_archive_gate.py'
+      - 'docs/P23C1_ZYTE_CANARY_ARCHIVE_EVIDENCE_GATE.md'
 
 permissions:
   contents: read
@@ -68,6 +71,10 @@ jobs:
         run: |
           python -m scripts.full_crawl_readiness \
             --out-dir output/private/p23a-readiness
+      - name: Prepare P23C1 original 18-source / 36-round job receipts (BLANK ONLY)
+        run: |
+          python -m scripts.p23c1_zyte_canary_archive_gate \
+            --prepare --out-dir output/private/p23c1-blank
       - name: Refuse unsafe scope or inferred permissions
         run: |
           python - <<'PY'
@@ -81,6 +88,13 @@ jobs:
           blank = json.loads((prefix / "p22a1-blank" / "source_policy_and_capture_ledger_BLANK.json").read_text())
           p22c2 = json.loads((prefix / "p22c2a-blank" / "p22c2a_six_pricing_sources_BLANK.json").read_text())
           p23a = json.loads((prefix / "p23a-readiness" / "full_crawl_readiness_NO_GO.json").read_text())
+          p23c1 = json.loads((prefix / "p23c1-blank" / "zyte_canary_job_receipts_BLANK.json").read_text())
+          assert p23c1["frozen_plan_sha256"] == p22a["plan_sha256"]
+          assert p23c1["approved_for_advisor"] is False
+          assert len(p23c1["rows"]) == 18
+          assert sum(len(x["rounds"]) for x in p23c1["rows"]) == 36
+          assert all(slot["zyte_job_id"] is None
+                     for row in p23c1["rows"] for slot in row["rounds"])
           assert p23a["status"] == "NO_GO"
           assert p23a["counts"]["configured_source_ids"] == 460
           assert p23a["counts"]["technical_validation_eligible_NOT_permission"] == 457
@@ -145,6 +159,7 @@ jobs:
             output/private/p22a1-blank/
             output/private/p22c2a-blank/
             output/private/p23a-readiness/
+            output/private/p23c1-blank/
           retention-days: 14
           if-no-files-found: error
       - name: Explain what the artifact means
@@ -160,6 +175,7 @@ jobs:
             echo "- P22A1 BLANK frozen 18-source original HTML/policy study templates (NO HTML)"
             echo "- P22C2A BLANK six-pricing-source, 12-round private pilot checklist (NO publisher access)"
             echo "- P23A unified full_crawl_readiness_NO_GO.json and 460-ID source_dispositions_460.csv"
+            echo "- P23C1 BLANK 18-source/36-round immutable Zyte archive receipt ledger (no jobs)"
             echo ""
             echo "**These arguments are NOT approval to run full source collection.**"
             echo "**P21B:** cohort=all plus confirm_full_inventory=yes now produces held Items without an exact Git-reviewed URL+run plan."
