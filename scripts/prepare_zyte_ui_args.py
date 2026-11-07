@@ -59,13 +59,17 @@ def build_full_diagnostic_ui_guide():
             s["id"] for s in selected
             if not collection_decision(s, "validation")[0]
         )
+        # The only THREE values the operator needs in the Zyte UI.
+        # Source/plan fingerprint pins are derived and checked by the
+        # running spider against a uniquely matching packaged review plan.
         args = {
             "cohort": "all",
             "confirm_full_inventory": "yes",
             "collection_mode": "validation",
+        }
+        scope_fingerprints = {
             "expected_manifest_sha256": manifest,
-            "expected_selection_ids_sha256":
-                selection_ids_sha256(selected),
+            "expected_selection_ids_sha256": selection_ids_sha256(selected),
             "expected_source_registry_sha256": registry,
         }
         # A full run must not accidentally include a stale one-source
@@ -82,6 +86,7 @@ def build_full_diagnostic_ui_guide():
             "priority": "Normal",
             "tags": [],
             "arguments": args,
+            "scope_fingerprints_reference_only": scope_fingerprints,
             "explicitly_no_source_ids_argument": True,
             "source_ids_locally_policy_blocked": blocked,
             "operator_review_status":
@@ -136,6 +141,12 @@ def _job_text(record):
         lines.append("  " + key + " = " + value)
     lines.extend([
         "",
+        "No bulk_run_plan_id, expected_bulk_plan_sha256 or ",
+        "expected_deployment_package_sha256 is needed in the Zyte UI:",
+        "the spider locates ONE exact current reviewed plan in its installed package.",
+        "If no such reviewed plan exists, the job emits only held Items.",
+        "Scope fingerprints in the CSV are reference-only, not needed as UI fields.",
+        "",
         "REMOVE any older source_ids, limit, offset or collection_mode=monitor.",
         "DO NOT add source_ids (this is the entire category, not one source).",
         "Locally blocked sources are HELD, not fetched: "
@@ -159,6 +170,7 @@ def _csv_bytes(guide):
             "job_units": record["job_units"],
             "priority": record["priority"],
             **record["arguments"],
+            **record["scope_fingerprints_reference_only"],
             "human_authorization_status": record["operator_review_status"],
         }
         writer.writerow({

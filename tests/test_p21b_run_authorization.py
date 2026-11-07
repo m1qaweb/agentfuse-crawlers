@@ -609,3 +609,121 @@ def test_access_and_plan_registries_reject_unhashable_source_inputs():
     plans["plans"][pid]["authorized_source_ids"] = [{"bad": "id"}]
     with pytest.raises(ValueError, match="scope"):
         policy.validate_plan_registry(plans)
+
+
+# P23E0: the *operator* may enter only the original three full-category UI
+# fields once ONE exact run plan and per-source access decisions have actually
+# been reviewed and packaged. No real source is approved by these fixtures.
+@pytest.mark.parametrize("category,spider_type,total", [
+    ("documentation", DocumentationSpider, 194),
+    ("pricing", PricingSpider, 177),
+    ("changelog", ChangelogSpider, 89),
+])
+def test_explicit_three_argument_full_category_auto_resolves_only_reviewed_plan(
+        monkeypatch, category, spider_type, total):
+    selected, reviews, plans, pid, pin = fake_case(
+        category=category, count=total, allowed_count=2,
+    )
+    _mock_private_registries(monkeypatch, reviews, plans)
+    spider = spider_type(
+        cohort="all", confirm_full_inventory="yes",
+        collection_mode="validation",
+    )
+    emitted = asyncio.run(collect(spider))
+    requests = [x for x in emitted if isinstance(x, Request)]
+    assert len(emitted) == total
+    assert len(requests) == 2
+    assert [r.url for r in requests] == [s["url"] for s in selected[:2]]
+    assert spider.bulk_plan_id == pid
+    assert spider.bulk_plan_sha256 == pin
+    assert spider.bulk_max_primary_requests == 2
+    assert spider.bulk_gate_decision == "exact_git_reviewed_bounded_run_plan"
+    assert spider.run_context["deployment_revision"] == package_fingerprint()
+    for item in emitted[2:]:
+        assert not isinstance(item, Request)
+        assert item["approved_for_advisor"] is False
+        assert item["http_status"] is None
+
+
+def test_full_auto_plan_is_not_a_bypass_for_source_subset_or_monitor(monkeypatch):
+    selected, reviews, plans, _, _ = fake_case(
+        count=194, allowed_count=2,
+    )
+    _mock_private_registries(monkeypatch, reviews, plans)
+    # Single-source has a separate, independently reviewed gate.
+    one = DocumentationSpider(cohort="all", source_ids=selected[0]["id"])
+    assert one.bulk_validation_required is False
+    assert one.single_validation_required is True
+    # A multi-source subset never automatically borrows the full plan.
+    subset = DocumentationSpider(
+        cohort="all",
+        source_ids=",".join(s["id"] for s in selected[:2]),
+        collection_mode="validation",
+    )
+    assert subset.bulk_plan_id == ""
+    held = asyncio.run(collect(subset))
+    assert len(held) == 2
+    assert all(not isinstance(x, Request) for x in held)
+    # A monitored/full job is not re-authorized by validation.
+    watched = DocumentationSpider(
+        cohort="all", confirm_full_inventory="yes", collection_mode="monitor"
+    )
+    assert watched.bulk_plan_id == ""
+    assert not any(isinstance(x, Request) for x in asyncio.run(collect(watched)))
+
+
+def test_full_auto_plan_scope_mismatch_does_not_use_other_category(monkeypatch):
+    _, reviews, plans, _, _ = fake_case(
+        category="documentation", count=194, allowed_count=2,
+    )
+    _mock_private_registries(monkeypatch, reviews, plans)
+    other = PricingSpider(
+        cohort="all", confirm_full_inventory="yes", collection_mode="validation",
+    )
+    assert other.bulk_plan_id == ""
+    assert other.bulk_gate_decision == "bulk_run_plan_not_present"
+    assert not any(isinstance(x, Request) for x in asyncio.run(collect(other)))
+
+
+def test_multiple_equally_matching_reviewed_plans_fail_before_network(monkeypatch):
+    _, reviews, plans, pid, _ = fake_case(count=194, allowed_count=2)
+    plans["plans"]["synthetic_second_full_plan"] = deepcopy(plans["plans"][pid])
+    _mock_private_registries(monkeypatch, reviews, plans)
+    with pytest.raises(ValueError, match="Ambiguous reviewed full-inventory"):
+        DocumentationSpider(cohort="all", confirm_full_inventory="yes")
+
+
+@pytest.mark.parametrize("tamper", [
+    "manifest", "review_digest", "expired_plan", "invalid_access",
+])
+def test_auto_plan_refuses_stale_and_unreviewed_sources(monkeypatch, tamper):
+    selected, reviews, plans, pid, _ = fake_case(count=194, allowed_count=2)
+    if tamper == "manifest":
+        plans["plans"][pid]["manifest_sha256"] = "0" * 64
+    elif tamper == "review_digest":
+        plans["plans"][pid]["access_registry_sha256"] = "0" * 64
+    elif tamper == "expired_plan":
+        plans["plans"][pid]["reviewed_at_utc"] = _time(timedelta(days=-3))
+        plans["plans"][pid]["expires_at_utc"] = _time(timedelta(days=-1))
+    elif tamper == "invalid_access":
+        reviews["reviews"][selected[0]["id"]]["private_retention_reviewed"] = False
+    _mock_private_registries(monkeypatch, reviews, plans)
+    with pytest.raises(ValueError):
+        DocumentationSpider(cohort="all", confirm_full_inventory="yes")
+
+
+def test_partially_supplied_external_bulk_hashes_are_not_autocorrected(monkeypatch):
+    _, reviews, plans, _, _ = fake_case(count=194, allowed_count=2)
+    _mock_private_registries(monkeypatch, reviews, plans)
+    with pytest.raises(ValueError, match="fingerprints without"):
+        DocumentationSpider(
+            cohort="all", confirm_full_inventory="yes",
+            expected_bulk_plan_sha256="f" * 64,
+        )
+    with pytest.raises(ValueError, match="Git-reviewed bulk authorization"):
+        DocumentationSpider(
+            cohort="all", confirm_full_inventory="yes",
+            bulk_run_plan_id="unknown_forged_plan",
+            expected_bulk_plan_sha256="f" * 64,
+            expected_deployment_package_sha256=package_fingerprint(),
+        )

@@ -305,6 +305,37 @@ def bulk_plan_revision_sha256(registry=None):
     return digest(load_run_plan_registry() if registry is None else registry)
 
 
+def matching_full_inventory_plan(*, selected, category, cohort):
+    """Find exactly ONE packaged Git-reviewed plan for a manual full category.
+
+    This is solely an argument convenience for explicit cohort=all runs:
+    it does NOT approve sources, create a plan or relax authorize_bulk_run.
+    Full plan/source/URL/expiry checks still occur at the request boundary.
+    """
+    if cohort != "all" or category not in (
+            "documentation", "pricing", "changelog"):
+        raise ValueError("Auto-selected bulk plans require an explicit full category")
+    plans = load_run_plan_registry()
+    # Cached package data may have been mutated; revalidate before lookup.
+    validate_plan_registry(plans)
+    source_ids = [s["id"] for s in selected]
+    candidates = [
+        (pid, plan) for pid, plan in plans["plans"].items()
+        if plan["category"] == category
+        and plan["cohort"] == cohort
+        and plan["collection_mode"] == "validation"
+        and plan["source_ids"] == source_ids
+    ]
+    if len(candidates) > 1:
+        raise ValueError(
+            "Ambiguous reviewed full-inventory plans; choose an explicit plan ID"
+        )
+    if not candidates:
+        return None
+    pid, plan = candidates[0]
+    return pid, digest(plan)
+
+
 def authorize_bulk_run(*, selected, category, cohort, collection_mode,
                        plan_id=None, expected_plan_sha256=None,
                        expected_package_sha256=None, current_package_sha256=None,

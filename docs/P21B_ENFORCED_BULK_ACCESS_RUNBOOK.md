@@ -73,13 +73,32 @@ For a FUTURE, separately authorized bulk diagnostic, the older arguments remain 
     expected_selection_ids_sha256 = [current spider selection hash]
     expected_source_registry_sha256 = [current lifecycle hash]
 
-Additional mandatory rows, only after genuine Git-reviewed records exist:
+P23E0 simplification: for an **explicitly confirmed full category only**
+(`cohort=all`, no `source_ids`, no limit/offset), those three
+extra rows are now **optional**. The spider selects the **single** matching
+Git-reviewed run plan that is already installed in its package, computes the
+plan digest and local running-package fingerprint, and still checks *all*
+source URLs, manifest/review fingerprints, expiry and the exact request budget.
+
+    cohort = all
+    confirm_full_inventory = yes
+    collection_mode = validation
+
+For a narrower batch, or when manually selecting a particular reviewed plan,
+the existing explicit trio remains available and is validated strictly:
 
     bulk_run_plan_id = [existing reviewed plan ID]
     expected_bulk_plan_sha256 = [hash of exact deployed plan]
     expected_deployment_package_sha256 = [ACTUAL deployed package fingerprint]
 
-**There is NO working bulk plan ID in this PR.** A made-up plan ID is rejected before any publisher request. Omitting all new plan arguments yields held source-summary Items, not live publisher evidence. The old three-spider full-crawl UI configuration is now deliberately non-fetching unless separately approved.
+A missing, changed, expired or unreviewed plan **still yields zero publisher
+requests or a fail-closed error**. Two full plans matching the same spider
+scope raise an ambiguity error instead of silently choosing one. The auto
+calculation does **not** independently verify the remote Zyte deployment;
+the operator must do so before starting the job. The static plan is not
+one-shot enforcement. There is **NO approved run plan today**. Do not
+launch a 460-source crawl expecting real data until permissions, real
+canaries, operator budget and deployment are verified.
 
 ## Engineering limits and failure behavior
 
