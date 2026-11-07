@@ -169,7 +169,8 @@ def _verify_requests_stats(job_id, observed, api_key, fetch):
 
 
 def _preflight(receipts, archive_root, source_id, *, access_registry=None,
-               now=None):
+               now=None, historical_policy_root=None,
+               historical_egg_root=None):
     """Enforce exact P23C1 source/round/policy checks before any API call."""
     if not isinstance(source_id, str) or source_id not in {
         s["id"] for s in load_sources()
@@ -177,6 +178,8 @@ def _preflight(receipts, archive_root, source_id, *, access_registry=None,
         raise ValueError("Unknown source ID")
     report, all_rows = audit_receipts(
         receipts, archive_root, access_registry=access_registry, now=now,
+        historical_policy_root=historical_policy_root,
+        historical_egg_root=historical_egg_root,
     )
     source_rows = [row for row in all_rows if row["source_id"] == source_id]
     if len(source_rows) != 2:
@@ -189,6 +192,8 @@ def _preflight(receipts, archive_root, source_id, *, access_registry=None,
         if row["zyte_job_id"] is not None and (
                 row["policy_access_status"] !=
                 "local_review_attestation_present_NOT_permission"
+                and row["policy_access_status"] !=
+                "historical_source_review_at_job_start_NOT_current_permission"
                 or not row["archive_item_integrity_checked"]):
             raise ValueError("Source/job scope or access review is not current")
     return report, jobs
@@ -205,7 +210,9 @@ def _require_new_output(directory):
 
 def download_existing_job_evidence(receipts, archive_root, out_dir, source_id,
                                    *, api_key=None, fetch=None,
-                                   access_registry=None, now=None):
+                                   access_registry=None, now=None,
+                                   historical_policy_root=None,
+                                   historical_egg_root=None):
     """Download one reviewed source's existing completed jobs, NO new jobs.
 
     The caller provides the real operator's private receipt file and archived
@@ -216,6 +223,8 @@ def download_existing_job_evidence(receipts, archive_root, out_dir, source_id,
     c1, job_ids = _preflight(
         receipts, archive_root, source_id,
         access_registry=access_registry, now=now,
+        historical_policy_root=historical_policy_root,
+        historical_egg_root=historical_egg_root,
     )
     key = api_key if api_key is not None else os.environ.get(
         "ZYTE_SCRAPY_CLOUD_API_KEY"
@@ -254,6 +263,10 @@ def download_existing_job_evidence(receipts, archive_root, out_dir, source_id,
         })
 
     index = blank_export_index()
+    if historical_policy_root is not None and historical_egg_root is not None:
+        # The frozen P23C1 receipt could have been written under a prior
+        # package revision. Do not substitute today's package digest.
+        index["package_sha256"] = receipts["expected_package_sha256"]
     for record, item in zip(index["rows"], receipts["rows"]):
         for slot, previous in zip(record["rounds"], item["rounds"]):
             slot["zyte_job_id"] = previous["zyte_job_id"]
@@ -263,6 +276,9 @@ def download_existing_job_evidence(receipts, archive_root, out_dir, source_id,
         "schema_version": SCHEMA, "kind": KIND,
         "source_id": source_id,
         "source_rounds_downloaded": len(snapshots),
+        "historical_provenance_replay_without_live_publisher_access": (
+            historical_policy_root is not None and historical_egg_root is not None
+        ),
         "frozen_original_source_denominator": 18,
         "frozen_original_round_denominator": 36,
         "p23c1_report_sha256": c1["report_sha256"],
@@ -324,6 +340,8 @@ def main():
                         help="One original P20A configured source ID")
     parser.add_argument("--p23c1-private-receipts", type=Path, required=True)
     parser.add_argument("--archive-root", type=Path, required=True)
+    parser.add_argument("--historical-policy-root", type=Path)
+    parser.add_argument("--historical-egg-root", type=Path)
     parser.add_argument("--out-dir", type=Path,
                         help="New private directory (download only)")
     args = parser.parse_args()
@@ -333,6 +351,8 @@ def main():
             parser.error("--preflight does not write evidence")
         _report, jobs = _preflight(
             receipts, args.archive_root, args.source_id,
+            historical_policy_root=args.historical_policy_root,
+            historical_egg_root=args.historical_egg_root,
         )
         answer = {
             "status": PREFLIGHT, "source_id": args.source_id,
@@ -344,6 +364,8 @@ def main():
             parser.error("--download-existing needs --out-dir")
         path, report, _ = download_existing_job_evidence(
             receipts, args.archive_root, args.out_dir, args.source_id,
+            historical_policy_root=args.historical_policy_root,
+            historical_egg_root=args.historical_egg_root,
         )
         answer = {
             "status": "EXPORTED_READ_ONLY_NOT_CANARY_GO",
