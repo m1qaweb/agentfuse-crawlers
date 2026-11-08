@@ -84,6 +84,29 @@ permission from the public changelog or the availability of Markdown views.
    reviews against the actual publisher evidence. Fix parsers in P23D
    based on observed failures, not on synthetic success.
 
+## November 8 evidence update: verified Gemini pricing cross-host redirect
+
+The original November 4 pricing Zyte Item for `gemini_api_pricing`
+(job `883514/3/11`) reports **HTTP 301** and
+`redirect_review_target=https://aistudio.google.com/docs/pricing`.
+This is a **different hostname** from the configured Gemini pricing source.
+Robots observations for `ai.google.dev` cannot authorize requests to the new
+host. A human must review the destination's ownership, robots, terms and
+HTML retention before a separate source-manifest migration.
+
+November 8: `ai.google.dev/robots.txt` remained publicly readable;
+the research browser could not verify the OpenAI developer-host or Kiro robots
+files. That limitation is **not** proof of a publisher prohibition. AWS Site
+Terms restrict robots/data mining for the AWS Site's default license;
+applicability to the exact Kiro host needs independent human assessment.
+
+As a separate *operational* docs candidate (never a replacement for the frozen
+18/36 study), `github_copilot_docs` is in the manifest, and the official
+`github/docs` repository licenses documentation/content under CC BY 4.0.
+Live website robots, terms, commercial use and retention still need review.
+
+See [P24A evidence freeze](P24A_NOV7_ZYTE_EVIDENCE_FREEZE_AND_FIRST_LIVE_REVIEW.md).
+No real source access is approved by this research.
 ## Precisely WHEN a full Zyte crawl is needed
 
 The project census is **460 IDs: 194 documentation, 177 pricing, 89
