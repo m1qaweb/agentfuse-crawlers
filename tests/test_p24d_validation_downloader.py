@@ -174,6 +174,7 @@ def test_unreviewed_or_out_of_scope_downloads_fail_closed(
     elif case == "wrong_category":
         spider.category = "pricing"
     elif case == "unscoped":
+        spider.single_validation_required = False
         spider.bulk_validation_required = False
     elif case == "publisher_skips_robots":
         req = request(src, meta={"dont_obey_robotstxt": True})
