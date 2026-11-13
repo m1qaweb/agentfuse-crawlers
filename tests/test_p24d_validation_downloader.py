@@ -20,7 +20,7 @@ from agentfuse_crawlers.validation_downloader import (
     HOLD_META, ValidationDownloadGate,
 )
 
-NOW = datetime(2026, 11, 13, 13, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 NOTE = (
     "SYNTHETIC TEST ONLY. A human has NOT checked ownership, terms, robots, "
     "commercial extraction, publisher HTML retention or per-source cadence. "
@@ -46,7 +46,7 @@ def registry(src, scopes=("single_validation",), expiry=None):
                 "scopes": list(scopes),
                 "reviewed_by": "Fictional Synthetic Reviewer",
                 "reviewed_at_utc": (NOW - timedelta(minutes=10)).isoformat(),
-                "expires_at_utc": (expiry or NOW + timedelta(minutes=20)).isoformat(),
+                "expires_at_utc": (expiry or NOW + timedelta(days=5)).isoformat(),
                 "ownership_evidence_url": src["url"],
                 "publisher_access_policy_url": "https://" + host + "/terms",
                 "robots_url": "https://" + host + "/robots.txt",
@@ -112,7 +112,7 @@ def test_current_synthetic_single_source_request_allowed_only_once(monkeypatch):
 
 def test_expiry_between_spider_start_and_download_is_held_as_item(monkeypatch):
     src = source()
-    expiry = NOW + timedelta(minutes=1)
+    expiry = NOW + timedelta(hours=1)
     mock_policy(monkeypatch, registry(src, expiry=expiry))
     spider = DocumentationSpider(cohort="all", source_ids=src["id"])
     outputs = asyncio.run(collect(spider))
@@ -120,7 +120,7 @@ def test_expiry_between_spider_start_and_download_is_held_as_item(monkeypatch):
     req = outputs[0]
     # The spider was allowed to yield the request; the publisher record then
     # expires while the request remains queued for the downloader.
-    gate = ValidationDownloadGate(clock=lambda: NOW + timedelta(minutes=2))
+    gate = ValidationDownloadGate(clock=lambda: NOW + timedelta(hours=2))
     with pytest.raises(IgnoreRequest, match="download_time_single_source_policy_review_expired"):
         gate.process_request(req, spider)
     assert req.meta[HOLD_META] == "download_time_single_source_policy_review_expired"
