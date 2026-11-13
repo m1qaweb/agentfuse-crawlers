@@ -176,7 +176,7 @@ def test_http_method_endpoint_allowlist_rejects_unsafe_urls_before_network(url):
 
 def test_missing_real_credential_refused_before_attempt(monkeypatch):
     monkeypatch.delenv(p.API_KEY_VAR, raising=False)
-    with pytest.raises(ValueError, match="key"):
+    with pytest.raises(ValueError, match="ZYTE_SCRAPY_CLOUD_API_KEY"):
         p.build_preflight(PROJECT, now=NOW)
 
 
