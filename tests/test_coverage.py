@@ -141,3 +141,121 @@ def test_missing_unverified_flag_in_modern_spider_is_detected():
         audit.spider_idle(spider)
     assert caught.value.reason == "agentfuse_incomplete_source_coverage"
     assert stats.rows["agentfuse/coverage/advisor_approval_anomalies"] == 1
+
+
+class RecordingEngine:
+    def __init__(self):
+        self.closed = []
+
+    def close_spider(self, spider, reason="cancelled"):
+        self.closed.append((spider, reason))
+
+
+@pytest.mark.parametrize("status,http_status,error,reason", [
+    ("source_access_limited", 429, "HTTP 429",
+     "agentfuse_validation_http_429"),
+    ("http_error", 429, "HTTP 429",
+     "agentfuse_validation_http_429"),
+    ("http_error", 401, "HTTP 401",
+     "agentfuse_validation_http_access_denied"),
+    ("http_error", 403, "HTTP 403",
+     "agentfuse_validation_http_access_denied"),
+    ("http_error", 407, "HTTP 407",
+     "agentfuse_validation_http_access_denied"),
+    ("robots_or_policy_denied", None, "IgnoreRequest",
+     "agentfuse_validation_robots_or_policy_denied"),
+    ("blocked", 200, "access_or_login_challenge",
+     "agentfuse_validation_access_or_login_challenge"),
+    ("rejected_redirect", 301, "cross_host_or_non_https_redirect",
+     "agentfuse_validation_unreviewed_redirect"),
+    ("redirect_needs_review", 302, "single_source_redirect_target_requires_review",
+     "agentfuse_validation_unreviewed_redirect"),
+])
+def test_validation_shard_requests_shutdown_after_real_item_pipeline(
+        status, http_status, error, reason):
+    audit, spider, stats = setup(("a", "b"))
+    engine = RecordingEngine()
+    audit.crawler.engine = engine
+    spider.collection_mode = "validation"
+    spider.source_registry_sha256 = "synthetic"
+    row = dict(
+        source_id="a", collection_mode="validation",
+        source_registry_sha256="synthetic", approved_for_advisor=False,
+        status=status, http_status=http_status, error=error,
+    )
+    audit.item_scraped(row, None, spider)
+    assert engine.closed == [(spider, reason)]
+    assert audit.validation_abort_requested is True
+    assert stats.rows["agentfuse/run/validation_abort_reason"] == reason
+    assert stats.rows["agentfuse/run/validation_abort_source_id"] == "a"
+    # Later in-flight failures must not issue competing close calls.
+    audit.item_scraped({**row, "source_id": "b"}, None, spider)
+    assert engine.closed == [(spider, reason)]
+
+
+@pytest.mark.parametrize("mode,status,http_status,error", [
+    ("validation", "source_single_validation_not_approved", None,
+     "single_source_policy_not_reviewed"),
+    ("validation", "source_bulk_validation_not_approved", None,
+     "bulk_run_plan_not_present"),
+    ("validation", "http_error", 503, "HTTP 503"),
+    ("validation", "needs_review", 200, "documentation_link_index_only"),
+    ("monitor", "source_access_limited", 429, "HTTP 429"),
+    ("monitor", "blocked", 200, "access_or_login_challenge"),
+])
+def test_nonfatal_holds_and_monitoring_do_not_request_validation_shutdown(
+        mode, status, http_status, error):
+    audit, spider, stats = setup(("a",))
+    engine = RecordingEngine()
+    audit.crawler.engine = engine
+    spider.collection_mode = mode
+    spider.source_registry_sha256 = "synthetic"
+    audit.item_scraped(dict(
+        source_id="a", collection_mode=mode,
+        source_registry_sha256="synthetic",
+        status=status, http_status=http_status, error=error,
+        approved_for_advisor=False,
+    ), None, spider)
+    assert engine.closed == []
+    assert audit.validation_abort_requested is False
+    assert "agentfuse/run/validation_abort_reason" not in stats.rows
+
+
+def test_unknown_source_item_does_not_abort_selected_validation_shard():
+    audit, spider, stats = setup(("a",))
+    engine = RecordingEngine()
+    audit.crawler.engine = engine
+    spider.collection_mode = "validation"
+    spider.source_registry_sha256 = "synthetic"
+    audit.item_scraped(dict(
+        source_id="evil", collection_mode="validation",
+        source_registry_sha256="synthetic", status="source_access_limited",
+        error="HTTP 429", http_status=429,
+    ), None, spider)
+    assert engine.closed == []
+    assert audit.validation_abort_requested is False
+
+
+def test_actual_synthetic_429_spider_item_triggers_extension_stop():
+    """No real network; production spider status passes through extension."""
+    from scrapy import Request
+    from scrapy.http import HtmlResponse
+    from agentfuse_crawlers.sources import load_sources
+    from agentfuse_crawlers.spiders.official import DocumentationSpider
+
+    spider = DocumentationSpider(cohort="all", source_ids="openai_api_docs")
+    source = next(s for s in load_sources() if s["id"] == "openai_api_docs")
+    request = Request(source["url"])
+    response = HtmlResponse(
+        url=source["url"], request=request, status=429, encoding="utf-8",
+        headers={"Content-Type": "text/html"},
+        body=b"<html><body>Rate limited</body></html>",
+    )
+    observed = list(spider.parse_page(response, source))
+    assert len(observed) == 1
+    assert observed[0]["status"] == "source_access_limited"
+    engine = RecordingEngine()
+    stats = Stats()
+    audit = SourceCoverageAudit(SimpleNamespace(stats=stats, engine=engine))
+    audit.item_scraped(observed[0], response, spider)
+    assert engine.closed == [(spider, "agentfuse_validation_http_429")]
