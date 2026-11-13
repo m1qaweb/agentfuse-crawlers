@@ -675,14 +675,28 @@ class OfficialBaseSpider(scrapy.Spider):
         source = failure.request.cb_kwargs["source"]
         record = self._base_record(source)
         name = failure.type.__name__
-        record.update(
-            status="robots_or_policy_denied" if name == "IgnoreRequest" else "fetch_error",
-            policy_observation=("blocked_by_middleware" if name == "IgnoreRequest"
-                                else "fetch_failure_unknown_policy"),
-            final_url="",
-            http_status=None,
-            error=name,
+        downloader_hold = failure.request.meta.get(
+            "agentfuse_download_access_hold"
         )
+        if downloader_hold:
+            # A source that became unapproved while queued must stay an
+            # explicit unverified held Item, not a real HTTP/robots result.
+            record.update(
+                status=("source_single_validation_not_approved"
+                        if self.single_validation_required else
+                        "source_bulk_validation_not_approved"),
+                policy_observation="not_fetched_by_downloader_time_access_gate",
+                final_url="", http_status=None, error=downloader_hold,
+            )
+        else:
+            record.update(
+                status=("robots_or_policy_denied"
+                        if name == "IgnoreRequest" else "fetch_error"),
+                policy_observation=("blocked_by_middleware"
+                                    if name == "IgnoreRequest"
+                                    else "fetch_failure_unknown_policy"),
+                final_url="", http_status=None, error=name,
+            )
         self.logger.warning("Failed fetching %s: %s", source["id"], failure.value)
         yield self._emit_status(record)
 
