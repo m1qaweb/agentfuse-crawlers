@@ -263,7 +263,7 @@ def test_scrapy_middleware_registered_before_robots():
 
     spider_mw = app_settings.DOWNLOADER_MIDDLEWARES
     assert spider_mw == {
-        "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 90,
+        "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 110,
     }
     project = get_project_settings()
     assert project.getbool("ROBOTSTXT_OBEY")
