@@ -3,8 +3,9 @@
 A reviewed access record and short-lived bulk plan can expire while a
 scheduled source Request waits in the downloader. Spider.start() checks are
 necessary, but not sufficient for delayed downloads. This middleware runs
-BEFORE RobotsTxtMiddleware, so an expired source URL does not even trigger
-an initial robots lookup from the publisher.
+AFTER RobotsTxtMiddleware so a delayed robots lookup cannot leave a stale
+source review unchecked immediately before the source page request.
+Robots lookups themselves are separate policy requests, not publisher HTML.
 
 Only the three official validation spiders may issue a publisher page GET.
 Scrapy's internal robots.txt Requests are *not* source page requests and
