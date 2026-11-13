@@ -66,11 +66,19 @@ class ValidationDownloadGate:
         # The three official spiders never set that meta flag on source GETs.
         source = request.cb_kwargs.get("source")
         if request.meta.get("dont_obey_robotstxt") is True:
-            if source is not None or request.method != "GET":
+            if source is not None or request.cb_kwargs or request.method != "GET":
                 self._hold(request, "publisher_request_cannot_skip_robots")
-            # Deny a source-shaped request that could bypass this middleware.
-            if request.cb_kwargs:
-                self._hold(request, "unscoped_robots_exception")
+            # The ONLY bypass is Scrapy's internal exact-host /robots.txt
+            # lookup, never an arbitrary publisher page using this meta flag.
+            parts = urlsplit(request.url)
+            selected_hosts = {
+                urlsplit(s["url"]).hostname for s in getattr(spider, "selected", ())
+            }
+            if (parts.scheme != "https" or parts.path != "/robots.txt"
+                    or parts.query or parts.fragment or parts.username
+                    or parts.password or parts.port not in (None, 443)
+                    or parts.hostname not in selected_hosts):
+                self._hold(request, "unreviewed_robots_lookup_target")
             return None
 
         if not isinstance(source, dict) or not isinstance(source.get("id"), str):
