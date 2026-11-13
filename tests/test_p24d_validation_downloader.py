@@ -235,11 +235,22 @@ def test_unreviewed_registry_never_allows_manually_forged_request(monkeypatch):
 def test_internal_robots_lookup_and_monitoring_remain_separate():
     src = source()
     gate = ValidationDownloadGate(clock=lambda: NOW)
+    host = urlsplit(src["url"]).hostname
     robots = Request(
-        "https://docs.openai.com/robots.txt",
+        "https://" + host + "/robots.txt",
         meta={"dont_obey_robotstxt": True},
     )
     assert gate.process_request(robots, fake_spider(src)) is None
+    for bad in (
+        "https://unreviewed.invalid/robots.txt",
+        "https://" + host + "/not-a-robots-file",
+        "https://" + host + "/robots.txt?bypass=yes",
+    ):
+        with pytest.raises(IgnoreRequest, match="unreviewed_robots_lookup_target"):
+            gate.process_request(
+                Request(bad, meta={"dont_obey_robotstxt": True}),
+                fake_spider(src),
+            )
     # The existing Scrapy ROBOTSTXT_OBEY=True setting still governs robots.
     monitor = fake_spider(src, mode="monitor")
     assert gate.process_request(request(src, source_attached=False), monitor) is None
@@ -247,7 +258,6 @@ def test_internal_robots_lookup_and_monitoring_remain_separate():
 
 def test_scrapy_middleware_registered_before_robots():
     from scrapy.utils.project import get_project_settings
-    from scrapy.settings import Settings
     from agentfuse_crawlers import settings as app_settings
 
     spider_mw = app_settings.DOWNLOADER_MIDDLEWARES
