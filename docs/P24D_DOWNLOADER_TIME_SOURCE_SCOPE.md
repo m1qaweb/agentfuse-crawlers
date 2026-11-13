@@ -18,8 +18,11 @@ failures. Neither of those changes rechecks access for a queued Request
 ## Code change
 
 New `agentfuse_crawlers.validation_downloader.ValidationDownloadGate` is
-registered as downloader middleware order **90**, before Scrapy's default
-`RobotsTxtMiddleware` (order 100).
+registered as downloader middleware order **110**, after Scrapy's default
+`RobotsTxtMiddleware` (order 100). This is deliberate: an in-progress
+robots lookup can delay the page, so the final access recheck must follow
+that lookup. Robots network traffic is separately governed by the actual
+human publisher/robots review, not counted as an approved source page GET.
 
 For `collection_mode=validation` source page Requests, it:
 
