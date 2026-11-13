@@ -291,6 +291,11 @@ class OfficialBaseSpider(scrapy.Spider):
                 meta={
                     "handle_httpstatus_all": True,
                     "dont_redirect": True,
+                    # Validation is one bounded publisher GET per selected URL;
+                    # Scrapy RETRY_TIMES=1 otherwise silently adds another
+                    # source GET on 5xx/transport failures. Monitoring keeps
+                    # the existing retry policy; robots requests are separate.
+                    "dont_retry": self.collection_mode == "validation",
                     "source_redirect_depth": 0,
                     "source_redirect_chain": [],
                 },
@@ -423,6 +428,7 @@ class OfficialBaseSpider(scrapy.Spider):
                 meta={
                     "handle_httpstatus_all": True,
                     "dont_redirect": True,
+                    "dont_retry": self.collection_mode == "validation",
                     "source_redirect_depth": depth + 1,
                     "source_redirect_chain": chain + [_visible_url(response.url)],
                 },

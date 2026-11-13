@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 import pytest
 from scrapy import Request
 from scrapy.http import HtmlResponse
+from scrapy.settings import Settings
+from scrapy.downloadermiddlewares.retry import RetryMiddleware
 
 import agentfuse_crawlers.validation_access as access
 from agentfuse_crawlers.sources import load_sources
@@ -116,6 +118,7 @@ def test_current_single_scope_review_allows_only_exact_initial_source(
     assert req.url == source["url"]
     assert req.cb_kwargs["source"]["id"] == source_id
     assert req.meta["dont_redirect"] is True
+    assert req.meta["dont_retry"] is True
     assert spider.single_validation_required is True
     assert spider.bulk_validation_required is False
     assert spider.bulk_plan_id == ""
@@ -329,3 +332,49 @@ def test_denied_single_access_is_separately_counted_in_scrapy_coverage():
     assert stats.values["agentfuse/coverage/missing_sources"] == 0
     assert stats.values["agentfuse/coverage/captured_sources"] == 0
     assert stats.values["agentfuse/run/quality_outcome"] == "no_usable_sources"
+
+
+def test_single_source_validation_server_error_is_not_automatically_retried(
+        monkeypatch):
+    """Synthetic-only 503; Scrapy RetryMiddleware must not duplicate a GET."""
+    source = _source("openai_api_docs")
+    _patch(monkeypatch, _registry(source))
+    spider = DocumentationSpider(cohort="all", source_ids=source["id"])
+    request = asyncio.run(_start(spider))[0]
+    assert isinstance(request, Request)
+    assert request.meta["dont_retry"] is True
+
+    response = HtmlResponse(
+        url=source["url"], request=request, status=503,
+        headers={"Content-Type": "text/html"},
+        body=b"<html><body>Temporary upstream failure</body></html>",
+        encoding="utf-8",
+    )
+    retry = RetryMiddleware(Settings({
+        "RETRY_ENABLED": True,
+        "RETRY_TIMES": 1,
+        "RETRY_HTTP_CODES": [500, 502, 503, 504],
+        "RETRY_PRIORITY_ADJUST": -1,
+    }))
+    assert retry.process_response(request, response, spider) is response
+    emitted = list(spider.parse_page(response, source))
+    assert len(emitted) == 1 and isinstance(emitted[0], dict)
+    assert emitted[0]["status"] == "http_error"
+    assert emitted[0]["error"] == "HTTP 503"
+    assert emitted[0]["approved_for_advisor"] is False
+
+
+def test_synthetic_monitor_request_does_not_inherit_validation_retry_guard(
+        monkeypatch):
+    """Monitor lifecycle policy stays separate; no network is performed."""
+    import agentfuse_crawlers.spiders.official as official
+    monkeypatch.setattr(
+        official, "collection_decision",
+        lambda _source, _mode: (True, "SYNTHETIC_MONITOR_TEST_ONLY"),
+    )
+    spider = DocumentationSpider(
+        cohort="all", source_ids="openai_api_docs", collection_mode="monitor",
+    )
+    emitted = asyncio.run(_start(spider))
+    assert len(emitted) == 1 and isinstance(emitted[0], Request)
+    assert emitted[0].meta["dont_retry"] is False
