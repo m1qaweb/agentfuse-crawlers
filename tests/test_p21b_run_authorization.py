@@ -234,6 +234,7 @@ def test_bounded_reviewed_real_spider_integration_only_gets_approved_subset(monk
     assert spider.bulk_plan_id == pid
     assert spider.bulk_plan_sha256 == pin
     assert all(not q.meta.get("source_bulk_access_bypass") for q in requests)
+    assert all(q.meta["dont_retry"] is True for q in requests)
     assert held[0]["approved_for_advisor"] is False
     assert spider.run_context["deployment_revision"] == package_fingerprint()
 
