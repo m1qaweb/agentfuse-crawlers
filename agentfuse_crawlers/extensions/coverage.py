@@ -14,6 +14,23 @@ from scrapy.exceptions import CloseSpider
 VALID_NAMES = {
     "official_documentation", "official_pricing", "official_changelogs"
 }
+
+# Fatal access barriers end the supervised validation job; a held Item is
+# evidence of a blocked source, not authorization to try the next one.
+def _validation_access_abort_reason(item):
+    status = item.get("status")
+    if status == "robots_or_policy_denied":
+        return "agentfuse_validation_robots_or_policy_denied"
+    if status == "source_access_limited" or (
+            status == "http_error" and item.get("http_status") == 429):
+        return "agentfuse_validation_http_429"
+    if status == "http_error" and item.get("http_status") in (401, 403, 407):
+        return "agentfuse_validation_http_access_denied"
+    if status == "blocked" and item.get("error") == "access_or_login_challenge":
+        return "agentfuse_validation_access_or_login_challenge"
+    if status in {"redirect_needs_review", "rejected_redirect"}:
+        return "agentfuse_validation_unreviewed_redirect"
+    return None
 CONTEXT_FIELDS = (
     "spider_name", "requested_cohort", "run_scope_explicit",
     "selection_source_count", "selection_ids_sha256", "manifest_sha256",
@@ -104,6 +121,7 @@ class SourceCoverageAudit:
         self.collection_monitor_eligible = set()
         self.diagnostic_records = {}
         self.missing_modern_diagnostics = set()
+        self.validation_abort_requested = False
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -193,6 +211,35 @@ class SourceCoverageAudit:
                 item.get(field) != context.get(field) for field in CONTEXT_FIELDS
             ):
                 self.context_errors.add(source_id)
+
+            # item_scraped fires AFTER the Item Pipeline. Preserve the
+            # triggering denial/redirect Item before requesting shutdown.
+            # Does not grant publisher access, and already-in-flight requests
+            # may still complete: P23E/P23F must enforce external budgets.
+            if (getattr(spider, "collection_mode", None) == "validation"
+                    and not self.validation_abort_requested
+                    and source_id in {s["id"] for s in spider.selected}):
+                stop_reason = _validation_access_abort_reason(item)
+                if stop_reason:
+                    engine = getattr(self.crawler, "engine", None)
+                    if engine is None:
+                        raise RuntimeError(
+                            "Cannot enforce validation access stop without Scrapy engine"
+                        )
+                    self.validation_abort_requested = True
+                    self.crawler.stats.set_value(
+                        "agentfuse/run/validation_abort_reason", stop_reason,
+                    )
+                    self.crawler.stats.set_value(
+                        "agentfuse/run/validation_abort_source_id", source_id,
+                    )
+                    spider.logger.warning(
+                        "Stopping validation job after access barrier: %s (%s)",
+                        source_id, stop_reason,
+                    )
+                    # Scrapy 2.18 supports close_spider(). Do not return its
+                    # Deferred from item_scraped: closing waits for pipelines.
+                    engine.close_spider(spider, reason=stop_reason)
 
     def summary(self, spider):
         expected = {row["id"] for row in spider.selected}
