@@ -9,6 +9,22 @@ P23B already enforces exact-source Git-reviewed publisher access even for
 The missing dependency is **genuine human-reviewed publisher access** and
 the first genuinely permitted live Zyte jobs, not additional synthetic tests.
 
+### November 8 verified P24A checkpoint
+
+The third November 7 three-spider Zyte run accounted for all 460 configured source IDs,
+but recorded **zero publisher GETs**. Its deployed package matched the latest
+successful GitHub main CI package. The unreviewed source/plan registries, not
+package deployment, remain the blocker.
+
+The November 4 genuine pricing job additionally recorded an **HTTP 301 cross-host**
+redirect for the frozen Gemini pricing source to
+`https://aistudio.google.com/docs/pricing`. That destination has **not** been
+reviewed; do not silently follow it or claim pricing data was captured.
+Preserve the frozen source slot and review any canonical source migration.
+
+Read [P24A's nine-file evidence freeze and human-review handoff](P24A_NOV7_ZYTE_EVIDENCE_FREEZE_AND_FIRST_LIVE_REVIEW.md).
+No extra crawler code or plan-hash UI arguments are needed for the first
+genuinely permitted exact-source canary; a real publisher-access decision is.
 ## 1. Exact three initial sources — FROZEN preselected Wave 1
 
 | Purpose | Source ID | First-party target URL | Source state |
