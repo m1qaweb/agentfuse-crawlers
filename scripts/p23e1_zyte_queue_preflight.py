@@ -1,10 +1,10 @@
-"""P23E1: read-only Scrapy Cloud pending/running queue visibility.
+"""P23E1/P23E2: read-only Scrapy Cloud queue AND periodic schedule visibility.
 
-Reads exactly TWO official Zyte jobs/list.json GET endpoints for the
-operator-specified project. Does not create, schedule, approve, deploy,
+Reads exactly THREE official Zyte GET endpoints: pending jobs, running jobs,
+and the project periodic job list. The operator specifies the exact project. Does not create, schedule, approve, deploy,
 stop, update, or monitor any job. Does not contact publisher URLs.
-Returned queue data is a NON-ATOMIC observation, not proof of empty
-schedules, current deployed code, account pricing or publisher rights.
+Returned queue and schedule data are NON-ATOMIC observations, not independent
+proof of no future jobs, current deployed code, pricing or publisher rights.
 
 Keep the API key in ZYTE_SCRAPY_CLOUD_API_KEY, never on the command line.
 The private report always stays NO_GO; human operator checks are separate.
@@ -29,13 +29,14 @@ from scripts.plan_documentation_children import (
     _private_new_directory, _write_private,
 )
 
-SCHEMA = "1.0"
+SCHEMA = "1.1"
 KIND = "p23e1_readonly_zyte_queue_snapshot_NOT_RUN_AUTHORIZATION"
 PROJECT = re.compile(r"^[1-9][0-9]{0,10}$")
 JOB = re.compile(r"^[0-9]+/[0-9]+/[0-9]+$")
 HOST = "https://app.zyte.com"
 STATES = ("pending", "running")
 MAX_JOBS = 200
+MAX_SCHEDULES = 200
 MAX_BYTES = 1_000_000
 API_KEY_VAR = "ZYTE_SCRAPY_CLOUD_API_KEY"
 
@@ -64,18 +65,111 @@ def _url(project, state):
     )
 
 
+def _periodic_url(project):
+    # No query or mutation endpoint; exact vendor-documented GET path.
+    return HOST + "/api/projects/" + _project(project) + "/periodicjobs"
+
+
+def _parse_periodic(raw, project):
+    """Summarize one vendor schedule page, never serialize spider_args.
+
+    Paginated/partial pages are explicitly incomplete. The vendor's next URL
+    is NEVER followed by this tool, even if it points to app.zyte.com.
+    """
+    project = _project(project)
+    if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
+        raise ValueError("Invalid bounded periodic schedule response")
+    try:
+        result = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_keys)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Malformed official Zyte periodic schedule JSON") from exc
+    if not isinstance(result, dict):
+        raise ValueError("Zyte periodic schedule response is not an object")
+    count, next_url, prev_url, rows = (
+        result.get("count"), result.get("next"),
+        result.get("previous"), result.get("results"),
+    )
+    if (type(count) is not int or not 0 <= count <= 100000
+            or not isinstance(rows, list)
+            or len(rows) > MAX_SCHEDULES or len(rows) > count
+            or any(v is not None and (not isinstance(v, str)
+                       or not v or len(v) > 2048)
+                   for v in (next_url, prev_url))):
+        raise ValueError("Zyte periodic schedule pagination or totals invalid")
+
+    schedules = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Zyte periodic schedule row must be an object")
+        ident, owner = row.get("id"), row.get("project")
+        if (type(ident) is not int or ident <= 0 or ident in seen
+                or type(owner) not in (str, int) or str(owner) != project
+                or type(row.get("disabled")) is not bool
+                or row.get("type") not in ("spider", "script")):
+            raise ValueError("Zyte periodic job ID, project, state or type invalid")
+        seen.add(ident)
+        tasks = row.get("tasks")
+        if not isinstance(tasks, list) or not 0 < len(tasks) <= 32:
+            raise ValueError("Missing or excessive Zyte periodic schedule tasks")
+        names = []
+        for task in tasks:
+            if not isinstance(task, dict):
+                raise ValueError("Malformed Zyte periodic schedule task")
+            name = _short(task.get("name"), max_len=120)
+            if not name:
+                raise ValueError("Zyte periodic schedule task missing name")
+            names.append(name)
+
+        cron = _short(row.get("cron"), max_len=80)
+        if not cron or len(cron.split()) != 5:
+            raise ValueError("Malformed periodic schedule cadence")
+        schedules.append({
+            "id": ident,
+            "disabled": row["disabled"],
+            "type": row["type"],
+            "cron_UNVERIFIED": cron,
+            "task_names": names,
+            "task_count": len(tasks),
+            "task_arguments_REDACTED": True,
+        })
+    complete = count == len(rows) and next_url is None
+    return {
+        "reported_total": count,
+        "returned_count": len(rows),
+        "complete_single_page": complete,
+        "has_next_page_NOT_FOLLOWED": next_url is not None,
+        "schedules": schedules,
+        "enabled_visible": sum(not row["disabled"] for row in schedules),
+        "disabled_visible": sum(row["disabled"] for row in schedules),
+        "raw_response_sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
 def _read_only_get(url, key, limit=MAX_BYTES):
-    """Bounded, no-redirect GET of exactly the allowed two API endpoints."""
+    """Bounded no-redirect GET for the only three allowlisted Zyte URLs."""
     if not isinstance(url, str):
         raise ValueError("Invalid official Scrapy Cloud list URL")
     parts = urllib.parse.urlsplit(url)
     pairs = urllib.parse.parse_qs(parts.query)
-    if (parts.scheme != "https" or parts.netloc != "app.zyte.com"
-            or parts.path != "/api/jobs/list.json"
-            or parts.fragment or set(pairs) != {"project", "state", "count"}
-            or any(len(v) != 1 for v in pairs.values())
-            or url != _url(pairs["project"][0], pairs["state"][0])):
-        raise ValueError("Only exact read-only pending/running list GETs permitted")
+    queue_ok = (
+        parts.scheme == "https" and parts.netloc == "app.zyte.com"
+        and parts.path == "/api/jobs/list.json" and not parts.fragment
+        and set(pairs) == {"project", "state", "count"}
+        and all(len(v) == 1 for v in pairs.values())
+        and url == _url(pairs["project"][0], pairs["state"][0])
+    ) if set(pairs) == {"project", "state", "count"} else False
+    # The periodic list endpoint has NO user-supplied pagination URL, query,
+    # job id, or schedule id. The path must be canonical and exact.
+    schedule_ok = False
+    schedule_match = re.fullmatch(r"/api/projects/([1-9][0-9]{0,10})/periodicjobs",
+                                  parts.path)
+    if (parts.scheme == "https" and parts.netloc == "app.zyte.com"
+            and not parts.query and not parts.fragment
+            and schedule_match is not None):
+        schedule_ok = url == _periodic_url(schedule_match.group(1))
+    if not (queue_ok or schedule_ok):
+        raise ValueError("Only exact read-only Zyte queue/schedule list GETs permitted")
     if not isinstance(key, str) or not key or any(c in key for c in "\r\n\x00"):
         raise ValueError("Private Scrapy Cloud key required")
     if type(limit) is not int or not 0 < limit <= MAX_BYTES:
@@ -89,7 +183,7 @@ def _read_only_get(url, key, limit=MAX_BYTES):
     with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as resp:
         payload = resp.read(limit + 1)
     if len(payload) > limit:
-        raise ValueError("Oversized official Zyte queue response")
+        raise ValueError("Oversized official Zyte read-only response")
     return payload
 
 
@@ -165,7 +259,7 @@ def _parse_list(raw, project, state):
 
 
 def build_preflight(project, *, api_key=None, fetch=None, now=None):
-    """Two bounded GETs; injected fake fetch exists ONLY for offline tests."""
+    """Three bounded GETs; injected fake fetch exists ONLY for offline tests."""
     project = _project(project)
     clock = datetime.now(timezone.utc) if now is None else now
     if not isinstance(clock, datetime) or clock.tzinfo is None:
@@ -183,6 +277,11 @@ def build_preflight(project, *, api_key=None, fetch=None, now=None):
         pages[state] = _parse_list(
             get(_url(project, state), key, MAX_BYTES), project, state,
         )
+    # Request periodic schedules only AFTER both queue pages are validated.
+    # Do not use vendor-controlled 'next' URLs for any follow-up requests.
+    schedules = _parse_periodic(
+        get(_periodic_url(project), key, MAX_BYTES), project,
+    )
     job_ids = [j["id"] for state in STATES for j in pages[state]["jobs"]]
     if len(job_ids) != len(set(job_ids)):
         raise ValueError("Duplicate Zyte job ID across queue state snapshots")
@@ -193,6 +292,9 @@ def build_preflight(project, *, api_key=None, fetch=None, now=None):
     # deployment, budget, or publisher-authorization check.
     complete = all(p["complete_single_page"] for p in pages.values())
     no_visible_jobs = complete and not job_ids
+    no_enabled_schedules = (
+        schedules["complete_single_page"] and schedules["enabled_visible"] == 0
+    )
     report = {
         "schema_version": SCHEMA,
         "kind": KIND,
@@ -208,6 +310,12 @@ def build_preflight(project, *, api_key=None, fetch=None, now=None):
         "pending_jobs_reported_total": pages["pending"]["reported_total"],
         "running_jobs_reported_total": pages["running"]["reported_total"],
         "job_list_pages": pages,
+        "periodic_schedule_api_page": schedules,
+        "periodic_schedule_list_complete": schedules["complete_single_page"],
+        "periodic_schedules_reported_total": schedules["reported_total"],
+        "enabled_periodic_schedules_visible": schedules["enabled_visible"],
+        "disabled_periodic_schedules_visible": schedules["disabled_visible"],
+        "no_enabled_periodic_schedules_observed": no_enabled_schedules,
         "local_access_review_records_NOT_INDEPENDENT_PERMISSION": len(
             access["reviews"]
         ),
@@ -223,13 +331,13 @@ def build_preflight(project, *, api_key=None, fetch=None, now=None):
         "publisher_permissions_granted": 0,
         "new_jobs_created_or_modified": 0,
         "publisher_requests_performed": 0,
-        "only_two_zyte_api_gets": True,
+        "only_three_zyte_api_gets": True,
         "readiness_to_run": False,
         "source_status": "ALL_UNAPPROVED_SOURCES_REMAIN_HELD_UNLESS_REVIEWED_SEPARATELY",
         "next_operator_checks": [
             "Human independently reviews each exact publisher URL and retention rights",
             "Review actual current Zyte deployed egg and matching package fingerprint",
-            "Verify pending/running queues again, and inspect periodic schedules in dashboard",
+            "Recheck both queue states and all periodic schedule pages in Zyte UI",
             "Read actual account tier, unit availability, retention and any usage-based charges",
             "Independently document and approve a finite cost ceiling and stop thresholds",
             "Archive true distinct two-round canary evidence and blind human gold",
@@ -263,7 +371,8 @@ def write_preflight(report, out_dir):
             root / "OPERATOR_NEXT_STEPS_NOT_AUTHORIZED.txt",
             (
                 "READ-ONLY ZYTE QUEUE SNAPSHOT; NOT AN APPROVAL\n"
-                "Job lists are non-atomic; scheduled and future jobs are not checked.\n"
+                "Queue and periodic schedule lists are non-atomic snapshots.\n"
+                "Paginated schedules need manual follow-up; future jobs may start.\n"
                 "Inspect current deployed egg, account pricing, current scheduler,\n"
                 "publisher rights and two-round canary evidence independently.\n"
                 "Do not run, schedule or approve Zyte jobs from this artifact.\n"
@@ -289,6 +398,10 @@ def main():
         "project_id": report["project_id"],
         "running_jobs_visible": report["running_jobs_visible"],
         "pending_jobs_visible": report["pending_jobs_visible"],
+        "enabled_periodic_schedules_visible": report[
+            "enabled_periodic_schedules_visible"
+        ],
+        "periodic_schedule_list_complete": report["periodic_schedule_list_complete"],
         "non_atomic_snapshot": True,
         "zyte_job_actions": 0,
         "publisher_requests": 0,
