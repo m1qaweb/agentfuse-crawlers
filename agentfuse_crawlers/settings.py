@@ -17,6 +17,13 @@ DOWNLOAD_MAXSIZE = 8_000_000
 RETRY_ENABLED = True
 RETRY_TIMES = 1
 RETRY_HTTP_CODES = [500, 502, 503, 504]
+# Re-check exact-source access and short-lived plan expiry when a publisher
+# source request reaches the downloader AFTER Scrapy's robots check (100).
+# This prevents publisher page GETs after a long robots lookup; the robots
+# fetch itself remains subject to separate per-source human policy review.
+DOWNLOADER_MIDDLEWARES = {
+    "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 110,
+}
 REDIRECT_MAX_TIMES = 3
 COOKIES_ENABLED = False
 TELNETCONSOLE_ENABLED = False
