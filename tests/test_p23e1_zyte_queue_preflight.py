@@ -30,11 +30,36 @@ def payload(state, jobs=(), *, total=None, **changes):
     return json.dumps(blob).encode("utf-8")
 
 
-def fake_api(pending=(), running=(), *, pending_total=None, running_total=None):
+def periodic_payload(disabled=(), *, total=None, next_url=None):
+    rows = [{
+        "id": 10 + index, "disabled": is_disabled, "project": int(PROJECT),
+        "type": "spider", "cron": "0 9 * * 1",
+        "description": "PRIVATE_DO_NOT_RETAIN",
+        "tasks": [{
+            "name": "official_documentation",
+            "spider_args": {"api_key": "PRIVATE_SPIDER_ARG_NEVER_RETAIN"},
+            "script_args": "PRIVATE_SCRIPT_ARG_NEVER_RETAIN",
+        }],
+        "extra_secret": "PRIVATE_UNKNOWN_FIELD_NEVER_RETAIN",
+    } for index, is_disabled in enumerate(disabled)]
+    return json.dumps({
+        "count": len(rows) if total is None else total,
+        "next": next_url, "previous": None,
+        "results": rows, "meta": {"hint": "PRIVATE_META_NEVER_RETAIN"},
+    }).encode("utf-8")
+
+
+def fake_api(pending=(), running=(), *, pending_total=None,
+             running_total=None, schedules=(), schedules_total=None,
+             schedules_next=None):
     called = []
 
     def get(url, key, limit):
         called.append((url, key, limit))
+        if url == p._periodic_url(PROJECT):
+            return periodic_payload(
+                schedules, total=schedules_total, next_url=schedules_next
+            )
         qs = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
         assert url.startswith("https://app.zyte.com/api/jobs/list.json?")
         assert qs["project"] == [PROJECT]
@@ -52,13 +77,19 @@ def test_clean_queue_never_promotes_to_approval():
     fetch, calls = fake_api()
     report = p.build_preflight(PROJECT, fetch=fetch, api_key="SYNTHETIC", now=NOW)
     assert [urllib.parse.parse_qs(
-        urllib.parse.urlsplit(x[0]).query)["state"][0] for x in calls
+        urllib.parse.urlsplit(x[0]).query)["state"][0] for x in calls[:2]
     ] == ["pending", "running"]
+    assert len(calls) == 3
+    assert calls[2][0] == p._periodic_url(PROJECT)
     assert all(x[1] == "SYNTHETIC" and x[2] == p.MAX_BYTES for x in calls)
     assert report["no_pending_or_running_jobs_observed"] is True
     assert report["queue_list_single_pages_complete"] is True
     assert report["pending_jobs_visible"] == 0
     assert report["running_jobs_visible"] == 0
+    assert report["periodic_schedule_list_complete"] is True
+    assert report["no_enabled_periodic_schedules_observed"] is True
+    assert report["enabled_periodic_schedules_visible"] == 0
+    assert report["only_three_zyte_api_gets"] is True
     assert report["remote_current_deployed_egg_independently_verified"] is False
     assert report["current_zyte_billing_terms_independently_verified"] is False
     assert report["incremental_spend_ceiling_approved_by_operator"] is False
@@ -82,7 +113,7 @@ def test_active_jobs_remain_visible_without_assuming_authorization():
         return json.dumps(raw).encode("utf-8")
 
     report = p.build_preflight(PROJECT, fetch=get, api_key="SYNTHETIC", now=NOW)
-    assert len(called) == 2
+    assert len(called) == 3
     assert report["no_pending_or_running_jobs_observed"] is False
     assert report["pending_jobs_visible"] == 1
     assert report["running_jobs_visible"] == 1
@@ -168,6 +199,11 @@ def test_bad_project_cannot_generate_api_url(bad):
     "https://app.zyte.com/api/jobs/list.json?project=883514&state=finished&count=200",
     "https://app.zyte.com/api/jobs/list.json?project=883514&state=running&count=100",
     "https://app.zyte.com/api/jobs/list.json?project=883514&state=running&count=200&apikey=SECRET",
+    "https://app.zyte.com/api/projects/883514/periodicjobs?token=SECRET",
+    "https://app.zyte.com/api/projects/883514/periodicjobs/7",
+    "https://app.zyte.com/api/projects/883514/periodicjobs?page=2",
+    "https://evil.invalid/api/projects/883514/periodicjobs",
+    "http://app.zyte.com/api/projects/883514/periodicjobs",
 ])
 def test_http_method_endpoint_allowlist_rejects_unsafe_urls_before_network(url):
     with pytest.raises(ValueError):
@@ -226,3 +262,129 @@ def test_queue_check_never_calls_job_mutation_api():
         assert "/stop.json" not in url
         assert "/update.json" not in url
         assert "/delete.json" not in url
+
+
+
+def test_active_and_paused_schedules_are_included_but_no_approval():
+    fetch, calls = fake_api(schedules=(False, True))
+    report = p.build_preflight(PROJECT, fetch=fetch, api_key="SYNTHETIC", now=NOW)
+    assert len(calls) == 3
+    assert report["periodic_schedule_list_complete"] is True
+    assert report["periodic_schedules_reported_total"] == 2
+    assert report["enabled_periodic_schedules_visible"] == 1
+    assert report["disabled_periodic_schedules_visible"] == 1
+    assert report["no_enabled_periodic_schedules_observed"] is False
+    assert report["periodic_schedules_independently_checked"] is False
+    assert report["readiness_to_run"] is False
+    captured = json.dumps(report)
+    for forbidden in ("PRIVATE_DO_NOT_RETAIN", "PRIVATE_SPIDER_ARG",
+                      "PRIVATE_SCRIPT_ARG", "PRIVATE_UNKNOWN_FIELD",
+                      "PRIVATE_META"):
+        assert forbidden not in captured
+    observed = report["periodic_schedule_api_page"]["schedules"]
+    assert [x["id"] for x in observed] == [10, 11]
+    assert all(x["task_arguments_REDACTED"] is True for x in observed)
+
+
+@pytest.mark.parametrize("total,next_url", [
+    (3, "https://app.zyte.com/api/projects/883514/periodicjobs?page=2"),
+    (3, None),
+    (1, "https://evil.invalid/steal?token=SECRET"),
+])
+def test_paginated_schedule_page_never_claims_all_schedules_visible(
+        total, next_url):
+    fetch, called = fake_api(schedules=(False,), schedules_total=total,
+                             schedules_next=next_url)
+    result = p.build_preflight(PROJECT, fetch=fetch, api_key="SYNTHETIC", now=NOW)
+    assert len(called) == 3  # DO NOT follow vendor-controlled next links
+    assert result["periodic_schedule_list_complete"] is False
+    assert result["no_enabled_periodic_schedules_observed"] is False
+    assert result["readiness_to_run"] is False
+    assert "SECRET" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("mutation", [
+    "wrong_project", "wrong_type", "invalid_id", "duplicate_id",
+    "wrong_disabled", "missing_tasks", "invalid_task", "missing_name",
+    "bad_cron", "count_boolean", "negative_count", "malformed_next",
+    "too_many_rows", "bad_root", "duplicate_json_keys",
+])
+def test_periodic_schedule_parser_fails_closed_on_untrusted_api(mutation):
+    original = json.loads(periodic_payload((False,)))
+    row = original["results"][0]
+    if mutation == "wrong_project":
+        row["project"] = 999999
+    elif mutation == "wrong_type":
+        row["type"] = "unknown"
+    elif mutation == "invalid_id":
+        row["id"] = True
+    elif mutation == "duplicate_id":
+        original["results"].append(dict(row))
+        original["count"] = 2
+    elif mutation == "wrong_disabled":
+        row["disabled"] = "false"
+    elif mutation == "missing_tasks":
+        row["tasks"] = []
+    elif mutation == "invalid_task":
+        row["tasks"] = [0]
+    elif mutation == "missing_name":
+        row["tasks"] = [{"spider_args": {}}]
+    elif mutation == "bad_cron":
+        row["cron"] = "every minute"
+    elif mutation == "count_boolean":
+        original["count"] = True
+    elif mutation == "negative_count":
+        original["count"] = -1
+    elif mutation == "malformed_next":
+        original["next"] = ["https://example.invalid"]
+    elif mutation == "too_many_rows":
+        original["count"] = p.MAX_SCHEDULES + 1
+        original["results"] = [dict(row, id=i + 1) for i in range(p.MAX_SCHEDULES + 1)]
+    elif mutation == "bad_root":
+        original = []
+    else:
+        with pytest.raises(ValueError, match="Duplicate JSON object keys"):
+            p._parse_periodic(
+                b'{"count":0,"count":1,"next":null,"previous":null,"results":[]}',
+                PROJECT,
+            )
+        return
+    with pytest.raises(ValueError):
+        p._parse_periodic(json.dumps(original).encode(), PROJECT)
+
+
+def test_periodic_schedule_read_failure_never_writes_partial_report(tmp_path):
+    fetch, calls = fake_api()
+    def no_schedule_available(url, key, limit):
+        if url == p._periodic_url(PROJECT):
+            raise ConnectionError("synthetic read-only endpoint unavailable")
+        return fetch(url, key, limit)
+
+    path = tmp_path / "must-not-exist"
+    with pytest.raises(ConnectionError):
+        report = p.build_preflight(
+            PROJECT, fetch=no_schedule_available, api_key="SYNTHETIC", now=NOW
+        )
+        p.write_preflight(report, path)
+    assert len(calls) == 2
+    assert not path.exists()
+
+
+def test_periodic_schedule_allowlist_only_get_url_without_queries():
+    url = p._periodic_url(PROJECT)
+    assert url == "https://app.zyte.com/api/projects/883514/periodicjobs"
+    assert "/periodicjobs/" not in url
+    assert "run.json" not in url
+    assert "stop.json" not in url
+    assert "update.json" not in url
+    assert "delete.json" not in url
+    for malicious in (
+        url + "?page=2",
+        url + "/3",
+        url + "?api_key=leak",
+        url.replace("https:", "http:"),
+        url.replace("app.zyte.com", "untrusted.invalid"),
+        "https://app.zyte.com/api/projects/883514/periodicjobs/",
+    ):
+        with pytest.raises(ValueError):
+            p._read_only_get(malicious, "SYNTHETIC", p.MAX_BYTES)

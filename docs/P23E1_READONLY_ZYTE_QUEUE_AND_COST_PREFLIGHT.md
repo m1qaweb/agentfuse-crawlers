@@ -1,6 +1,6 @@
-# P23E1 — Read-only Scrapy Cloud queue and operator cost preflight
+# P23E1/P23E2 — Read-only Scrapy Cloud queue, schedules and operator cost preflight
 
-**2026-11-13 — Proposed implementation. Full inventory remains NO-GO.**
+**2026-11-13 — P23E2 improvement under code review. Full inventory remains NO-GO.**
 
 ## Motivation
 
@@ -23,30 +23,69 @@ References:
 - https://docs.zyte.com/scrapy-cloud/usage/reference/http/jobs.html
 - https://docs.zyte.com/scrapy-cloud/usage/units.html
 - https://docs.zyte.com/scrapy-cloud/usage/reference/http/jobmeta.html
+- https://docs.zyte.com/scrapy-cloud/usage/reference/http/periodicjobs.html
 
 ## Implemented
 
-`python -m scripts.p23e1_zyte_queue_preflight` reads exactly two
-allowlisted **GET** URLs, one for `state=pending` and one for
-`state=running`, for the operator's **exact** Scrapy Cloud project ID.
+`python -m scripts.p23e1_zyte_queue_preflight` reads exactly three
+allowlisted **GET** URLs: one each for `state=pending` and
+`state=running`, and one for the documented
+`/api/projects/{project_id}/periodicjobs` list. All three URLs are
+restricted to the operator's **exact** Scrapy Cloud project ID.
 It uses the private `ZYTE_SCRAPY_CLOUD_API_KEY` in a Basic Authorization
 header, refuses redirects, limits each JSON response to 1 MB,
 validates project ownership, state, exact row counts, unambiguous job IDs
 and duplicate JSON keys, then writes a **new-only, private** report.
 
-- No `run.json`, `stop.json`, `update.json`, `delete.json` or deploy
-  endpoint is callable from this code path.
+- No `run.json`, `stop.json`, `update.json`, `delete.json`, periodic-job
+  POST/PATCH/DELETE, or deployment endpoint is callable from this code path.
+- Periodic schedules are enumerated **read-only** with schedule IDs,
+  enabled/disabled state, job/task names and cadence. Secret-bearing
+  `spider_args`, `script_args`, descriptions, custom fields and metadata
+  are discarded before the private report is generated.
+- If the API reports a next schedule page, or `count` differs from returned
+  rows, the tool does **not** follow the untrusted next URL and flags the
+  schedule audit as incomplete; absence of enabled schedules is **not**
+  asserted. Operators must review remaining pages independently.
 - A reported total greater than its returned page is marked
   `queue_list_single_pages_complete=false`, not a clean queue.
 - Pending/running job IDs and spider names remain visible for review.
   Arbitrary unknown remote metadata is discarded; API keys are never
   serialized.
-- A zero-job result means only **no jobs seen in the two read-only,
-  sequential, non-atomic queue snapshots**. It is not proof of no
-  periodic schedules, no later jobs, no consumption, or remote code identity.
+- A zero-job result means only **no jobs seen in the two sequential
+  queue GETs**. A complete, empty schedule page means only **no enabled
+  periodic jobs observed in the third read-only GET**. These three
+  snapshots are non-atomic, may become stale instantly, and cannot prove
+  that another operator will not schedule or run a job later. They do not
+  establish remote code identity, independent permission or cost controls.
 - The report ALWAYS says `NO_GO`, `readiness_to_run=false` and
   `incremental_spend_ceiling_approved_by_operator=false`. This is
   deliberate even if both lists are empty. Code does not mint approvals.
+
+
+## P23E2 schedule audit interpretation
+
+The third read-only request follows Zyte's documented
+[Periodic Jobs API](https://docs.zyte.com/scrapy-cloud/usage/reference/http/periodicjobs.html).
+The returned **list** is project-scoped. For example, an enabled schedule
+with `cron_UNVERIFIED="0 9 * * 1"` could create a job even when both
+pending and running queues happen to be empty. The report contains:
+
+- `periodic_schedule_list_complete` and
+  `periodic_schedules_reported_total`
+- `enabled_periodic_schedules_visible` and
+  `disabled_periodic_schedules_visible`
+- `no_enabled_periodic_schedules_observed`, which can only be true if the
+  current schedule page is complete and contains zero enabled schedules
+- Sanitized schedule IDs, task names and cron fields; **never** raw
+  scheduled task arguments or unknown remote API metadata
+
+A remote API read is direct observational evidence for this project at
+that moment, **not** an independent audit of all account projects,
+deployment source bytes, account billing, or future scheduling. Even if
+the three API reads all show zero active jobs and zero enabled schedules,
+the program deliberately continues reporting `NO_GO`. The user must not
+take this tool's queue/schedule snapshot as a job authorization.
 
 ## Operator usage (explicit read-only action)
 
@@ -75,9 +114,10 @@ egg or change a Zyte project.
 1. The actual **installed** remote project deploy/egg identity versus the
    reviewed local package SHA and three-spider source manifest. Neither the
    queue API's job `version` nor a GitHub hash alone proves current deploy.
-2. Dashboard review of periodic schedules, all relevant projects, pending
-   and running queues *just before* a manual canary, since two GET snapshots
-   are not atomic and future scheduled jobs are not included.
+2. Independently re-check the dashboard's periodic schedules (including
+   pagination), **all relevant projects**, and pending/running queues
+   *immediately before* a separately approved manual canary. Three sequential
+   API GETs are not atomic and cannot rule out future jobs.
 3. Current billing/plan: included unit allocation, subscription price,
    runtime limits, data retention, extra services, and any account-specific
    usage fees. Set a **documented finite per-job and cumulative incremental
