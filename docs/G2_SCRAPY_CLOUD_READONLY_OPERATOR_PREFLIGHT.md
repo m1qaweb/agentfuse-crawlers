@@ -1,6 +1,6 @@
 # G2 — Operator-run Scrapy Cloud read-only account check (NO-GO)
 
-**Implementation:** the manual-only GitHub Actions workflow \`.github/workflows/manual-g2-zyte-readonly-account.yml\`, using the pre-existing \`scripts/p23e1_zyte_queue_preflight.py\` and new \`scripts/g2_redact_zyte_snapshot.py\`.
+**Implementation:** the manual-only GitHub Actions workflow `.github/workflows/manual-g2-zyte-readonly-account.yml`, using the pre-existing `scripts/p23e1_zyte_queue_preflight.py` and new `scripts/g2_redact_zyte_snapshot.py`.
 
 **It does not deploy, start, cancel, stop, approve, schedule, or fetch any publisher URL.** It makes exactly **three** bounded, credentialed GET calls to official Scrapy Cloud list endpoints and exports only a whitelisted NO-GO summary. Existing G1 publisher-review blockers and frozen P20A scientific study remain unchanged.
 
@@ -18,12 +18,12 @@
 
 Only the Zyte account/repository operator can complete these steps. The assistant cannot access the private Scrapy Cloud key or the actual deployment with the available connectors.
 
-1. Log into the correct **Scrapy Cloud** account and confirm the project ID from the project URL. Historical AgentFuse project exports use \`883514\`; **do not assume** it is necessarily the current authorized project.
-2. In GitHub \`m1qaweb/agentfuse-crawlers\`, open **Settings → Secrets and variables → Actions → New repository secret**. Create \`ZYTE_SCRAPY_CLOUD_API_KEY\` using your **Scrapy Cloud API key**. Do not use the Zyte API product key interchangeably, and never paste a key into chat, a PR, dispatch inputs, or a source file. The manual workflow uses the secret in just the read-only inspection step.
-3. Open **Actions → G2 - Inspect Scrapy Cloud account (read only, no crawl) → Run workflow**. Select \`main\`, enter the **verified project ID**, and dispatch it. This action **cannot schedule a spider**: its only authenticated HTTP calls are those in \`scripts/p23e1_zyte_queue_preflight.py\`.
-4. Inspect the **workflow Job Summary** and download the artifact named \`g2-readonly-redacted-preflight-<run-id>\`. It is retained for **3 days** and contains only \`g2_zyte_redacted_snapshot_NO_GO.json\` — counts, snapshot timestamp, completeness flags and SHA-256 digest. **No Zyte job IDs, schedule task arguments, account credentials, source HTML, logs, or original raw queue/schedule records are uploaded.**
+1. Log into the correct **Scrapy Cloud** account and confirm the project ID from the project URL. Historical AgentFuse project exports use `883514`; **do not assume** it is necessarily the current authorized project.
+2. In GitHub `m1qaweb/agentfuse-crawlers`, open **Settings → Secrets and variables → Actions → New repository secret**. Create `ZYTE_SCRAPY_CLOUD_API_KEY` using your **Scrapy Cloud API key**. Do not use the Zyte API product key interchangeably, and never paste a key into chat, a PR, dispatch inputs, or a source file. The manual workflow uses the secret in just the read-only inspection step.
+3. Open **Actions → G2 - Inspect Scrapy Cloud account (read only, no crawl) → Run workflow**. Select `main`, enter the **verified project ID**, and dispatch it. This action **cannot schedule a spider**: its only authenticated HTTP calls are those in `scripts/p23e1_zyte_queue_preflight.py`.
+4. Inspect the **workflow Job Summary** and download the artifact named `g2-readonly-redacted-preflight-<run-id>`. It is retained for **3 days** and contains only `g2_zyte_redacted_snapshot_NO_GO.json` — counts, snapshot timestamp, completeness flags and SHA-256 digest. **No Zyte job IDs, schedule task arguments, account credentials, source HTML, logs, or original raw queue/schedule records are uploaded.**
 5. If the workflow fails because the secret is missing, fix only the secret and retry when authorized; do not hardcode or pass it in a workflow input. If an API call fails, the job fails closed and does not upload a success-looking report.
-6. Treat \`queue_pages_complete=false\` or \`periodic_schedule_page_complete=false\` as incomplete observations; inspect additional schedule pages manually in Zyte UI. Even two complete, empty snapshots cannot guarantee a job will not start later.
+6. Treat `queue_pages_complete=false` or `periodic_schedule_page_complete=false` as incomplete observations; inspect additional schedule pages manually in Zyte UI. Even two complete, empty snapshots cannot guarantee a job will not start later.
 
 ### Local equivalent for the responsible operator
 
@@ -52,8 +52,8 @@ python -m scripts.g2_redact_zyte_snapshot \
 ```bash
 python -m pytest -q tests/test_g2_readonly_operator_preflight.py
 python -m pytest -q
-``` 
+```
 
 The tests use injected fake in-memory API payloads; they verify field allowlisting (including synthetic private job arguments), malformed/tampered source snapshots, incomplete pagination, explicit NO-GO flags, private new-only output and workflow dispatch-only scope.
 
-**Status:** \`NO_GO_REAL_ACCOUNT_EVIDENCE_INCOMPLETE\` until an actual account-run redacted snapshot exists **and** deployed code, cost and publisher access are separately verified. This commit itself performs **zero Zyte API requests** and zero publisher requests.
+**Status:** `NO_GO_REAL_ACCOUNT_EVIDENCE_INCOMPLETE` until an actual account-run redacted snapshot exists **and** deployed code, cost and publisher access are separately verified. This commit itself performs **zero Zyte API requests** and zero publisher requests.
