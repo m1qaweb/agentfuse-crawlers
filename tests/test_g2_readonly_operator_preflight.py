@@ -182,6 +182,13 @@ def test_no_overwrite_private_summary_and_content_allowlist(tmp_path):
     })
     with pytest.raises(ValueError):
         g2.write_summary(bad, tmp_path / "bad")
+    leaked = deepcopy(data)
+    leaked["private_schedule_args"] = {"api_key": "SENSITIVE_UNTRUSTED"}
+    leaked["report_sha256"] = digest({
+        k: v for k, v in leaked.items() if k != "report_sha256"
+    })
+    with pytest.raises(ValueError):
+        g2.write_summary(leaked, tmp_path / "leak")
 
 
 def test_g2_workflow_is_manual_only_and_never_uploads_raw_p23e1_report():
