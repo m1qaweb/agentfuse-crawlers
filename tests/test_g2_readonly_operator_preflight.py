@@ -198,6 +198,7 @@ def test_g2_workflow_is_manual_only_and_never_uploads_raw_p23e1_report():
     assert "\n  push:" not in workflow
     assert "\n  pull_request:" not in workflow
     assert "contents: read" in workflow
+    assert "if: github.ref == 'refs/heads/main'" in workflow
     assert "secrets.ZYTE_SCRAPY_CLOUD_API_KEY" in workflow
     assert "python -m scripts.p23e1_zyte_queue_preflight" in workflow
     assert "python -m scripts.g2_redact_zyte_snapshot" in workflow
