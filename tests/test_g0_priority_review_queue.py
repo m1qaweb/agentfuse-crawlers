@@ -131,5 +131,5 @@ def test_artifacts_are_safe_new_only_and_counted(tmp_path):
     ):
         with (out / filename).open(encoding="utf-8-sig", newline="") as handle:
             assert len(list(csv.DictReader(handle))) == expected_count
-    with pytest.raises(FileExistsError):
+    with pytest.raises(ValueError, match="NEW non-symlink"):
         g0.write_queue(*artifacts, out)
