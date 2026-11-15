@@ -43,6 +43,8 @@ These 12 exact configured source IDs cover 12 different hostname origins. This i
 
 The manifest currently contains **305 distinct hostnames** among 460 URLs, including 204 hosts with only one configured URL. Host grouping reduces duplicate research but does not create blanket host-wide permissions.
 
+**15 November G1 research update:** [First-party access research](G1_FIRST_PARTY_ACCESS_RESEARCH_2026-11-15.md) records evidence-backed source-specific holds (notably Cursor and Vercel), Cloudflare terms ambiguity and official Supabase RSS / GitHub repository alternatives. The 12-source list below remains a *candidate* review queue, not an HTML run list or approved sources. No original P20A canary is replaced.
+
 ## Next operational gate — requires real evidence, not more generic code
 
 1. Independently review the first several exact URLs, including owner/product, current robots path/user-agent rules, applicable terms, commercial automated access, HTML retention, redirect rights, rate/cadence restrictions and legal obligations. Mark denied/deferred honestly. **Do not upload filled review notes, correspondence, account credentials or original publisher HTML into public/Actions artifacts.**
