@@ -38,8 +38,17 @@ STATUS = frozenset({
 # Source-specific caution signals from G1 (not legal conclusions or a blanket
 # prohibition). Preserve these source IDs in all denominator accounting.
 G1_ELEVATED_TERMS_REVIEW = {
-    "cursor_changelog": "g1_cursor_terms_scraping_restriction_unresolved",
-    "vercel_ai_gateway_docs": "g1_vercel_website_extraction_terms_unresolved",
+    # Site-level caution signals apply to exact same-site source URL candidates,
+    # not a conclusion that every page is contractually prohibited.
+    "cursor_docs": "g1_cursor_site_terms_review_required",
+    "cursor_pricing": "g1_cursor_site_terms_review_required",
+    "cursor_changelog": "g1_cursor_site_terms_review_required",
+    "vercel_ai_gateway_docs": "g1_vercel_site_terms_review_required",
+    "vercel_ai_gateway_pricing": "g1_vercel_site_terms_review_required",
+    "vercel_ai_gateway_changelog": "g1_vercel_site_terms_review_required",
+    "kiro_docs": "g1_kiro_AWS_site_terms_review_required",
+    "kiro_pricing": "g1_kiro_AWS_site_terms_review_required",
+    "kiro_changelog": "g1_kiro_AWS_site_terms_review_required",
 }
 COLUMNS = (
     "historical_review_rank", "source_id", "provider", "category",
