@@ -45,6 +45,8 @@ The manifest currently contains **305 distinct hostnames** among 460 URLs, inclu
 
 **15 November G1 research update:** [First-party access research](G1_FIRST_PARTY_ACCESS_RESEARCH_2026-11-15.md) records evidence-backed source-specific holds (notably Cursor and Vercel), Cloudflare terms ambiguity and official Supabase RSS / GitHub repository alternatives. The 12-source list below remains a *candidate* review queue, not an HTML run list or approved sources. No original P20A canary is replaced.
 
+**15 November G3 historical evidence update:** [G3 authentic Nov 4 Items triage](G3_AUTHENTIC_HISTORICAL_ITEMS_DIAGNOSTIC.md) now provides an evidence-backed *review* overlay for all 460 source IDs, a provisional historical top 300 and a separate 24-source operator-review shortlist. Original SHA-pinned Items show **0 captured pricing sources out of 177** despite 159 pricing HTTP 200 responses. Neither G0 nor G3 is a reviewed permission or an approved 200–300-URL run plan.
+
 ## Next operational gate — requires real evidence, not more generic code
 
 1. Independently review the first several exact URLs, including owner/product, current robots path/user-agent rules, applicable terms, commercial automated access, HTML retention, redirect rights, rate/cadence restrictions and legal obligations. Mark denied/deferred honestly. **Do not upload filled review notes, correspondence, account credentials or original publisher HTML into public/Actions artifacts.**
