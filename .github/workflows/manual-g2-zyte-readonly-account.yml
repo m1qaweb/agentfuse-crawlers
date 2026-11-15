@@ -1,0 +1,97 @@
+name: G2 - Inspect Scrapy Cloud account (read only, no crawl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Exact Scrapy Cloud project ID (verify in your Zyte dashboard)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  readonly_account_preflight:
+    if: github.ref == 'refs/heads/main'
+    name: Read-only queue and schedule snapshot (three GETs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TZ: UTC
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out Git-reviewed main revision
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate exact project selector before network
+        env:
+          ZYTE_PROJECT_ID: ${{ inputs.project_id }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          if re.fullmatch(r"[1-9][0-9]{0,10}", os.environ['ZYTE_PROJECT_ID']) is None:
+              raise SystemExit('Invalid positive Scrapy Cloud project ID; no network action')
+          print('Exact project ID passed strict numeric validation.')
+          PY
+      - name: Install inspected source and dependencies
+        run: python -m pip install .
+      - name: Read actual Zyte queue and periodic schedules (NO JOB RUN)
+        env:
+          ZYTE_SCRAPY_CLOUD_API_KEY: ${{ secrets.ZYTE_SCRAPY_CLOUD_API_KEY }}
+          ZYTE_PROJECT_ID: ${{ inputs.project_id }}
+        run: |
+          if [ -z "$ZYTE_SCRAPY_CLOUD_API_KEY" ]; then
+            echo '::error::Missing repository secret ZYTE_SCRAPY_CLOUD_API_KEY; no API request made.'
+            exit 1
+          fi
+          python -m scripts.p23e1_zyte_queue_preflight --project-id "$ZYTE_PROJECT_ID" --out-dir output/private/g2-raw-LOCAL_ONLY
+      - name: Generate strictly redacted non-authorizing report
+        run: |
+          python -m scripts.g2_redact_zyte_snapshot --input-report output/private/g2-raw-LOCAL_ONLY/p23e1_zyte_readonly_queue_NO_GO.json --out-dir output/private/g2-summary-only
+      - name: Summarize redacted observed state (NOT approval)
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path('output/private/g2-summary-only/g2_zyte_redacted_snapshot_NO_GO.json')
+          r = json.loads(path.read_text(encoding='utf-8'))
+          assert r['status'] == 'NO_GO_REAL_ACCOUNT_EVIDENCE_INCOMPLETE'
+          assert r['requests_to_zyte_read_only_api'] == 3
+          assert r['new_zyte_jobs'] == r['publisher_requests'] == 0
+          assert r['remote_deployed_egg_independently_verified'] is False
+          assert r['billing_and_spend_ceiling_independently_verified'] is False
+          entries = [
+              '### G2: Scrapy Cloud account observation — NO-GO',
+              '',
+              'The connected Scrapy Cloud account returned a non-atomic read-only snapshot.',
+              'Exactly **3 Zyte API GETs**; **0 new jobs**; **0 publisher GETs**.',
+              '',
+              '| Field | Observed |',
+              '| --- | --- |',
+              f"| Project | {r['project_id']} |",
+              f"| Pending jobs visible | {r['pending_jobs_visible']} |",
+              f"| Running jobs visible | {r['running_jobs_visible']} |",
+              f"| Queue pages complete | {r['queue_pages_complete']} |",
+              f"| Enabled schedules visible | {r['enabled_periodic_schedules_visible']} |",
+              f"| Schedule page complete | {r['periodic_schedule_page_complete']} |",
+              '',
+              '**Not verified:** deployed egg bytes, complete future schedules, account billing,',
+              'publisher permissions, quality gates and operator spend authorization.',
+              'Do not interpret this report as a canary or crawl approval.',
+          ]
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as stream:
+              stream.write('\n'.join(entries) + '\n')
+          PY
+      - name: Upload only redacted counts (never raw jobs, schedules or credentials)
+        uses: actions/upload-artifact@v4
+        with:
+          name: g2-readonly-redacted-preflight-${{ github.run_id }}
+          path: output/private/g2-summary-only/g2_zyte_redacted_snapshot_NO_GO.json
+          retention-days: 3
+          if-no-files-found: error

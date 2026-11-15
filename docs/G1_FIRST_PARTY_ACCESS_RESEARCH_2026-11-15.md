@@ -29,6 +29,8 @@ The web research interface could retrieve several public pages and robots files,
 
 The **highest-priority decision** is not choosing the easiest page to request; it is selecting a source with adequately substantiated rights *and* a source format that can produce reliable evidence with bounded maintenance. Supabase's published RSS option and GitHub's licensed source repository are concrete alternatives that may be better than Zyte HTML for those providers after review.
 
+**G2 operational handoff:** [Read-only Scrapy Cloud operator workflow](G2_SCRAPY_CLOUD_READONLY_OPERATOR_PREFLIGHT.md) enables the account owner to check pending/running jobs and visible schedules using a GitHub secret. It is not a deployed-package, billing or source-rights approval; do not launch a canary from the report alone.
+
 ## Original frozen research cohort is unchanged
 
 Issue #85's original Wave 1 subjects are `kiro_docs`, `gemini_api_pricing` and `openai_api_changelog`. The November 7 first-party policy memo (`docs/P23C3C_PUBLIC_PUBLISHER_POLICY_RESEARCH_2026-11-07.md`) already flagged possible Kiro/AWS restrictions, Gemini's historical cross-host redirect and unresolved OpenAI developer-host robots/terms. Keep all frozen 18 IDs / 36 round slots in the denominator, even if denied or unavailable. The eight G1 supplemental research subjects above are **not replacement study members**.
