@@ -21,6 +21,14 @@ The original files were retrieved from the user's private file Library **without
 
 **Important diagnostic:** Of 177 pricing source Items, **159 returned HTTP 200 but none had \`status=captured\`**. This is serious historical evidence that a 200–300-source production-quality pricing crawl is not ready. Historical parser \`captured\` is **not** proof of accuracy or completeness either. The November 7 re-run generated only 460 held Items and **zero publisher GETs**, so it does not supersede the November 4 extraction diagnostic.
 
+### Where the November 4 extraction actually failed
+
+- **Pricing:** 159 of 177 sources returned HTTP 200. Only **56** produced any structural rate observations (55 with `pricing_inventory_complete=true`), and **none** were marked `captured` or verified as fully comparable. Among the source-level primary errors, **83** were `pricing_no_structured_rate_evidence` and **49** were `pricing_rate_dimensions_unresolved`. Do not confuse many observed price cells (2,742 historical entries) with usable or accurate price facts.
+- **Documentation:** 175 sources returned HTTP 200, 51 historically captured, but diagnostic reasons included **76** `documentation_child_links_not_approved_for_crawl` observations and **70** `documentation_overview_not_full_corpus`. A single overview page is not a provider's documentation corpus.
+- **Changelog:** 84 sources returned HTTP 200, 14 historically captured. Diagnostic reasons included **64** `release_window_incomplete`, **62** `sections_truncated` and **20** `release_event_identity_collision` occurrences. Fixing a parser without legally retained HTML and independent gold cannot establish current correct dates or distinct event identities.
+
+These reason-code tallies overlap; they are not mutually exclusive source counts. Historical fixes after November 4 may have improved behavior but have **not** been validated through a permitted comparable real rerun.
+
 ## New reproducible offline procedure
 
 The script only runs when all three private original Items files exist, match their exact existing P21A SHA-256 pins, match the same pinned 460-ID manifest, and have the original Zyte job IDs and source ID/URL/category/provider bindings.
