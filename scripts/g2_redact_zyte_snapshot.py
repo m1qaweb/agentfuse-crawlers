@@ -18,6 +18,21 @@ from scripts.plan_documentation_children import (
 KIND = "g2_redacted_scrapy_cloud_queue_snapshot_NOT_RUN_AUTHORIZATION"
 VERSION = "1.0"
 OUTPUT_FILE = "g2_zyte_redacted_snapshot_NO_GO.json"
+OUTPUT_FIELDS = frozenset((
+    "schema_version", "kind", "status", "project_id", "snapshot_at_utc",
+    "source_p23e1_report_sha256_NOT_APPROVAL",
+    "requests_to_zyte_read_only_api", "new_zyte_jobs", "publisher_requests",
+    "approved_to_run", "source_permissions_verified",
+    "remote_deployed_egg_independently_verified",
+    "billing_and_spend_ceiling_independently_verified",
+    "read_only_queue_observation_non_atomic", "queue_pages_complete",
+    "pending_jobs_visible", "running_jobs_visible",
+    "pending_jobs_reported_total", "running_jobs_reported_total",
+    "periodic_schedule_page_complete", "periodic_schedules_reported_total",
+    "enabled_periodic_schedules_visible", "disabled_periodic_schedules_visible",
+    "no_future_jobs_guaranteed", "raw_job_ids_or_schedule_arguments_exported",
+    "next_operator_action", "report_sha256",
+))
 COUNT_KEYS = (
     "pending_jobs_visible", "running_jobs_visible",
     "pending_jobs_reported_total", "running_jobs_reported_total",
@@ -118,11 +133,14 @@ def redact(report):
         ),
     }
     result["report_sha256"] = digest(result)
+    if set(result) != OUTPUT_FIELDS:
+        raise ValueError("G2 exported summary schema drift")
     return result
 
 
 def write_summary(summary, out_dir):
-    if (not isinstance(summary, dict) or summary.get("kind") != KIND
+    if (not isinstance(summary, dict) or set(summary) != OUTPUT_FIELDS
+            or summary.get("kind") != KIND
             or summary.get("status") != "NO_GO_REAL_ACCOUNT_EVIDENCE_INCOMPLETE"
             or summary.get("approved_to_run") is not False
             or summary.get("raw_job_ids_or_schedule_arguments_exported") is not False
