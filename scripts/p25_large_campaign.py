@@ -11,6 +11,7 @@ import csv
 import io
 import json
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agentfuse_crawlers.run_context import manifest_sha256, package_fingerprint, selection_ids_sha256
@@ -20,7 +21,7 @@ from agentfuse_crawlers.validation_access import (
     authorize_bulk_run, bulk_plan_revision_sha256, digest,
     load_access_registry, load_run_plan_registry,
     validate_access_registry, validate_plan_registry,
-    validation_access_decision, validation_access_revision_sha256,
+    _utc, validation_access_revision_sha256,
 )
 from scripts.audit_nov04_inventory import MANIFEST_SHA
 from scripts.g3_historical_items_triage import (
@@ -148,12 +149,22 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
     # must not prevent using a *different* already-reviewed candidate from
     # the SAME category. All G3 rankings remain review hints, never licenses.
     # P21B independently rechecks every selected URL and exact 3-plan scope.
+    # The registry has already been schema/URL/terms validated ONCE above.
+    # This lookup is only a deterministic RANKING HINT, not authorization.
+    # Revalidating all ~300 reviews for EACH of 460 candidate IDs is O(N^2)
+    # and significantly increases full-campaign startup time. The existing
+    # authorize_bulk_run() below remains the authoritative, fail-closed
+    # per-source security boundary and rechecks all approved source URLs.
+    clock = datetime.now(timezone.utc) if now is None else now.astimezone(timezone.utc)
     currently_reviewed = {}
     for sid in ranking_ids:
-        allowed, _ = validation_access_decision(
-            known[sid], scope="bulk_validation", registry=access, now=now,
+        review = access["reviews"].get(sid)
+        currently_reviewed[sid] = bool(
+            review and review["decision"] == "allowed_reviewed"
+            and "bulk_validation" in review["scopes"]
+            and _utc(review["expires_at_utc"]) > clock
+            and collection_decision(known[sid], "validation")[0]
         )
-        currently_reviewed[sid] = allowed
     chosen = set()
     for cat, n in quotas.items():
         ranked = [sid for sid in ranking_ids if known[sid]["category"] == cat]
