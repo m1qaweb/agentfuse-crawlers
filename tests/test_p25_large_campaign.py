@@ -54,17 +54,17 @@ def _g3_rows():
     return rows
 
 
-def _fake_policy(rows, target):
+def _fake_policy(rows, target, *, use_later_ranked=False):
     quotas = {"documentation": target * 2 // 5,
               "pricing": target * 2 // 5,
               "changelog": target // 5}
     known = {s["id"]: s for s in load_sources()}
     chosen = set()
     for cat, n in quotas.items():
-        chosen.update([
-            row["source_id"] for row in rows
-            if row["category"] == cat
-        ][:n])
+        candidate_ids = [
+            row["source_id"] for row in rows if row["category"] == cat
+        ]
+        chosen.update(candidate_ids[-n:] if use_later_ranked else candidate_ids[:n])
     reviews = {}
     for sid in chosen:
         src = known[sid]
@@ -174,6 +174,24 @@ def test_full_campaign_has_three_large_category_jobs_not_tiny_shards(target, quo
         "cohort": "all", "confirm_full_inventory": "yes",
         "collection_mode": "validation"
     } for j in report["jobs"])
+
+
+def test_200_full_campaign_can_use_later_ranked_but_human_reviewed_sources():
+    rows = _g3_rows()
+    access, plans = _fake_policy(rows, 200, use_later_ranked=True)
+    report = p.build_campaign(rows, 200, access=access, plans=plans, now=NOW)
+    assert report["reviewed_bulk_source_count_in_campaign"] == 200
+    assert report["local_policy_and_three_plan_scope_complete"] is True
+    assert not report["blockers"]
+    assert report["target_primary_urls"] == 200
+    assert report["reviewed_first_with_same_category_historical_fallback"] is True
+    # A formerly higher-ranked, but not reviewed source is not silently
+    # selected just because it appeared at the top of historical G3.
+    top_doc_id = next(r["source_id"] for r in rows
+                      if r["category"] == "documentation")
+    selected = next(j for j in report["jobs"]
+                    if j["category"] == "documentation")["target_source_ids_manifest_order"]
+    assert top_doc_id not in selected
 
 
 def test_installed_unreviewed_registries_block_every_full_job(tmp_path):
