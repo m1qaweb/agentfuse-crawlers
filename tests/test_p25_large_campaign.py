@@ -36,7 +36,13 @@ def _g3_rows():
     manifest = load_sources()
     rows = []
     for cat in ("documentation", "pricing", "changelog"):
-        group = [s for s in manifest if s["category"] == cat]
+        # Select genuinely lifecycle-eligible synthetic IDs; the three v0
+        # entries are quarantined in the real manifest and MUST never be
+        # "approved" even by a positive fake test case.
+        group = [s for s in manifest if s["category"] == cat
+                 and s["id"] != "v0_" + ("docs" if cat == "documentation" else
+                                        "pricing" if cat == "pricing" else
+                                        "changelog")]
         for src in group[:p.QUOTA_300[cat]]:
             rows.append({
                 "source_id": src["id"], "category": cat,
