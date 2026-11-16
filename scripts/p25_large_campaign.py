@@ -134,10 +134,28 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
     # Fully check the three balanced 300-source review quotas in memory too.
     if Counter(known[sid]["category"] for sid in ranking_ids) != QUOTA_300:
         raise ValueError("G3 300-source category mismatch")
+    # Choose among the ranked 300 with a practical approved-source fallback:
+    # for a 200- or 250-URL campaign a historic high-ranked denied publisher
+    # must not prevent using a *different* already-reviewed candidate from
+    # the SAME category. All G3 rankings remain review hints, never licenses.
+    # P21B independently rechecks every selected URL and exact 3-plan scope.
+    currently_reviewed = {}
+    for sid in ranking_ids:
+        allowed, _ = validation_access_decision(
+            known[sid], scope="bulk_validation", registry=access, now=now,
+        )
+        currently_reviewed[sid] = allowed
     chosen = set()
     for cat, n in quotas.items():
         ranked = [sid for sid in ranking_ids if known[sid]["category"] == cat]
-        chosen.update(ranked[:n])
+        # Current reviewed + lifecycle-approved sources first; then the
+        # original ranking for pending reviews, preserving determinism.
+        ordered = [sid for sid in ranked if currently_reviewed[sid]]
+        ordered += [sid for sid in ranked if not currently_reviewed[sid]
+                    and collection_decision(known[sid], "validation")[0]]
+        ordered += [sid for sid in ranked if not currently_reviewed[sid]
+                    and not collection_decision(known[sid], "validation")[0]]
+        chosen.update(ordered[:n])
     if len(chosen) != target:
         raise ValueError("Non-unique or incomplete target campaign")
     category_ids = {}
@@ -152,15 +170,8 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
             raise ValueError("Requested source quota does not match manifest")
         invalid_lifecycle = [s["id"] for s in whole if s["id"] in chosen
                              and not collection_decision(s, "validation")[0]]
-        reviewed = []
-        for source in whole:
-            if source["id"] not in chosen:
-                continue
-            allowed, _ = validation_access_decision(
-                source, scope="bulk_validation", registry=access, now=now,
-            )
-            if allowed:
-                reviewed.append(source["id"])
+        reviewed = [s["id"] for s in whole
+                    if s["id"] in chosen and currently_reviewed[s["id"]]]
         selected_reviewed += len(reviewed)
         matched = [(pid, p) for pid, p in plans["plans"].items()
                    if p["category"] == category and p["cohort"] == "all"
@@ -233,6 +244,7 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
         "bulk_run_registry_sha256": plans_sha,
         "local_package_sha256_NOT_REMOTE_PROOF": pkg,
         "g3_historical_ranking_not_publisher_permission": True,
+        "reviewed_first_with_same_category_historical_fallback": True,
         "remote_deployment_independently_verified": False,
         "account_billing_spend_ceiling_verified": False,
         "publisher_terms_independently_verified_by_this_tool": False,
