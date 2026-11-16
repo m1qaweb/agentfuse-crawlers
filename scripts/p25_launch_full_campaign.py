@@ -216,7 +216,9 @@ def dispatch_one(*, g3_rows, target, category, project, campaign_sha256,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--g3-top300", type=Path, required=True)
+    ranking = parser.add_mutually_exclusive_group(required=True)
+    ranking.add_argument("--g3-top300", type=Path)
+    ranking.add_argument("--g3-all460", type=Path)
     parser.add_argument("--target", type=int, default=300)
     parser.add_argument("--dispatch-category", choices=ORDER, required=True)
     parser.add_argument("--project-id", required=True)
@@ -233,7 +235,7 @@ def main():
                         help="Persistent owner-private local directory across all three launches")
     args = parser.parse_args()
     result = dispatch_one(
-        g3_rows=read_g3_review_csv(args.g3_top300),
+        g3_rows=read_g3_review_csv(args.g3_all460 or args.g3_top300),
         target=args.target, category=args.dispatch_category,
         project=args.project_id, campaign_sha256=args.campaign_sha256,
         observed_remote_package_sha256=args.remote_package_sha256,
