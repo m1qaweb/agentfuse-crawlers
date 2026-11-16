@@ -183,14 +183,16 @@ def write_audit(report, out_dir):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--g3-top300", type=Path, required=True)
+    ranking = parser.add_mutually_exclusive_group(required=True)
+    ranking.add_argument("--g3-top300", type=Path)
+    ranking.add_argument("--g3-all460", type=Path)
     parser.add_argument("--target", type=int, choices=range(200, 301, 5),
                         default=300)
     parser.add_argument("--archive", type=Path, action="append", required=True,
                         help="Repeat exactly 3 times: verified immutable job archive dir")
     parser.add_argument("--out-dir", type=Path, required=True)
     args = parser.parse_args()
-    result = audit_archives(read_g3_review_csv(args.g3_top300),
+    result = audit_archives(read_g3_review_csv(args.g3_all460 or args.g3_top300),
                             args.target, args.archive)
     path = write_audit(result, args.out_dir)
     print(json.dumps({
