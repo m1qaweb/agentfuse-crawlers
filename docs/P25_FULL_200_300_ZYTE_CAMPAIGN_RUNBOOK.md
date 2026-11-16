@@ -17,7 +17,9 @@ The three **existing production spiders** support entire categories and preserve
 
 At the maximum 300 target, **160 sources are accounted for but held**. A held Item is not a fetched URL. Scrapy may additionally issue robots.txt requests; source counts are **not** a limit on total HTTP transactions. G3's historical `captured` diagnostic is not independently verified accuracy, and zero pricing sources achieved that status in the November 4 real baseline.
 
-**Selection fallback for the 200 and 250 targets:** within the original G3 top-300 review pool, candidates with genuinely current approved `bulk_validation` source reviews are selected first **within the same category**, retaining original historical order among equally reviewed candidates. Any quota shortfall is then filled from the remaining historically ranked, technically eligible sources for **review only**, never auto-permitted. Thus a restricted or denied top-ranked source can be replaced by a lower-ranked genuinely reviewed source without dropping the target from 200/250 to a tiny shard. At a 300 target, all 300 G3 candidates must be permitted or the campaign remains NO-GO. Every change to installed reviews or selection changes the campaign hash; all three run plans must be updated to bind the new exact authorized lists.
+**Selection fallback for all 200–300 targets:** within the G3 all-460 review pool, candidates with genuinely current approved `bulk_validation` source reviews are selected first **within the same category**, retaining original historical order among equally reviewed candidates. Any quota shortfall is then filled from the remaining historically ranked, technically eligible sources for **review only**, never auto-permitted. Thus a restricted or denied top-ranked source can be replaced by a lower-ranked genuinely reviewed source without dropping the target from 200/250 to a tiny shard. At a 300 target, 300 independently reviewed URLs must be available across the three quota-matched categories, including reviewed alternatives outside the historical top-300 shortlist. Every change to installed reviews or selection changes the campaign hash; all three run plans must be updated to bind the new exact authorized lists.
+
+The **preferred** `--g3-all460` input is G3’s existing all-460 ranked review CSV; `--g3-top300` remains an intentionally restricted historical-shortlist alternative. Neither ranking grants source access.
 
 The `P21B` production bulk gate already requires a **reviewed exact source URL access record for each URL to be fetched**, and a **short-lived Git-reviewed run plan for the complete category selection**. The new P25 code directly reuses the existing `authorize_bulk_run()` implementation and is not permitted to create or alter these decisions. This means no bulk source can be unlocked by a command-line flag, selection ranking, or checksum alone.
 
@@ -42,7 +44,7 @@ python -m scripts.g3_historical_items_triage \
   --out-dir /secure/g3-nov04-NEW
 
 python -m scripts.p25_large_campaign \
-  --g3-top300 /secure/g3-nov04-NEW/g3_historical_top300_NOT_RUN_LIST.csv \
+  --g3-all460 /secure/g3-nov04-NEW/g3_historical_triage_all460_REVIEW_ONLY.csv \
   --target 300 \
   --out-dir /secure/p25-300-NEW
 ```
@@ -79,7 +81,7 @@ After **actual verified account/project/version/budget and true publisher-rights
 
 ```bash
 python -m scripts.p25_launch_full_campaign \
-  --g3-top300 /secure/g3-nov04-NEW/g3_historical_top300_NOT_RUN_LIST.csv \
+  --g3-all460 /secure/g3-nov04-NEW/g3_historical_triage_all460_REVIEW_ONLY.csv \
   --target 300 \
   --project-id VERIFIED_SCRAPY_CLOUD_PROJECT_ID \
   --dispatch-category pricing \
@@ -103,7 +105,7 @@ python -m scripts.archive_jobs --job-id REAL_DOCUMENTATION_JOB_ID --out-dir /sec
 python -m scripts.archive_jobs --job-id REAL_CHANGELOG_JOB_ID --out-dir /secure/p25-archive
 
 python -m scripts.p25_audit_campaign_items \
-  --g3-top300 /secure/g3-nov04-NEW/g3_historical_top300_NOT_RUN_LIST.csv \
+  --g3-all460 /secure/g3-nov04-NEW/g3_historical_triage_all460_REVIEW_ONLY.csv \
   --target 300 \
   --archive /secure/p25-archive/jobs/PROJECT_SPIDER_JOB_FOR_PRICING \
   --archive /secure/p25-archive/jobs/PROJECT_SPIDER_JOB_FOR_DOCUMENTATION \
