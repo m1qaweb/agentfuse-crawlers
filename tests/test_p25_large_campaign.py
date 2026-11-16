@@ -288,8 +288,9 @@ def test_unknown_post_response_persists_irrevocable_attempt_marker(tmp_path):
 def test_wrong_deployment_budget_or_scope_refuses_before_api(tmp_path, mutation):
     args = {**_params(tmp_path), **mutation}
     with pytest.raises(ValueError):
-        launch.dispatch_one(**args, post=lambda *_: pytest.fail("unsafe POST"),
-                            account_preflight=lambda *_: pytest.fail("unsafe GET"))
+        launch.dispatch_one(
+            **{**args, "account_preflight": lambda *_: pytest.fail("unsafe GET")},
+            post=lambda *_: pytest.fail("unsafe POST"))
     assert not (tmp_path / "private-ledger").exists()
 
 
@@ -305,7 +306,7 @@ def test_account_snapshot_incomplete_active_or_invalid_refuses(tmp_path, bad_fie
         r[bad_field] = False
         return r
     with pytest.raises(ValueError, match="NO-GO"):
-        launch.dispatch_one(**args, account_preflight=bad_account,
+        launch.dispatch_one(**{**args, "account_preflight": bad_account},
                             post=lambda *_: pytest.fail("unsafe POST"))
     assert not (tmp_path / "private-ledger").exists()
 
