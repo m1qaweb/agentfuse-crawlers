@@ -39,6 +39,7 @@ SPIDERS = {
     "changelog": "official_changelogs",
 }
 G3_FILENAME = "g3_historical_top300_NOT_RUN_LIST.csv"
+G3_ALL_FILENAME = "g3_historical_triage_all460_REVIEW_ONLY.csv"
 MAX_G3_BYTES = 2_000_000
 
 
@@ -60,8 +61,9 @@ def _manifest():
 def read_g3_review_csv(path):
     """No raw HTML/Items, only existing G3 ranked REVIEW ONLY source metadata."""
     file = Path(path)
-    if file.is_symlink() or not file.is_file() or file.name != G3_FILENAME:
-        raise ValueError("Require the genuine G3 top300 review CSV at its exact name")
+    if file.is_symlink() or not file.is_file() or file.name not in (
+            G3_FILENAME, G3_ALL_FILENAME):
+        raise ValueError("Require a genuine named G3 top300 or all460 review CSV")
     raw = file.read_bytes()
     if not 100 <= len(raw) <= MAX_G3_BYTES:
         raise ValueError("G3 review CSV outside bounded size")
@@ -72,8 +74,9 @@ def read_g3_review_csv(path):
         rows = list(table)
     except (UnicodeError, csv.Error) as exc:
         raise ValueError("Malformed G3 review CSV") from exc
-    if len(rows) != 300:
-        raise ValueError("Campaign requires G3's exact 300 source review candidates")
+    expected_count = 300 if file.name == G3_FILENAME else 460
+    if len(rows) != expected_count:
+        raise ValueError("G3 review CSV row count differs from its declared scope")
     sources = _manifest()
     known = {s["id"]: s for s in sources}
     counts, seen = Counter(), set()
@@ -85,14 +88,16 @@ def read_g3_review_csv(path):
                 or row.get("source_url") != source["url"]
                 or row.get("category") != source["category"]
                 or row.get("provider") != source["provider"]
-                or row.get("top_300_historical_REVIEW_ONLY") != "True"
+                or row.get("top_300_historical_REVIEW_ONLY") != (
+                    "True" if idx <= 300 else "False")
                 or row.get("publisher_permission_independently_verified") != "False"
                 or row.get("approved_for_advisor") != "False"
                 or row.get("historical_status_NOT_CURRENT") not in G3_STATUS):
             raise ValueError("G3 historic review CSV cannot change exact source bindings")
         seen.add(sid)
         counts[source["category"]] += 1
-    if counts != QUOTA_300:
+    expected_quotas = QUOTA_300 if expected_count == 300 else MANIFEST_COUNTS
+    if counts != expected_quotas:
         raise ValueError("G3 ranked review category quotas changed")
     return rows
 
@@ -112,8 +117,9 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
     """Full 460 manifest coverage; exact 200-300 subset requires 3 reviewed plans."""
     target = _target(target)
     sources = _manifest()
-    if len(g3_rows) != 300 or any(not isinstance(r, dict) for r in g3_rows):
-        raise ValueError("Expected 300 inspected G3 ranking rows")
+    if len(g3_rows) not in (300, 460) or any(
+            not isinstance(r, dict) for r in g3_rows):
+        raise ValueError("Expected 300 or 460 inspected G3 ranking rows")
     # Verify review inputs even when tests inject synthetic in-memory policies.
     access = load_access_registry() if access is None else access
     plans = load_run_plan_registry() if plans is None else plans
@@ -129,11 +135,14 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
     }
     known = {s["id"]: s for s in sources}
     ranking_ids = [r.get("source_id") for r in g3_rows]
-    if len(set(ranking_ids)) != 300 or any(x not in known for x in ranking_ids):
+    if len(set(ranking_ids)) != len(g3_rows) or any(
+            x not in known for x in ranking_ids):
         raise ValueError("Invalid G3 source ID ranking")
-    # Fully check the three balanced 300-source review quotas in memory too.
-    if Counter(known[sid]["category"] for sid in ranking_ids) != QUOTA_300:
-        raise ValueError("G3 300-source category mismatch")
+    # Fully check ranked 300 or 460 category coverage. All-460 allows
+    # genuine alternative reviews to fill a 300-URL campaign.
+    expected_pool = QUOTA_300 if len(g3_rows) == 300 else MANIFEST_COUNTS
+    if Counter(known[sid]["category"] for sid in ranking_ids) != expected_pool:
+        raise ValueError("G3 ranked source-category accounting mismatch")
     # Choose among the ranked 300 with a practical approved-source fallback:
     # for a 200- or 250-URL campaign a historic high-ranked denied publisher
     # must not prevent using a *different* already-reviewed candidate from
@@ -230,6 +239,7 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
         "schema_version": VERSION, "kind": KIND,
         "status": "NO_GO_UNTIL_PUBLISHER_ACCOUNT_AND_DEPLOYMENT_VERIFIED",
         "target_primary_urls": target,
+        "historical_review_candidate_pool": len(g3_rows),
         "total_accounted_manifest_source_ids": 460,
         "category_quotas": quotas,
         "planned_full_category_jobs": 3,
@@ -284,11 +294,14 @@ def write_report(report, out_dir):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--g3-top300", type=Path, required=True)
+    ranked = parser.add_mutually_exclusive_group(required=True)
+    ranked.add_argument("--g3-top300", type=Path)
+    ranked.add_argument("--g3-all460", type=Path)
     parser.add_argument("--target", type=int, choices=range(200, 301, 5), default=300)
     parser.add_argument("--out-dir", type=Path, required=True)
     args = parser.parse_args()
-    report = build_campaign(read_g3_review_csv(args.g3_top300), args.target)
+    csv_path = args.g3_all460 or args.g3_top300
+    report = build_campaign(read_g3_review_csv(csv_path), args.target)
     root = write_report(report, args.out_dir)
     print(json.dumps({
         "out_dir": str(root), "campaign_sha256": report["campaign_sha256"],
