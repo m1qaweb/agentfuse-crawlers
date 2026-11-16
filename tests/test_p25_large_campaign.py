@@ -15,6 +15,7 @@ from agentfuse_crawlers.sources import load_sources, select_sources
 from agentfuse_crawlers import validation_access as policy
 from scripts import p25_large_campaign as p
 from scripts import p25_launch_full_campaign as launch
+from scripts import p25_audit_campaign_items as audit
 from scripts.g3_historical_items_triage import COLUMNS as G3_COLUMNS
 
 NOW = datetime(2026, 11, 16, 9, tzinfo=timezone.utc)
@@ -384,3 +385,144 @@ def test_g3_csv_enforces_bound_source_ids_and_no_spreadsheet_injection(tmp_path)
     path.write_text(tampered, encoding="utf-8-sig")
     with pytest.raises(ValueError):
         p.read_g3_review_csv(path)
+
+
+
+def _synthetic_campaign_archives(rows, target, access, plans):
+    report = p.build_campaign(rows, target, access=access, plans=plans, now=NOW)
+    manifest = load_sources()
+    records = {}
+    for i, job in enumerate(report["jobs"], 1):
+        category = job["category"]
+        selected = set(job["target_source_ids_manifest_order"])
+        group = select_sources(category, "all")
+        job_id = f"{PROJECT}/{i}/{i+100}"
+        category_rows = []
+        for src in group:
+            targeted = src["id"] in selected
+            held_status = ("source_quarantined" if src["id"].startswith("v0_")
+                           else "source_bulk_validation_not_approved")
+            category_rows.append({
+                "source_id": src["id"], "source_url": src["url"],
+                "provider": src["provider"], "category": category,
+                "spider_name": job["spider"], "approved_for_advisor": False,
+                "collection_mode": "validation", "requested_cohort": "all",
+                "manifest_sha256": report["manifest_sha256"],
+                "source_registry_sha256": report["source_registry_sha256"],
+                "selection_ids_sha256": selection_ids_sha256(group),
+                "selection_source_count": len(group),
+                "zyte_job_id": job_id,
+                "deployment_revision": package_fingerprint(),
+                "status": "needs_review" if targeted else held_status,
+                "http_status": 200 if targeted else None,
+                "policy_observation": (
+                    "" if targeted else "not_fetched_by_bulk_source_access_gate"
+                ),
+            })
+        records[category] = [{
+            "job": {
+                "category": category, "spider": job["spider"],
+                "state": "finished", "close_reason": "finished",
+                "spider_args": audit.EXPECTED_ARGS,
+                "unrecorded_argument_names": [], "job_id": job_id,
+            },
+            "source_scope": {"safe_for_semantic_diff": True},
+        }, category_rows]
+    paths = [Path("/FAKE_SYNTHETIC_P25_ARCHIVE") / category
+             for category in audit.ORDER]
+    def loader(path):
+        # In production, audit loads and byte-verifies actual P07 archives.
+        return records[Path(path).name]
+    return paths, records, loader
+
+
+def test_three_real_archives_can_be_audited_with_p23e0_compact_args(tmp_path):
+    args = _params(tmp_path, target=300)
+    paths, records, loader = _synthetic_campaign_archives(
+        args["g3_rows"], 300, args["access"], args["plans"],
+    )
+    result = audit.audit_archives(
+        args["g3_rows"], 300, paths,
+        access=args["access"], plans=args["plans"], now=NOW, loader=loader,
+    )
+    assert result["total_manifest_slots"] == 460
+    assert result["manifest_slots_observed"] == 460
+    assert result["target_primary_urls"] == 300
+    assert result["target_http200_items_NOT_ACCURACY"] == 300
+    assert result["full_campaign_items_coverage_complete"] is True
+    assert result["status"] == "NO_GO_ARCHIVED_ITEMS_COMPLETE_NOT_REQUESTS_OR_GOLD"
+    assert result["requests_and_logs_independently_reconciled"] is False
+    assert result["publisher_html_and_human_gold_independently_verified"] is False
+    assert result["approved_for_advisor"] is False
+    assert sum(x["observed_items"] for x in result["categories"].values()) == 460
+    out = tmp_path / "p25-audit"
+    audit.write_audit(result, out)
+    assert json.loads((out / "p25_immutable_items_full_campaign_NO_GO.json").read_text()) == result
+    with pytest.raises(ValueError):
+        audit.write_audit(result, out)
+
+
+def test_archive_detects_full_campaign_incomplete_and_http_access_barriers(tmp_path):
+    args = _params(tmp_path, target=200)
+    paths, records, loader = _synthetic_campaign_archives(
+        args["g3_rows"], 200, args["access"], args["plans"],
+    )
+    records["documentation"][1].pop()  # missing one expected manifest item
+    one = records["pricing"][1][0]
+    assert one["status"] == "needs_review"
+    one["status"] = "robots_or_policy_denied"
+    one["http_status"] = None
+    result = audit.audit_archives(
+        args["g3_rows"], 200, paths,
+        access=args["access"], plans=args["plans"], now=NOW, loader=loader,
+    )
+    assert result["manifest_slots_observed"] == 459
+    assert result["target_access_barrier_count"] == 1
+    assert result["full_campaign_items_coverage_complete"] is False
+    assert result["status"] == "NO_GO_INCOMPLETE_OR_ACCESS_BARRIER"
+
+
+@pytest.mark.parametrize("tamper", [
+    "unauthorized_extra_fetch",
+    "false_advisor_promotion",
+    "wrong_package",
+    "wrong_spider_args",
+    "policy_held_target",
+])
+def test_archive_scope_tampering_and_unauthorized_extra_are_rejected(tmp_path, tamper):
+    args = _params(tmp_path)
+    paths, records, loader = _synthetic_campaign_archives(
+        args["g3_rows"], 300, args["access"], args["plans"],
+    )
+    row = records["pricing"][1][-1]  # nonselected tail
+    if tamper == "unauthorized_extra_fetch":
+        row["http_status"] = 200
+    elif tamper == "false_advisor_promotion":
+        row["approved_for_advisor"] = True
+    elif tamper == "wrong_package":
+        row["deployment_revision"] = "f" * 64
+    elif tamper == "wrong_spider_args":
+        records["pricing"][0]["job"]["spider_args"] = {
+            "cohort": "all", "source_ids": "openai_api_pricing",
+            "collection_mode": "validation",
+        }
+    elif tamper == "policy_held_target":
+        first = records["pricing"][1][0]
+        first["status"] = "source_bulk_validation_not_approved"
+        first["http_status"] = None
+    with pytest.raises(ValueError):
+        audit.audit_archives(
+            args["g3_rows"], 300, paths,
+            access=args["access"], plans=args["plans"], now=NOW, loader=loader,
+        )
+
+
+def test_audit_rejects_archive_duplicates_before_trusting_counts(tmp_path):
+    args = _params(tmp_path)
+    paths, records, loader = _synthetic_campaign_archives(
+        args["g3_rows"], 300, args["access"], args["plans"],
+    )
+    with pytest.raises(ValueError, match="Exactly 3 distinct"):
+        audit.audit_archives(args["g3_rows"], 300, [paths[0]] * 3,
+                             access=args["access"], plans=args["plans"], now=NOW,
+                             loader=loader)
