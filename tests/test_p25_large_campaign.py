@@ -92,6 +92,12 @@ def _fake_policy(rows, target, *, use_later_ranked=False):
         candidate_ids = [
             row["source_id"] for row in rows if row["category"] == cat
         ]
+        if use_later_ranked:
+            # A quarantined source can never get a positive, even fake,
+            # permission. In the real G3 all-460 tail the three v0 entries
+            # remain present for inventory but are not crawl eligible.
+            candidate_ids = [sid for sid in candidate_ids
+                             if not sid.startswith("v0_")]
         chosen.update(candidate_ids[-n:] if use_later_ranked else candidate_ids[:n])
     reviews = {}
     for sid in chosen:
