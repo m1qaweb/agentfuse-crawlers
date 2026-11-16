@@ -54,6 +54,34 @@ def _g3_rows():
     return rows
 
 
+
+def _g3_all460_rows():
+    """Synthetic G3 all460 ranking: first original top300, then remaining 160."""
+    top = _g3_rows()
+    known = {r["source_id"] for r in top}
+    remainder = [{
+        "source_id": s["id"], "category": s["category"],
+        "source_url": s["url"], "provider": s["provider"],
+        "historical_status_NOT_CURRENT": "needs_review",
+    } for s in load_sources() if s["id"] not in known]
+    assert len(remainder) == 160
+    assert len(top + remainder) == 460
+    return top + remainder
+
+
+def _write_synthetic_g3_csv(rows, path):
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=G3_COLUMNS)
+        writer.writeheader()
+        for i, row in enumerate(rows, 1):
+            record = dict(row)
+            record["historical_review_rank"] = i
+            record["top_300_historical_REVIEW_ONLY"] = i <= 300
+            record["publisher_permission_independently_verified"] = False
+            record["approved_for_advisor"] = False
+            writer.writerow(record)
+
+
 def _fake_policy(rows, target, *, use_later_ranked=False):
     quotas = {"documentation": target * 2 // 5,
               "pricing": target * 2 // 5,
@@ -545,3 +573,48 @@ def test_audit_rejects_archive_duplicates_before_trusting_counts(tmp_path):
         audit.audit_archives(args["g3_rows"], 300, [paths[0]] * 3,
                              access=args["access"], plans=args["plans"], now=NOW,
                              loader=loader)
+
+
+
+@pytest.mark.parametrize("target", [200, 250, 300])
+def test_full_460_review_pool_fills_real_200_to_300_campaign_from_later_cleared_sources(target):
+    rows = _g3_all460_rows()
+    access, plans = _fake_policy(rows, target, use_later_ranked=True)
+    report = p.build_campaign(rows, target, access=access, plans=plans, now=NOW)
+    assert report["historical_review_candidate_pool"] == 460
+    assert report["reviewed_bulk_source_count_in_campaign"] == target
+    assert report["local_policy_and_three_plan_scope_complete"] is True
+    assert report["missing_current_source_access_reviews"] == 0
+    assert report["target_held_manifest_items"] == 460 - target
+    assert sum(j["target_authorized_primary_urls"] for j in report["jobs"]) == target
+    # The original top-300 may contain denied/unreviewed IDs, even with
+    # historical capture. A genuinely reviewed lower-ranked source should
+    # fill the exact same category's quota; it does NOT confer permissions.
+    last = {r["source_id"] for r in rows[-160:]}
+    chosen = {sid for j in report["jobs"]
+              for sid in j["target_source_ids_manifest_order"]}
+    assert chosen & last
+    assert report["new_scrapy_cloud_jobs"] == 0
+    assert report["readiness_to_launch_from_this_report"] is False
+
+
+def test_p25_accepts_exact_g3_all460_and_denies_rank_or_quota_tampering(tmp_path):
+    rows = _g3_all460_rows()
+    path = tmp_path / p.G3_ALL_FILENAME
+    _write_synthetic_g3_csv(rows, path)
+    parsed = p.read_g3_review_csv(path)
+    assert len(parsed) == 460
+    assert p.build_campaign(parsed, 300)["historical_review_candidate_pool"] == 460
+    bad = path.read_text(encoding="utf-8-sig").replace("False", "True", 1)
+    path.write_text(bad, encoding="utf-8-sig")
+    with pytest.raises(ValueError):
+        p.read_g3_review_csv(path)
+    _write_synthetic_g3_csv(rows, path)
+    content = path.read_text(encoding="utf-8-sig")
+    content = content.replace("161,", "162,", 1) if "161," in content else (
+        content.replace("461,", "460,", 1)
+    )
+    path.write_text(content, encoding="utf-8-sig")
+    with pytest.raises(ValueError):
+        p.read_g3_review_csv(path)
+
