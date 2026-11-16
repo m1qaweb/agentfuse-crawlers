@@ -93,7 +93,25 @@ Uses `ZYTE_SCRAPY_CLOUD_API_KEY` in the environment, **never** as a CLI argument
 
 Repeat manually for `--dispatch-category documentation` and `--dispatch-category changelog` **only after the previous full job finished and its original Items/Requests/Logs were inspected**. The SAME persistent ledger must be used. If a POST fails or times out, inspect the Zyte account and reconcile the outcome first; **do not delete the attempted marker to rerun blindly**.
 
-Each full category will contain held Items for unreviewed/non-target sources. After all three, use existing read-only `scripts.archive_jobs`, `scripts.p23c3a_download_completed_zyte_evidence`, `scripts.p23c1_zyte_canary_archive_gate`, `scripts.p23c2_zyte_requests_logs_html_gate`, and independent original-HTML truth checks as appropriate. Verify **all 460 Item slots**, exactly 200–300 intended authorized primary source URLs, absence of extra requests, and every source status; unknown/aborted jobs are **incomplete**, not successful.
+Each full category will contain held Items for unreviewed/non-target sources. **After all three jobs have finished**, archive each real job's Items and completed-job metadata using the existing **read-only** archive utility (substitute each *actual* Zyte Job ID, not a guessed one):
+
+```bash
+python -m scripts.archive_jobs --job-id REAL_PRICING_JOB_ID --out-dir /secure/p25-archive
+python -m scripts.archive_jobs --job-id REAL_DOCUMENTATION_JOB_ID --out-dir /secure/p25-archive
+python -m scripts.archive_jobs --job-id REAL_CHANGELOG_JOB_ID --out-dir /secure/p25-archive
+
+python -m scripts.p25_audit_campaign_items \
+  --g3-top300 /secure/g3-nov04-NEW/g3_historical_top300_NOT_RUN_LIST.csv \
+  --target 300 \
+  --archive /secure/p25-archive/jobs/PROJECT_SPIDER_JOB_FOR_PRICING \
+  --archive /secure/p25-archive/jobs/PROJECT_SPIDER_JOB_FOR_DOCUMENTATION \
+  --archive /secure/p25-archive/jobs/PROJECT_SPIDER_JOB_FOR_CHANGELOG \
+  --out-dir /secure/p25-full-campaign-items-audit-NEW
+```
+
+The archive subdirectories are the Zyte Job IDs with slashes replaced by underscores, as printed by `scripts.archive_jobs`. Use those **exact** printed paths. The new P25 archive audit supports the three-argument P23E0 full-category mode (the legacy P14B audit expects extra pins). It rejects duplicate/missing-job cross-category scope, wrong package/manifest/selection, unauthorized extra fetched sources, wrong job arguments, and package or source ID provenance drift. It reports incomplete/blocked campaigns as **NO-GO**, even when the source metadata appears healthy.
+
+**Still required for independent completion:** download/inspect genuine Requests/Logs (using an appropriately scoped read-only operator export) and retained original publisher HTML where legally allowed; reconcile true source URLs/methods/statuses and robots/canonical behavior, then independently compare extracted pricing dimensions, documentation scope, and release identities with human-reviewed publisher evidence. **The Items audit alone cannot prove that there were no extra HTTP requests**, that a price is correct, or that a publication date is current. Unknown/aborted jobs are incomplete, not successful.
 
 ## What “ready” actually means
 
