@@ -37,3 +37,14 @@ def test_test_only_registries_do_not_overwrite_real_package(isolate_operator_pol
 def test_test_policy_cache_is_reset_between_cases():
     assert policy.load_access_registry()["reviews"] == {}
     assert policy.load_run_plan_registry()["plans"] == {}
+
+
+def test_isolated_policy_does_not_pollute_test_output_dir(
+        tmp_path, isolate_operator_policy):
+    # The old autouse fixture created tmp_path/test-policy and broke tests
+    # which correctly assert the exact set of exported artifact filenames.
+    assert list(tmp_path.iterdir()) == []
+    assert isolate_operator_policy != tmp_path
+    assert tmp_path not in isolate_operator_policy.parents
+    assert policy.load_access_registry()["reviews"] == {}
+    assert policy.load_run_plan_registry()["plans"] == {}

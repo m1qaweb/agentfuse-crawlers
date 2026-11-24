@@ -728,3 +728,53 @@ def test_partially_supplied_external_bulk_hashes_are_not_autocorrected(monkeypat
             expected_bulk_plan_sha256="f" * 64,
             expected_deployment_package_sha256=package_fingerprint(),
         )
+
+
+# R0: the Nov 24 three-category Cloud launch had all 460 Items held
+# (457 without plan, 3 quarantined), zero Requests and no captured evidence.
+# SHUB_JOBKEY is a synthetic environment value, never a live Zyte job.
+@pytest.mark.parametrize("spider_type", [
+    DocumentationSpider, PricingSpider, ChangelogSpider,
+])
+def test_cloud_bulk_without_reviewed_plan_rejects_startup(monkeypatch, spider_type):
+    monkeypatch.setenv("SHUB_JOBKEY", "123456/1/1")
+    with pytest.raises(ValueError, match="NO-GO: bulk validation has zero authorized publisher URLs"):
+        spider_type(cohort="all", confirm_full_inventory="yes",
+                    collection_mode="validation")
+
+
+def test_local_held_only_accounting_still_available(monkeypatch):
+    monkeypatch.delenv("SHUB_JOBKEY", raising=False)
+    spider = ChangelogSpider(cohort="all", confirm_full_inventory="yes",
+                             collection_mode="validation")
+    rows = asyncio.run(collect(spider))
+    assert len(rows) == 89
+    assert spider.bulk_max_primary_requests == 0
+    assert all(isinstance(row, dict) and row["http_status"] is None for row in rows)
+
+
+def test_cloud_bulk_with_exact_reviewed_plan_preserves_positive_budget(monkeypatch):
+    monkeypatch.setenv("SHUB_JOBKEY", "123456/1/1")
+    selected, reviews, plans, pid, pin = fake_case(count=194, allowed_count=2)
+    _mock_private_registries(monkeypatch, reviews, plans)
+    spider = DocumentationSpider(cohort="all", confirm_full_inventory="yes",
+                                 collection_mode="validation")
+    rows = asyncio.run(collect(spider))
+    requests = [row for row in rows if isinstance(row, Request)]
+    assert len(rows) == 194
+    assert spider.bulk_plan_id == pid
+    assert spider.bulk_plan_sha256 == pin
+    assert spider.bulk_max_primary_requests == 2
+    assert [row.url for row in requests] == [s["url"] for s in selected[:2]]
+    assert all(row.meta["dont_retry"] is True for row in requests)
+
+
+def test_cloud_bulk_expired_reviewed_plan_still_rejects_startup(monkeypatch):
+    monkeypatch.setenv("SHUB_JOBKEY", "123456/1/1")
+    _, reviews, plans, pid, _ = fake_case(count=194, allowed_count=2)
+    plans["plans"][pid]["reviewed_at_utc"] = _time(timedelta(days=-3))
+    plans["plans"][pid]["expires_at_utc"] = _time(timedelta(days=-1))
+    _mock_private_registries(monkeypatch, reviews, plans)
+    with pytest.raises(ValueError, match="Bulk authorization expired"):
+        DocumentationSpider(cohort="all", confirm_full_inventory="yes",
+                            collection_mode="validation")

@@ -39,9 +39,12 @@ are absent:
 1. Revalidate the **installed** packaged `bulk_run_authorizations.json`
    registry. Match a plan by exact category, mode, cohort and complete
    selected source-ID order, not by a user-supplied URL or untrusted page.
-2. If **zero** plans match, preserve the existing
-   `bulk_run_plan_not_present` status and issue **zero** publisher GETs.
-   If **two or more** plans match, fail startup with an ambiguity error.
+2. If **zero** plans match, a recognized Scrapy Cloud bulk job (valid
+   `SHUB_JOBKEY`) fails startup with an actionable NO-GO message and issues
+   **zero** publisher GETs. Local offline held-only accounting preserves
+   `bulk_run_plan_not_present` Items. If **two or more** plans match, fail
+   startup with an ambiguity error. This cannot prevent the Cloud job
+   from already having been scheduled; use P25 preflight before clicking Run.
 3. For **exactly one** match, derive its plan ID, SHA-256 fingerprint
    and the *running* package's content fingerprint. Supply them to the
    **unchanged** `authorize_bulk_run()` logic, which still checks:

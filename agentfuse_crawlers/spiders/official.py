@@ -127,7 +127,7 @@ class OfficialBaseSpider(scrapy.Spider):
         # and cannot be formed indirectly through limit/offset. EVERY other
         # validation scope (default three-source smoke, chunks, full category)
         # needs both independently Git-reviewed source access and an
-        # exact-bound short-lived run approval. The two registries ship empty.
+        # exact-bound short-lived run approval. The registries default to deny.
         ids = (
             [part.strip() for part in source_ids.split(",")]
             if isinstance(source_ids, str) else
@@ -163,7 +163,8 @@ class OfficialBaseSpider(scrapy.Spider):
             # URL set, human policy reviews and request budget. Derive the
             # three operator hashes from the running package instead of
             # forcing manual copy/paste into the Zyte UI. No matching plan
-            # leaves the existing zero-request hold unchanged.
+            # leaves local offline accounting available; a recognized cloud
+            # job must have a positive reviewed request budget.
             full_category_auto = (
                 cohort == "all" and source_ids is None
                 and limit is None and self.offset == 0
@@ -199,6 +200,20 @@ class OfficialBaseSpider(scrapy.Spider):
                 ]
             self.bulk_plan_expires_at_utc = decision["plan_expires_at_utc"]
             self.bulk_gate_decision = decision["decision"]
+            if not self.bulk_authorized_ids or self.bulk_max_primary_requests <= 0:
+                message = (
+                    "NO-GO: bulk validation has zero authorized publisher URLs "
+                    f"({self.bulk_gate_decision}). Complete current exact source "
+                    "reviews and install a matching reviewed bulk run plan; "
+                    "use the P25 preflight before dispatch."
+                )
+                # The validated SHUB_JOBKEY identifies the actual Scrapy Cloud
+                # jobs seen in the Nov 24 exports. This can only deny startup;
+                # it can never create access or bypass the authorization gate.
+                # Keep local held-only accounting for historical/offline tests.
+                if self.run_context["zyte_job_id"]:
+                    raise ValueError(message)
+                self.logger.warning("%s Local held-only accounting.", message)
         else:
             if (bulk_run_plan_id is not None or
                     expected_bulk_plan_sha256 is not None or
