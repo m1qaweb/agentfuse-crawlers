@@ -52,3 +52,29 @@ may hold valid but nonstandard robots files; investigate such sources
 individually rather than bypassing access controls.
 
 Upstream implementation: https://github.com/scrapy/scrapy/blob/2.18.0/scrapy/downloadermiddlewares/robotstxt.py
+
+
+## R0: November 24 held-only run correction
+
+The merged Python 3.12 suite reported 1772 passes and one failure because
+the autouse fixture created `tmp_path/test-policy` inside the output
+directory being tested. Use a separate `tmp_path_factory.mktemp` resource
+directory; retain the original exact-directory assertion.
+
+The three November 24 Cloud jobs returned 460 Items, no Requests, and no
+usable captures. The 457 no-plan holds and 3 existing quarantine holds
+are authorization/accounting evidence, not parser-quality measurements.
+
+A recognized Cloud bulk job with zero authorized URLs now fails
+construction with a NO-GO error instead of producing a held-only export.
+Local held-only diagnostics still work. A positive reviewed plan is still
+checked by the existing production gate; no rights are changed.
+
+Targeted local regression command:
+
+    python -m pytest -q tests/test_p08_canary_gates.py::test_dry_run_canary_plan_uses_exact_ids_twice_and_never_calls_network tests/test_installed_policy_schema.py tests/test_p21b_run_authorization.py
+
+This does not replace the final full regression suite and egg validation.
+Do not run a live Cloud job to test a missing plan. The P25 dispatcher
+already checks positive campaign scope before scheduling. Do not commit
+private Items/Requests/Logs or fabricated permissions to the public repo.

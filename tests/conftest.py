@@ -14,14 +14,15 @@ from agentfuse_crawlers import validation_access as policy
 
 
 @pytest.fixture(autouse=True)
-def isolate_operator_policy(tmp_path, monkeypatch):
+def isolate_operator_policy(tmp_path_factory, monkeypatch):
     """Redirect only validation_access's two packaged resource reads.
 
     Patching resource lookup instead of replacing loader functions also covers
     modules that imported the original cached functions by name. It does not
     modify package_fingerprint(), source lifecycle, manifest or disk policy.
     """
-    root = tmp_path / "test-policy"
+    # Keep policy resources outside the calling test's output directory.
+    root = tmp_path_factory.mktemp("operator-policy")
     access = {"schema_version": policy.SCHEMA, "kind": policy.ACCESS_KIND,
               "default_decision": "not_reviewed", "reviews": {}}
     plans = {"schema_version": policy.SCHEMA, "kind": policy.PLAN_KIND,
