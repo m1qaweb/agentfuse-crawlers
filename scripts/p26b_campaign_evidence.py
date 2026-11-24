@@ -116,13 +116,22 @@ def load_context(g3_rows, target, campaign_sha, category, ledger_dir, archive_di
     if (any(r.get("target_primary_urls") != len(ids) for r in (attempt, accepted))
             or accepted.get("requested_manifest_items") != selected["requested_manifest_items"]):
         raise ValueError("Dispatch receipts have changed category counts")
+    # Bind new receipts to the reconstructed plan/package. Legacy compact
+    # receipts omitted argument sets and remain replayable.
+    if "spider_args" not in attempt and "spider_args" not in accepted:
+        expected_args = EXPECTED_ARGS
+    else:
+        expected_args = selected["pinned_spider_args"]
+        if (not expected_args or attempt.get("spider_args") != expected_args
+                or accepted.get("spider_args") != expected_args):
+            raise ValueError("Dispatch receipts do not bind exact runtime pins")
     root = Path(archive_dir)
     envelope_raw = _read_file(root / "envelope.json", JSON_LIMIT)
     envelope, rows = loader(root)
     job = envelope.get("job", {})
     if (job.get("job_id") != job_id or job.get("category") != category
             or job.get("spider") != selected["spider"] or job.get("state") != "finished"
-            or job.get("spider_args") != EXPECTED_ARGS or job.get("unrecorded_argument_names")
+            or job.get("spider_args") != expected_args or job.get("unrecorded_argument_names")
             or job.get("expected_item_count") != len(rows)):
         raise ValueError("Archive does not match the scheduled P25 category")
     whole = select_sources(category, "all")

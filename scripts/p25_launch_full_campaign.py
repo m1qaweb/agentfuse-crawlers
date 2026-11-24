@@ -25,7 +25,7 @@ from scripts.p23e1_zyte_queue_preflight import (
     HOST, JOB, NoRedirect, _project, build_preflight, _unique_keys,
 )
 from scripts.p25_large_campaign import (
-    ORDER, build_campaign, read_g3_review_csv,
+    ORDER, build_campaign, read_g3_review_csv, exact_pinned_args_shape,
 )
 
 POST_URL = HOST + "/api/run.json"
@@ -39,11 +39,8 @@ def _post_run(project, job, key, timeout):
     if (not isinstance(key, str) or not key
             or any(c in key for c in "\r\n\x00")):
         raise ValueError("Private Scrapy Cloud API key is required")
-    if job.get("spider_args") != {
-        "cohort": "all", "confirm_full_inventory": "yes",
-        "collection_mode": "validation",
-    }:
-        raise ValueError("P25 must run only the explicitly reviewed full category")
+    if not exact_pinned_args_shape(job.get("spider_args")):
+        raise ValueError("P25 dispatch requires exact plan and deployed-package pins")
     if type(timeout) is not int or not 600 <= timeout <= 3300:
         raise ValueError("Campaign job must have a bounded 600-3300 second timeout")
     form = {
@@ -176,6 +173,11 @@ def dispatch_one(*, g3_rows, target, category, project, campaign_sha256,
             or job["reviewed_bulk_access_count"] !=
             job["target_authorized_primary_urls"]):
         raise ValueError("NO-GO: category source plan lacks exact reviewed scope")
+    # The spider constructor refuses mismatched explicit pins before
+    # scheduling publisher requests. Compact args remain for legacy audits.
+    job = {**job, "spider_args": job["pinned_spider_args"]}
+    if not exact_pinned_args_shape(job["spider_args"]):
+        raise ValueError("Missing exact runtime plan/package pins")
     ledger = _private_ledger_dir(ledger_dir)
     label = report["campaign_sha256"] + "." + category
     attempted = ledger / (label + ".ATTEMPTED_NO_BLIND_RETRY.json")
@@ -190,6 +192,7 @@ def dispatch_one(*, g3_rows, target, category, project, campaign_sha256,
         "remote_package_digest_OPERATOR_ATTESTATION_NOT_API_VERIFIED":
             observed_remote_package_sha256,
         "runtime_seconds_job_setting": timeout_seconds,
+        "spider_args": job["spider_args"],
         "budget_checked_EXTERNALLY_NOT_DOLLAR_CAP": True,
         "operator_must_check_Zyte_before_retry": True,
         "attempted_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -205,6 +208,7 @@ def dispatch_one(*, g3_rows, target, category, project, campaign_sha256,
         "category": category, "job_id": job_id,
         "requested_manifest_items": job["requested_manifest_items"],
         "target_primary_urls": job["target_authorized_primary_urls"],
+        "spider_args": job["spider_args"],
         "publisher_accuracy_independently_verified": False,
         "completion_verified": False,
     })

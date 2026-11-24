@@ -35,7 +35,9 @@ environment, use the exact category's archive path printed by archive_jobs:
 Use only if the operator has verified permitted Items, Requests and Logs
 retention, storage and TTL. The script performs GETs only to official Zyte
 storage: job metadata, bounded paginated Requests, Requests stats, and Logs.
-It accepts the compact P25 three-argument mode, not an unrelated job. A
+For new P25 launcher receipts it requires exact six-argument scope and
+runtime pins, bound to both receipt files and the reconstructed campaign.
+Historical compact three-argument receipts remain supported. A
 completed but aborted category can be exported; missing Items and target
 GETs remain visible. The 4096-request / 20000-log limits and 16/32 MB caps are
 retrieval bounds, not a job spend cap. Overflow or inconsistent request
