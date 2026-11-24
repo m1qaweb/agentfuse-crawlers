@@ -1,8 +1,8 @@
 """P21B: synthetic fail-closed live request initiation, never publisher GET.
 
 Positive cases use entirely FAKE, in-memory "reviews" and reviewed run
-records. They are NOT installed or granted to a real publisher. Both
-packaged registries remain EMPTY.
+records. They are NOT installed or granted to a real publisher. The
+suite isolates tests from the actual packaged registries.
 """
 import asyncio
 from copy import deepcopy
@@ -126,7 +126,7 @@ def _approved_args(plan_id, digest):
     }
 
 
-def test_packaged_access_and_run_plan_registries_are_empty_and_fail_closed():
+def test_isolated_empty_access_and_run_plan_registries_fail_closed():
     registry = policy.load_access_registry()
     plans = policy.load_run_plan_registry()
     assert registry["reviews"] == {}
