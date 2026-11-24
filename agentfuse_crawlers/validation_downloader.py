@@ -17,6 +17,9 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from scrapy.exceptions import IgnoreRequest
+from scrapy.downloadermiddlewares.robotstxt import RobotsTxtMiddleware
+
+from agentfuse_crawlers.robots_policy import reviewed_robots_body
 
 from agentfuse_crawlers.sources import load_sources
 from agentfuse_crawlers.validation_access import validation_access_decision
@@ -24,6 +27,48 @@ from agentfuse_crawlers.validation_access import validation_access_decision
 SCOPE_SINGLE = "single_validation"
 SCOPE_BULK = "bulk_validation"
 HOLD_META = "agentfuse_download_access_hold"
+ROBOTS_FAILURE_META = "agentfuse_robots_lookup_failure"
+
+
+class ValidationRobotsMiddleware(RobotsTxtMiddleware):
+    """Preserve Scrapy 2.18 parsing; fail closed on unresolved live robots.
+
+    The pinned Scrapy version normally caches None on lookup/parse failure
+    and treats that as no restriction. A validation page must never use
+    that fallback. Monitoring retains its separate existing policy.
+    """
+
+    def _validation(self):
+        return getattr(self.crawler.spider, "collection_mode", None) == "validation"
+
+    async def _parse_robots(self, response, netloc, request):
+        if self._validation():
+            try:
+                body = reviewed_robots_body(
+                    expected_url="https://" + netloc + "/robots.txt",
+                    response_url=response.url, status=response.status,
+                    content_type=response.headers.get(b"Content-Type", b""),
+                    body=response.body,
+                )
+            except ValueError as exc:
+                # Base robot_parser catches this and resolves its per-host
+                # Deferred to None. process_request_2 below then denies ALL
+                # waiting source GETs for that unresolved host.
+                self._stats.inc_value("robotstxt/response_count")
+                self._stats.inc_value(f"robotstxt/response_status_count/{response.status}")
+                self._stats.inc_value("agentfuse/robots/response_unresolved")
+                raise IgnoreRequest(str(exc)) from exc
+            if body != response.body:
+                response = response.replace(body=body)
+        return await super()._parse_robots(response, netloc, request)
+
+    def process_request_2(self, rp, request):
+        if self._validation() and rp is None:
+            request.meta[ROBOTS_FAILURE_META] = "robots_lookup_or_parse_unresolved"
+            self._stats.inc_value("agentfuse/robots/source_held_unresolved")
+            raise IgnoreRequest("Validation robots lookup or parse unresolved")
+        return super().process_request_2(rp, request)
+
 
 
 def _utc_expiry(raw):
@@ -80,6 +125,11 @@ class ValidationDownloadGate:
                     or parts.password or parts.port not in (None, 443)
                     or parts.hostname not in selected_hosts):
                 self._hold(request, "unreviewed_robots_lookup_target")
+            # Never follow a robots redirect or retry an access barrier in
+            # supervised validation. The exact reviewed URL must be resolved
+            # directly; a new robots target requires separate review.
+            request.meta["dont_redirect"] = True
+            request.meta["dont_retry"] = True
             return None
 
         if not isinstance(source, dict) or not isinstance(source.get("id"), str):

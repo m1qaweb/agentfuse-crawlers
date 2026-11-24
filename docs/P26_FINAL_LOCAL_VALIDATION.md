@@ -35,3 +35,20 @@ Do not use the test-only empty policy directory as a deployment package.
 Do not manufacture reviews or skip final validation simply to meet a count.
 This correction is prepared without requesting GitHub Actions or launching a
 Zyte job.
+
+## Live robots runtime correction
+
+The pinned Scrapy 2.18 RobotsTxtMiddleware parses HTTP error bodies and
+resolves lookup/parser failures to None; its default process_request_2
+allows None. ValidationRobotsMiddleware now keeps its existing parser,
+but refuses unresolved robots results before the source gate. Validation
+robots GETs disable redirects/retries. Exact HTTPS origin, 200 UTF-8
+text/plain robots rules (or empty/comment-only file), and genuine 404/410
+absence are accepted. Other statuses, redirects and ambiguous content
+remain held. A denied robots response still triggers the existing global
+validation stop; no further publisher access is authorized by this change.
+Legacy monitoring behavior is unchanged. The conservative MIME/body checks
+may hold valid but nonstandard robots files; investigate such sources
+individually rather than bypassing access controls.
+
+Upstream implementation: https://github.com/scrapy/scrapy/blob/2.18.0/scrapy/downloadermiddlewares/robotstxt.py

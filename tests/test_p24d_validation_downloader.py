@@ -17,7 +17,7 @@ import agentfuse_crawlers.validation_access as policy
 from agentfuse_crawlers.sources import load_sources
 from agentfuse_crawlers.spiders.official import DocumentationSpider
 from agentfuse_crawlers.validation_downloader import (
-    HOLD_META, ValidationDownloadGate,
+    HOLD_META, ValidationDownloadGate, ValidationRobotsMiddleware, ROBOTS_FAILURE_META,
 )
 
 NOW = datetime.now(timezone.utc)
@@ -242,6 +242,8 @@ def test_internal_robots_lookup_and_monitoring_remain_separate():
         meta={"dont_obey_robotstxt": True},
     )
     assert gate.process_request(robots, fake_spider(src)) is None
+    assert robots.meta["dont_redirect"] is True
+    assert robots.meta["dont_retry"] is True
     for bad in (
         "https://unreviewed.invalid/robots.txt",
         "https://" + host + "/not-a-robots-file",
@@ -257,13 +259,78 @@ def test_internal_robots_lookup_and_monitoring_remain_separate():
     assert gate.process_request(request(src, source_attached=False), monitor) is None
 
 
-def test_scrapy_middleware_registered_before_robots():
+def test_strict_robots_middleware_registered_before_source_gate():
     from scrapy.utils.project import get_project_settings
     from agentfuse_crawlers import settings as app_settings
 
     spider_mw = app_settings.DOWNLOADER_MIDDLEWARES
     assert spider_mw == {
+        "scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware": None,
+        "agentfuse_crawlers.validation_downloader.ValidationRobotsMiddleware": 100,
         "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 110,
     }
     project = get_project_settings()
     assert project.getbool("ROBOTSTXT_OBEY")
+
+
+
+def _robots_middleware(mode="validation"):
+    from scrapy.downloadermiddlewares.robotstxt import RobotsTxtMiddleware
+    from unittest.mock import Mock
+    mw = object.__new__(ValidationRobotsMiddleware)
+    mw.crawler = SimpleNamespace(spider=SimpleNamespace(collection_mode=mode))
+    mw._stats = Mock()
+    return mw, RobotsTxtMiddleware
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 503, 302])
+def test_runtime_robots_errors_never_parse_as_empty_allow(monkeypatch, status):
+    from scrapy.http import Response
+    mw, base = _robots_middleware()
+    async def forbidden_parse(*args):
+        pytest.fail("An unresolved robots response reached Scrapy's parser")
+    monkeypatch.setattr(base, "_parse_robots", forbidden_parse)
+    src = source()
+    req = request(src)
+    host = urlsplit(src["url"]).netloc
+    resp = Response("https://" + host + "/robots.txt", status=status,
+                    headers={b"Content-Type": b"text/plain"}, body=b"Access denied")
+    with pytest.raises(IgnoreRequest, match="robots_http_status_unresolved"):
+        asyncio.run(mw._parse_robots(resp, host, req))
+    with pytest.raises(IgnoreRequest, match="lookup or parse unresolved"):
+        mw.process_request_2(None, req)
+    assert req.meta[ROBOTS_FAILURE_META] == "robots_lookup_or_parse_unresolved"
+
+
+def test_valid_rules_and_missing_robots_reach_real_parser_boundary(monkeypatch):
+    from scrapy.http import Response
+    mw, base = _robots_middleware()
+    parsed = []
+    async def parse(self, response, netloc, request):
+        parsed.append((response.status, response.body))
+    monkeypatch.setattr(base, "_parse_robots", parse)
+    src = source()
+    req = request(src)
+    host = urlsplit(src["url"]).netloc
+    url = "https://" + host + "/robots.txt"
+    rules = b"User-agent: *\nDisallow: /private\n"
+    asyncio.run(mw._parse_robots(Response(url, status=200,
+                headers={b"Content-Type": b"text/plain"}, body=rules), host, req))
+    asyncio.run(mw._parse_robots(Response(url, status=404,
+                headers={b"Content-Type": b"text/html"}, body=b"Not found"), host, req))
+    assert parsed == [(200, rules), (404, b"")]
+
+
+def test_robots_parser_failure_is_held_in_validation_but_monitor_unchanged(monkeypatch):
+    mw, base = _robots_middleware()
+    calls = []
+    monkeypatch.setattr(base, "process_request_2", lambda self, rp, req: calls.append(rp))
+    req = request(source())
+    with pytest.raises(IgnoreRequest):
+        mw.process_request_2(None, req)
+    assert not calls
+    parser = object()
+    assert mw.process_request_2(parser, request(source())) is None
+    monitor, _ = _robots_middleware("monitor")
+    assert monitor.process_request_2(None, request(source())) is None
+    assert calls == [parser, None]
