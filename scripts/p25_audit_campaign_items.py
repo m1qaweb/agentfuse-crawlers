@@ -58,7 +58,8 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
         expected = by_category.get(category)
         if (expected is None or category in discovered
                 or job.get("spider") != SPIDERS[category]
-                or job.get("spider_args") != EXPECTED_ARGS
+                or not isinstance(job.get("spider_args"), dict)
+                or job.get("spider_args") not in (EXPECTED_ARGS, expected["pinned_spider_args"])
                 or job.get("unrecorded_argument_names")
                 or job.get("state") != "finished"
                 or job.get("job_id") in job_ids

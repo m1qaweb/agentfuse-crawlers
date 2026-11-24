@@ -287,6 +287,11 @@ def test_one_real_post_path_and_private_immutable_receipt(tmp_path):
     invoked = []
 
     def fake_post(project, job, key, timeout):
+        pins = job["spider_args"]
+        assert p.exact_pinned_args_shape(pins)
+        assert pins["bulk_run_plan_id"] == "synthetic_p25_pricing"
+        assert pins["expected_bulk_plan_sha256"] == policy.digest(args["plans"]["plans"]["synthetic_p25_pricing"])
+        assert pins["expected_deployment_package_sha256"] == package_fingerprint()
         invoked.append((project, job["category"], job["target_authorized_primary_urls"],
                         key, timeout))
         return b'{"status":"ok","jobid":"883514/3/225"}'
@@ -306,6 +311,8 @@ def test_one_real_post_path_and_private_immutable_receipt(tmp_path):
     assert "SYNTHETIC_KEY_NO_HTTP" not in payload
     assert "completion_verified" in payload
     assert "SCHEDULED_NOT_FINISHED_NOT_AUDITED" in payload
+    assert json.loads(files[0].read_text())["spider_args"] == json.loads(files[1].read_text())["spider_args"]
+    assert p.exact_pinned_args_shape(json.loads(files[0].read_text())["spider_args"])
     with pytest.raises(FileExistsError):
         launch.dispatch_one(**args, post=lambda *_: pytest.fail("duplicate POST"))
 
@@ -394,8 +401,14 @@ def test_exact_post_to_official_scrapy_cloud_jobs_api_only(monkeypatch):
                         lambda handler: Opener())
     job = {"spider": "official_pricing", "spider_args": {
         "cohort": "all", "collection_mode": "validation",
-        "confirm_full_inventory": "yes",
+        "confirm_full_inventory": "yes", "bulk_run_plan_id": "synthetic_pricing",
+        "expected_bulk_plan_sha256": "a" * 64,
+        "expected_deployment_package_sha256": "b" * 64,
     }}
+    with pytest.raises(ValueError, match="exact plan"):
+        launch._post_run(PROJECT, {**job, "spider_args": audit.EXPECTED_ARGS},
+                         "FAKE_NOT_A_SECRET", 3300)
+    assert calls == []
     body = launch._post_run(PROJECT, job, "FAKE_NOT_A_SECRET", 3300)
     assert launch._response_job_id(body, PROJECT) == "883514/3/225"
     assert len(calls) == 1
@@ -409,6 +422,9 @@ def test_exact_post_to_official_scrapy_cloud_jobs_api_only(monkeypatch):
         "job_settings": ['{"CLOSESPIDER_TIMEOUT":3300}'],
         "cohort": ["all"], "collection_mode": ["validation"],
         "confirm_full_inventory": ["yes"],
+        "bulk_run_plan_id": ["synthetic_pricing"],
+        "expected_bulk_plan_sha256": ["a" * 64],
+        "expected_deployment_package_sha256": ["b" * 64],
     }
     assert req.get_header("Authorization").startswith("Basic ")
     auth = req.get_header("Authorization").split(" ")[1]
@@ -908,3 +924,58 @@ def test_p26a_csv_round_trip_and_exact_header(tmp_path):
     path.write_text("source_id,decision\nfake,allowed_reviewed\n")
     with pytest.raises(ValueError, match="columns changed"):
         workbench.read_completed_worksheet(path)
+
+
+
+def test_p26c_pinned_archive_and_historical_replay(tmp_path):
+    from scripts.archive_jobs import _job_details
+    context, attempt, accepted, remote, requests, logs = _evidence_context(tmp_path)
+    ctx = context()
+    selected = next(j for j in ctx["campaign"]["jobs"] if j["category"] == "pricing")
+    pins = selected["pinned_spider_args"]
+    for path in (attempt, accepted):
+        raw = json.loads(path.read_text())
+        raw["spider_args"] = pins
+        path.write_text(json.dumps(raw))
+    remote["spider_args"] = pins
+    # The synthetic loader shares the in-memory job.
+    ctx["job"]["spider_args"] = pins
+    actual = _job_details(ctx["job"]["job_id"], remote)
+    assert actual["spider_args"] == pins
+    assert actual["unrecorded_argument_names"] == []
+    result = evidence.export_evidence(
+        context(), tmp_path / "pinned", key="SYNTHETIC_KEY_NO_HTTP",
+        fetch=_fake_evidence_fetch(remote, requests, logs))
+    assert evidence.replay_evidence(context(), tmp_path / "pinned") == result
+    changed = json.loads(accepted.read_text())
+    changed["spider_args"]["expected_deployment_package_sha256"] = "0" * 64
+    accepted.write_text(json.dumps(changed))
+    with pytest.raises(ValueError, match="runtime pins"):
+        context()
+
+
+def test_p26c_redacts_malformed_archive_pin_values(tmp_path):
+    from scripts.archive_jobs import _job_details
+    context, _, _, remote, _, _ = _evidence_context(tmp_path)
+    remote["spider_args"] = {
+        **audit.EXPECTED_ARGS,
+        "expected_bulk_plan_sha256": "NOT_A_VALID_HASH_PRIVATE_VALUE",
+    }
+    result = _job_details(context()["job"]["job_id"], remote)
+    assert "expected_bulk_plan_sha256" not in result["spider_args"]
+    assert result["unrecorded_argument_names"] == ["expected_bulk_plan_sha256"]
+
+
+def test_p26c_campaign_reports_runtime_pins_only_for_exact_plan():
+    rows = _g3_rows()
+    access, plans = _fake_policy(rows, 200)
+    report = p.build_campaign(rows, 200, access=access, plans=plans, now=NOW)
+    for job in report["jobs"]:
+        pins = job["pinned_spider_args"]
+        assert p.exact_pinned_args_shape(pins)
+        assert pins["expected_deployment_package_sha256"] == report["local_package_sha256_NOT_REMOTE_PROOF"]
+        assert pins["expected_bulk_plan_sha256"] == policy.digest(plans["plans"][pins["bulk_run_plan_id"]])
+    blank = {"schema_version": policy.SCHEMA, "kind": policy.PLAN_KIND,
+             "default_policy": "no_bulk_runs_authorized", "plans": {}}
+    blocked = p.build_campaign(rows, 200, access=access, plans=blank, now=NOW)
+    assert all(job["pinned_spider_args"] is None for job in blocked["jobs"])

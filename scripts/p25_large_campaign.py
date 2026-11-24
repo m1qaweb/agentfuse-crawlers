@@ -29,6 +29,31 @@ from scripts.g3_historical_items_triage import (
 )
 from scripts.plan_documentation_children import _private_new_directory, _write_private
 
+COMPACT_ARGS = {"cohort": "all", "confirm_full_inventory": "yes", "collection_mode": "validation"}
+PIN_FIELDS = ("bulk_run_plan_id", "expected_bulk_plan_sha256",
+              "expected_deployment_package_sha256")
+
+
+def pinned_spider_args(campaign, job, plans):
+    """Exact runtime identity, independently checked by the existing P21B gate."""
+    pid = job["matching_plan_id_NOT_REMOTE_PROOF"]
+    if job["reviewed_plan_authorization_status"] != "exact_approved_subset" or not pid:
+        raise ValueError("Cannot pin a job without an exact approved plan")
+    plan = plans["plans"][pid]
+    return {**COMPACT_ARGS, "bulk_run_plan_id": pid,
+            "expected_bulk_plan_sha256": digest(plan),
+            "expected_deployment_package_sha256": campaign["local_package_sha256_NOT_REMOTE_PROOF"]}
+
+
+def exact_pinned_args_shape(args):
+    from agentfuse_crawlers.validation_access import PLAN_ID, SHA256
+    return (isinstance(args, dict) and set(args) == set(COMPACT_ARGS) | set(PIN_FIELDS)
+            and all(args[k] == v for k, v in COMPACT_ARGS.items())
+            and all(isinstance(args[k], str) for k in PIN_FIELDS)
+            and PLAN_ID.fullmatch(args["bulk_run_plan_id"]) is not None
+            and SHA256.fullmatch(args["expected_bulk_plan_sha256"]) is not None
+            and SHA256.fullmatch(args["expected_deployment_package_sha256"]) is not None)
+
 KIND = "p25_200_300_full_category_campaign_NOT_CRAWL_PERMISSION"
 VERSION = "1.0"
 ORDER = ("pricing", "documentation", "changelog")
@@ -278,6 +303,10 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
     report["campaign_sha256"] = _campaign_identity(
         target, category_ids, pkg, access_sha, plans_sha,
     )
+    for job in jobs:
+        job["pinned_spider_args"] = (pinned_spider_args(report, job, plans)
+                                     if job["reviewed_plan_authorization_status"] == "exact_approved_subset"
+                                     else None)
     report["report_sha256"] = digest(report)
     return report
 

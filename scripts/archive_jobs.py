@@ -38,6 +38,8 @@ ALLOWED_ARGS = (
     "cohort", "source_ids", "limit", "offset", "confirm_full_inventory",
     "expected_manifest_sha256", "expected_selection_ids_sha256",
     "expected_source_registry_sha256", "collection_mode",
+    "bulk_run_plan_id", "expected_bulk_plan_sha256",
+    "expected_deployment_package_sha256",
 )
 STATS_KEYS = (
     "item_scraped_count", "elapsed_time_seconds", "finish_reason",
@@ -135,8 +137,14 @@ def _job_details(job_id, meta):
         raise ValueError("Malformed spider_args metadata")
     # An arbitrary spider arg could contain a private value. Archive ONLY
     # expected scope arguments; never serialize credentials or unknown args.
+    # Retain only well-shaped public plan identifiers and digests.
+    from agentfuse_crawlers.validation_access import PLAN_ID, SHA256
+    pins = {"bulk_run_plan_id": PLAN_ID, "expected_bulk_plan_sha256": SHA256,
+            "expected_deployment_package_sha256": SHA256}
     safe_args = {key: arguments[key] for key in ALLOWED_ARGS
-                 if key in arguments and isinstance(arguments[key], (str, int))}
+                 if key in arguments and isinstance(arguments[key], (str, int))
+                 and (key not in pins or (isinstance(arguments[key], str)
+                      and pins[key].fullmatch(arguments[key])))}
     return {
         "job_id": job_id, "spider": spider, "category": SPIDERS[spider],
         "state": meta["state"], "close_reason": str(meta.get("close_reason") or ""),
@@ -145,7 +153,7 @@ def _job_details(job_id, meta):
         "finished_time_ms": meta.get("finished_time"),
         "expected_item_count": count,
         "spider_args": safe_args,
-        "unrecorded_argument_names": sorted(set(arguments) - set(ALLOWED_ARGS)),
+        "unrecorded_argument_names": sorted(set(arguments) - set(safe_args)),
         "stats": {k: stats[k] for k in STATS_KEYS if k in stats
                   and isinstance(stats[k], (str, int, float))},
     }
