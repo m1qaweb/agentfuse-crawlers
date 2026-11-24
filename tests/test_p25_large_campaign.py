@@ -624,3 +624,171 @@ def test_p25_accepts_exact_g3_all460_and_denies_rank_or_quota_tampering(tmp_path
     with pytest.raises(ValueError):
         p.read_g3_review_csv(path)
 
+
+
+
+# P26B uses a completed category and the real P25 receipt shapes, never a
+# live credential or network. The fixtures deliberately retain a historical
+# dispatch time so the current system clock cannot change replay results.
+from scripts import p26b_campaign_evidence as evidence
+
+
+def _evidence_context(tmp_path):
+    args = _params(tmp_path, target=200)
+    report = p.build_campaign(args["g3_rows"], 200, access=args["access"],
+                              plans=args["plans"], now=NOW)
+    paths, records, loader = _synthetic_campaign_archives(
+        args["g3_rows"], 200, args["access"], args["plans"])
+    envelope, items = records["pricing"]
+    job = envelope["job"]
+    job_id = job["job_id"]
+    start = int(NOW.timestamp() * 1000) + 1000
+    end = start + 3000
+    job.update(expected_item_count=len(items), deploy_id="7",
+               deployment_version="synthetic", finished_time_ms=end,
+               stats={"downloader/request_count": 101})
+    category = next(j for j in report["jobs"] if j["category"] == "pricing")
+    plan_id = category["matching_plan_id_NOT_REMOTE_PROOF"]
+    plan = args["plans"]["plans"][plan_id]
+    ids = set(category["target_source_ids_manifest_order"])
+    for item in items:
+        item.update(
+            bulk_access_registry_sha256=report["access_registry_sha256"],
+            bulk_run_plan_registry_sha256=report["bulk_run_registry_sha256"],
+            bulk_run_plan_id=plan_id, bulk_run_plan_sha256=policy.digest(plan),
+            bulk_source_authorized_by_reviewed_plan=item["source_id"] in ids)
+    # A safely stopped job still contains diagnostic evidence.
+    items.pop()
+    job["expected_item_count"] = len(items)
+    job["close_reason"] = "agentfuse_validation_http_429"
+    archive_dir = tmp_path / "pricing"
+    archive_dir.mkdir()
+    (archive_dir / "envelope.json").write_text(json.dumps(envelope))
+    ledger = tmp_path / "ledger"
+    ledger.mkdir()
+    label = report["campaign_sha256"] + ".pricing"
+    attempt = {
+        "status": "DISPATCH_ATTEMPTED_UNKNOWN_UNTIL_ZYTE_RESPONSE",
+        "campaign_sha256": report["campaign_sha256"], "category": "pricing",
+        "project": PROJECT, "target_primary_urls": len(ids),
+        "remote_package_digest_OPERATOR_ATTESTATION_NOT_API_VERIFIED":
+            report["local_package_sha256_NOT_REMOTE_PROOF"],
+        "attempted_at_utc": NOW.isoformat(),
+    }
+    accepted = {
+        "status": "SCHEDULED_NOT_FINISHED_NOT_AUDITED",
+        "campaign_sha256": report["campaign_sha256"], "category": "pricing",
+        "job_id": job_id, "target_primary_urls": len(ids),
+        "requested_manifest_items": category["requested_manifest_items"],
+    }
+    attempt_path = ledger / (label + ".ATTEMPTED_NO_BLIND_RETRY.json")
+    accepted_path = ledger / (label + ".SCHEDULED.json")
+    attempt_path.write_text(json.dumps(attempt))
+    accepted_path.write_text(json.dumps(accepted))
+
+    def context():
+        return evidence.load_context(
+            args["g3_rows"], 200, report["campaign_sha256"], "pricing", ledger,
+            archive_dir, access=args["access"], plans=args["plans"],
+            loader=lambda _: (envelope, items),
+        )
+
+    urls = [s["source_url"] for s in items if s["source_id"] in ids]
+    requests = [
+        {"_key": f"{job_id}/{i}", "url": url, "method": "GET",
+         "time": start + 500, "status": 200, "duration": 20, "rs": 100}
+        for i, url in enumerate(urls)
+    ]
+    # More rows than the old single-source 96-request limit.
+    for i in range(len(requests), 101):
+        requests.append({"_key": f"{job_id}/{i}", "url": "https://unexpected.invalid/",
+                         "method": "GET", "time": start + 500,
+                         "status": 429, "duration": 20, "rs": 100})
+    logs = [{"_key": f"{job_id}/0", "level": 30, "message": "Synthetic stop", "time": end}]
+    remote = {
+        "state": "finished", "spider": job["spider"],
+        "spider_args": job["spider_args"], "close_reason": job["close_reason"],
+        "deploy_id": 7, "version": job["deployment_version"],
+        "running_time": start, "finished_time": end,
+        "scrapystats": {"item_scraped_count": len(items), "downloader/request_count": 101},
+    }
+    return context, attempt_path, accepted_path, remote, requests, logs
+
+
+def _fake_evidence_fetch(remote, requests, logs, *, stats_count=None):
+    def fetch(url, key, limit):
+        assert key == "SYNTHETIC_KEY_NO_HTTP"
+        parts = urlsplit(url)
+        assert parts.scheme == "https" and parts.netloc == "storage.zyte.com"
+        kind = parts.path.split("/")[1]
+        if kind == "jobs":
+            return json.dumps(remote).encode()
+        if parts.path.endswith("/stats"):
+            return json.dumps({"totals": {"input_values":
+                               len(requests) if stats_count is None else stats_count}}).encode()
+        query = parse_qs(parts.query)
+        offset = int(query["start"][0].rsplit("/", 1)[-1])
+        # Intentionally return short nonempty pages to ensure no premature stop.
+        count = min(int(query["count"][0]), 9)
+        rows = (requests if kind == "requests" else logs)[offset:offset + count]
+        return b"".join((json.dumps(row) + "\n").encode() for row in rows)
+    return fetch
+
+
+def test_p26b_category_export_replays_incomplete_historical_job(tmp_path):
+    context, _, _, remote, requests, logs = _evidence_context(tmp_path)
+    ctx = context()
+    out = tmp_path / "evidence"
+    result = evidence.export_evidence(
+        ctx, out, key="SYNTHETIC_KEY_NO_HTTP",
+        fetch=_fake_evidence_fetch(remote, requests, logs))
+    assert result["request_records"] == 101
+    assert result["manifest_slots"] == 177
+    assert len(result["missing_manifest_ids"]) == 1
+    assert result["issues"]["job_not_normally_closed"] == 1
+    assert result["issues"]["unreconciled_or_out_of_scope_url"] > 0
+    assert result["approved_for_advisor"] is False
+    assert evidence.replay_evidence(context(), out) == result
+    (out / "requests.jl").write_bytes(b"")
+    with pytest.raises(ValueError):
+        evidence.replay_evidence(context(), out)
+
+
+def test_p26b_export_refuses_truncated_requests_and_wrong_ordinals(tmp_path):
+    context, _, _, remote, requests, logs = _evidence_context(tmp_path)
+    out = tmp_path / "evidence"
+    with pytest.raises(ValueError, match="official storage stats"):
+        evidence.export_evidence(context(), out, key="SYNTHETIC_KEY_NO_HTTP",
+                                 fetch=_fake_evidence_fetch(remote, requests, logs, stats_count=102))
+    assert not out.exists()
+    requests[50]["_key"] = requests[49]["_key"]
+    with pytest.raises(ValueError, match="out-of-order"):
+        evidence.export_evidence(context(), out, key="SYNTHETIC_KEY_NO_HTTP",
+                                 fetch=_fake_evidence_fetch(remote, requests, logs))
+    assert not out.exists()
+
+
+def test_p26b_refuses_expired_at_dispatch_or_mismatched_job_receipt(tmp_path):
+    context, attempt, accepted, *_ = _evidence_context(tmp_path)
+    original = json.loads(attempt.read_text())
+    expired = dict(original, attempted_at_utc=(NOW + timedelta(days=10)).isoformat())
+    attempt.write_text(json.dumps(expired))
+    with pytest.raises(ValueError):
+        context()
+    attempt.write_text(json.dumps(original))
+    raw = json.loads(accepted.read_text())
+    raw["job_id"] = "883514/99/999"
+    accepted.write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="scheduled P25 category"):
+        context()
+
+
+def test_p26b_reports_request_after_plan_expiry(tmp_path):
+    context, _, _, remote, requests, logs = _evidence_context(tmp_path)
+    ctx = context()
+    # A hypothetical bad exported timestamp is a diagnostic, not permission.
+    requests[0]["time"] = int((NOW + timedelta(hours=4)).timestamp() * 1000)
+    result = evidence.export_evidence(ctx, tmp_path / "late", key="SYNTHETIC_KEY_NO_HTTP",
+                                      fetch=_fake_evidence_fetch(remote, requests, logs))
+    assert result["issues"]["primary_request_timestamp_outside_review_window"] == 1
+    assert result["issues"]["request_outside_official_job_window"] == 1
