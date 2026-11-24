@@ -792,3 +792,119 @@ def test_p26b_reports_request_after_plan_expiry(tmp_path):
                                       fetch=_fake_evidence_fetch(remote, requests, logs))
     assert result["issues"]["primary_request_timestamp_outside_review_window"] == 1
     assert result["issues"]["request_outside_official_job_window"] == 1
+
+
+
+# P26A workbench: no real permission is manufactured, even with complete
+# synthetic input. Reuse the exact P25 selection and production validators.
+from scripts import p26a_reviewed_campaign as workbench
+
+
+def _p26a_completed_worksheet(target, *, use_later_ranked=False):
+    rows = _g3_all460_rows()
+    installed = {"schema_version": policy.SCHEMA, "kind": policy.ACCESS_KIND,
+                 "default_decision": "not_reviewed", "reviews": {}}
+    fake, plans = _fake_policy(rows, target, use_later_ranked=use_later_ranked)
+    completed = workbench.worksheet(rows, installed)
+    for row in completed:
+        review = fake["reviews"].get(row["source_id"])
+        if review is None:
+            continue
+        for k in ("decision", "reviewed_by", "reviewed_at_utc", "expires_at_utc",
+                  "ownership_evidence_url", "publisher_access_policy_url", "robots_url",
+                  "evidence_note"):
+            row[k] = review[k]
+        for k in workbench.FLAGS:
+            row[k] = "yes"
+        row["retention_scope_and_TTL"] = "SYNTHETIC fixture only: no real retention claim."
+    return rows, installed, completed, plans
+
+
+def test_p26a_empty_worksheet_produces_no_authorization():
+    rows, installed, _, plans = _p26a_completed_worksheet(200)
+    blank = workbench.worksheet(rows, installed)
+    blank[0]["evidence_note"] = "Unverified research only; no operator decision."
+    candidate, imported = workbench.compile_reviews(rows, installed, blank, now=NOW)
+    assert candidate == installed and imported == {}
+    summary, draft = workbench.prepare_campaign(rows, candidate, plans, 300, now=NOW)
+    assert draft is None
+    assert summary["feasible_targets_from_current_records"] == []
+    assert summary["largest_feasible_target_at_or_below_requested"] is None
+    assert summary["ready_to_dispatch"] is False
+    assert sum(v["additional_reviews_needed"] for v in summary["categories"].values()) == 300
+
+
+def test_p26a_compiles_reviewed_fallback_and_only_unsigned_exact_plans():
+    rows, installed, completed, plans = _p26a_completed_worksheet(250, use_later_ranked=True)
+    # Host-group sorting must not alter pinned source ranking or identity.
+    candidate, imported = workbench.compile_reviews(
+        rows, installed, sorted(completed, key=lambda r: r["hostname"]), now=NOW)
+    assert imported == {"allowed_reviewed": 250}
+    assert installed["reviews"] == {}
+    summary, draft = workbench.prepare_campaign(rows, candidate, plans, 300, now=NOW)
+    assert draft is None and summary["largest_feasible_target_at_or_below_requested"] == 250
+    summary, draft = workbench.prepare_campaign(rows, candidate, plans, 250, now=NOW)
+    assert draft is not None and len(draft["plans"]) == 3
+    assert summary["ready_to_dispatch"] is False
+    for plan in draft["plans"].values():
+        assert plan["approved_by"] == ""
+        assert plan["publisher_policy_review_attested"] is False
+        assert plan["access_registry_sha256"] == policy.digest(candidate)
+        assert plan["max_primary_requests"] == len(plan["authorized_source_ids"])
+        assert plan["max_redirects_per_source"] == 0
+    with pytest.raises(ValueError):
+        policy.validate_plan_registry(draft, now=NOW)
+    # Simulate an actual separate reviewer completing the three plans, using
+    # only synthetic inputs. Production P25 must accept the exact scope.
+    for plan in draft["plans"].values():
+        plan.update(approved_by=REVIEWER, reviewed_at_utc=_date(timedelta(minutes=-1)),
+                    expires_at_utc=_date(timedelta(hours=2)), publisher_policy_review_attested=True)
+    final = p.build_campaign(rows, 250, access=candidate, plans=draft, now=NOW)
+    assert final["local_policy_and_three_plan_scope_complete"] is True
+
+
+@pytest.mark.parametrize("mutation", ["url", "duplicate", "attestation", "expired", "stale"])
+def test_p26a_refuses_unsafe_or_incomplete_decisions(mutation):
+    rows, installed, completed, _ = _p26a_completed_worksheet(200)
+    one = next(r for r in completed if r["decision"] == "allowed_reviewed")
+    if mutation == "url":
+        one["source_url"] = "https://wrong.invalid/"
+    elif mutation == "duplicate":
+        completed[-1] = dict(completed[0])
+    elif mutation == "attestation":
+        one["robots_reviewed"] = ""
+    elif mutation == "expired":
+        one["expires_at_utc"] = _date(timedelta(minutes=-1))
+    else:
+        one["installed_record_sha256"] = "a" * 64
+    with pytest.raises(ValueError):
+        workbench.compile_reviews(rows, installed, completed, now=NOW)
+
+
+def test_p26a_preserves_existing_records_and_explicit_revocation():
+    rows, installed, completed, _ = _p26a_completed_worksheet(200)
+    reviewed, _ = workbench.compile_reviews(rows, installed, completed, now=NOW)
+    blank = workbench.worksheet(rows, reviewed)
+    preserved, imported = workbench.compile_reviews(rows, reviewed, blank, now=NOW)
+    assert preserved == reviewed and imported == {}
+    one = next(r for r in blank if r["source_id"] in reviewed["reviews"])
+    original = reviewed["reviews"][one["source_id"]]
+    one.update(decision="deferred", reviewed_by=REVIEWER,
+               reviewed_at_utc=_date(timedelta(minutes=-1)),
+               expires_at_utc=_date(timedelta(days=1)),
+               evidence_note=FAKE_NOTE)
+    candidate, imported = workbench.compile_reviews(rows, reviewed, blank, now=NOW)
+    assert imported == {"deferred": 1}
+    assert candidate["reviews"][one["source_id"]]["scopes"] == []
+    assert original["scopes"] == ["bulk_validation"]
+
+
+def test_p26a_csv_round_trip_and_exact_header(tmp_path):
+    rows, installed, _, _ = _p26a_completed_worksheet(200)
+    expected = workbench.worksheet(rows, installed)
+    path = tmp_path / "review.csv"
+    path.write_bytes(workbench.worksheet_bytes(expected))
+    assert workbench.read_completed_worksheet(path) == expected
+    path.write_text("source_id,decision\nfake,allowed_reviewed\n")
+    with pytest.raises(ValueError, match="columns changed"):
+        workbench.read_completed_worksheet(path)
