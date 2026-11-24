@@ -695,7 +695,9 @@ class OfficialBaseSpider(scrapy.Spider):
                 policy_observation=("blocked_by_middleware"
                                     if name == "IgnoreRequest"
                                     else "fetch_failure_unknown_policy"),
-                final_url="", http_status=None, error=name,
+                final_url="", http_status=None,
+                error=(failure.request.meta.get("agentfuse_robots_lookup_failure")
+                       or name),
             )
         self.logger.warning("Failed fetching %s: %s", source["id"], failure.value)
         yield self._emit_status(record)

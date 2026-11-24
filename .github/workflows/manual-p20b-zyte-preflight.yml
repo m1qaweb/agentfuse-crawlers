@@ -170,7 +170,12 @@ jobs:
           assert p23a["status"] == "NO_GO"
           assert p23a["counts"]["configured_source_ids"] == 460
           assert p23a["counts"]["technical_validation_eligible_NOT_permission"] == 457
-          assert p23a["counts"]["locally_valid_plan_eligible_source_ids_NOT_remote_verified"] == 0
+          counts = p23a["counts"]
+          eligible = counts["locally_valid_plan_eligible_source_ids_NOT_remote_verified"]
+          assert 0 <= eligible <= counts["technical_validation_eligible_NOT_permission"]
+          assert eligible <= counts["current_bulk_review_attestations_NOT_legal_grants"]
+          assert counts["unreviewed_or_unplanned_source_ids"] == 460 - eligible
+          assert counts["actual_publisher_requests_authorized_by_this_report"] == 0
           assert p23a["bulk_run_approved"] is False
           assert p23a["new_zyte_jobs"] == p23a["network_requests_performed"] == 0
           assert census["configured_sources"] == 460

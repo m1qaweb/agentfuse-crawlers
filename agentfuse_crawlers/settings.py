@@ -22,6 +22,8 @@ RETRY_HTTP_CODES = [500, 502, 503, 504]
 # This prevents publisher page GETs after a long robots lookup; the robots
 # fetch itself remains subject to separate per-source human policy review.
 DOWNLOADER_MIDDLEWARES = {
+    "scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware": None,
+    "agentfuse_crawlers.validation_downloader.ValidationRobotsMiddleware": 100,
     "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 110,
 }
 REDIRECT_MAX_TIMES = 3
@@ -39,9 +41,8 @@ DEFAULT_REQUEST_HEADERS = {
 FEED_EXPORT_ENCODING = "utf-8"
 # Every periodic job makes real requests; never reuse an earlier crawl's HTML.
 HTTPCACHE_ENABLED = False
-# Keep the normal RedirectMiddleware for robots.txt: site robots endpoints may
-# redirect. Every source-page request has dont_redirect=True and implements
-# bounded, same-origin redirects in the spider instead.
+# Keep RedirectMiddleware for legacy monitoring; validation robots and
+# publisher requests explicitly disable automatic redirects and retries.
 REDIRECT_ENABLED = True
 METAREFRESH_ENABLED = False
 DOWNLOAD_WARNSIZE = 4_000_000

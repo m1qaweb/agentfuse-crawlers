@@ -100,7 +100,7 @@ def _synthetic_packet():
     return selected, access, plans, pid
 
 
-def test_current_real_package_is_460_id_no_go_and_no_approvals():
+def test_isolated_empty_policy_is_460_id_no_go_and_no_approvals():
     report, rows = build_readiness()
     c = report["counts"]
     assert manifest_sha256() == FROZEN_MANIFEST_SHA256

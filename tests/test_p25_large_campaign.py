@@ -228,7 +228,7 @@ def test_200_full_campaign_can_use_later_ranked_but_human_reviewed_sources():
     assert top_doc_id not in selected
 
 
-def test_installed_unreviewed_registries_block_every_full_job(tmp_path):
+def test_isolated_unreviewed_registries_block_every_full_job(tmp_path):
     rows = _g3_rows()
     report = p.build_campaign(rows, 300)
     assert report["reviewed_bulk_source_count_in_campaign"] == 0
