@@ -403,3 +403,26 @@ def test_robots_rejects_noncanonical_origin(monkeypatch):
     url = url.replace(":443/", ":444/")
     with pytest.raises(IgnoreRequest, match="unreviewed_robots_lookup_target"):
         gate.process_request(_exact_robots(src, url=url), fake_spider(src))
+
+
+@pytest.mark.parametrize("robots", [False, True])
+def test_existing_global_stop_holds_late_validation_admissions(monkeypatch, robots):
+    src = source()
+    mock_policy(monkeypatch, registry(src))
+    spider = fake_spider(src)
+    spider._agentfuse_validation_stop_reason = "agentfuse_validation_http_429"
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    req = _exact_robots(src) if robots else request(src)
+    with pytest.raises(IgnoreRequest, match="validation_global_stop_requested"):
+        gate.process_request(req, spider)
+    assert req.meta[HOLD_META] == "validation_global_stop_requested"
+    assert not gate._already_attempted
+    assert not gate._robots_attempted
+
+
+def test_global_validation_stop_latch_does_not_change_monitoring():
+    src = source()
+    spider = fake_spider(src, mode="monitor")
+    spider._agentfuse_validation_stop_reason = "agentfuse_validation_http_429"
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    assert gate.process_request(request(src), spider) is None

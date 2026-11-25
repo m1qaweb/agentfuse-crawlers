@@ -137,6 +137,8 @@ class ValidationDownloadGate:
     def process_request(self, request, spider):
         if getattr(spider, "collection_mode", None) != "validation":
             return None
+        if getattr(spider, "_agentfuse_validation_stop_reason", None):
+            self._hold(request, "validation_global_stop_requested")
 
         # Scrapy itself makes robots lookups (with dont_obey_robotstxt=True)
         # when ROBOTSTXT_OBEY is on. They have no source cb_kwargs and are

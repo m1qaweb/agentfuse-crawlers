@@ -221,6 +221,11 @@ class SourceCoverageAudit:
                     and source_id in {s["id"] for s in spider.selected}):
                 stop_reason = _validation_access_abort_reason(item)
                 if stop_reason:
+                    # Latch the existing global stop before calling the
+                    # engine. Later downloader admissions must not continue
+                    # while the asynchronous shutdown is being processed.
+                    # Requests already admitted may still complete.
+                    spider._agentfuse_validation_stop_reason = stop_reason
                     engine = getattr(self.crawler, "engine", None)
                     if engine is None:
                         raise RuntimeError(
