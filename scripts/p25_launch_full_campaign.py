@@ -121,13 +121,49 @@ def _exclusive_json(path, payload):
     return path
 
 
+def _require_clean_predecessors(g3_rows, target, category, project, campaign_sha256,
+                                ledger_dir, prior_evidence, *, access, plans):
+    """Replay earlier categories before any new Zyte network action.
+
+    Conservatively halt the whole sequential campaign after ANY prior group
+    barrier, missing evidence, transport/integrity issue or abnormal close.
+    An owner-reviewed, re-scoped campaign is a separate decision, not a retry.
+    """
+    from scripts.p26b_campaign_evidence import load_context, replay_evidence
+
+    predecessors = ORDER[:ORDER.index(category)]
+    if len(prior_evidence) != len(predecessors):
+        raise ValueError("NO-GO: supply ordered Items archive and P26B evidence for every prior category")
+    for previous, pair in zip(predecessors, prior_evidence):
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise ValueError("NO-GO: each predecessor needs an archive and evidence directory")
+        try:
+            context = load_context(g3_rows, target, campaign_sha256, previous,
+                                   ledger_dir, pair[0], access=access, plans=plans)
+            report = replay_evidence(context, pair[1])
+        except (OSError, ValueError) as exc:
+            raise ValueError("NO-GO: predecessor evidence missing, invalid or mismatched: " + previous) from exc
+        if (context["job"]["job_id"].split("/")[0] != project
+                or report.get("campaign_sha256") != campaign_sha256
+                or report.get("category") != previous
+                or report.get("job_id") != context["job"]["job_id"]
+                or report.get("missing_manifest_ids") != []
+                or report.get("target_without_primary_get_ids") != []
+                or report.get("blocked_publisher_group_ids") != []
+                or report.get("intentional_containment_hold_ids") != []
+                or report.get("issues") != {}
+                or report.get("log_error_or_critical_records") != 0
+                or report.get("target_primary_urls_observed") != len(context["target_ids"])):
+            raise ValueError("NO-GO: predecessor access/coverage barrier; owner review and new scope required: " + previous)
+
+
 def dispatch_one(*, g3_rows, target, category, project, campaign_sha256,
                  observed_remote_package_sha256, ledger_dir,
                  ack_account_billing, ack_source_rights,
                  timeout_seconds=3300, key=None,
                  account_preflight=None, post=None,
                  access=None, plans=None, now=None,
-                 package_sha=None):
+                 package_sha=None, prior_evidence=()):
     """A single non-idempotent POST, after every full-campaign source/plan gate."""
     if category not in ORDER:
         raise ValueError("Only three full-category campaign jobs are supported")
@@ -153,6 +189,11 @@ def dispatch_one(*, g3_rows, target, category, project, campaign_sha256,
     if (not isinstance(api_key, str) or not api_key
             or any(c in api_key for c in "\r\n\x00")):
         raise ValueError("Private ZYTE_SCRAPY_CLOUD_API_KEY is required")
+
+    # No later category is admitted merely because the prior Zyte job left
+    # the queue. Its exact evidence must reconcile before any new API GET/POST.
+    _require_clean_predecessors(g3_rows, target, category, project, campaign_sha256,
+                                ledger_dir, prior_evidence, access=access, plans=plans)
 
     # A conservative 3-GET snapshot; not atomic and not a publisher permit.
     inspect = (account_preflight if account_preflight is not None
@@ -237,6 +278,9 @@ def main():
     parser.add_argument("--timeout-seconds", type=int, default=3300)
     parser.add_argument("--ledger-dir", type=Path, required=True,
                         help="Persistent owner-private local directory across all three launches")
+    parser.add_argument("--prior-category-evidence", action="append", nargs=2,
+                        type=Path, metavar=("ITEMS_ARCHIVE", "P26B_EVIDENCE"),
+                        default=[], help="Repeat in pricing/documentation order for each predecessor")
     args = parser.parse_args()
     result = dispatch_one(
         g3_rows=read_g3_review_csv(args.g3_all460 or args.g3_top300),
@@ -245,7 +289,7 @@ def main():
         observed_remote_package_sha256=args.remote_package_sha256,
         ledger_dir=args.ledger_dir, ack_account_billing=args.ack_account_billing,
         ack_source_rights=args.ack_source_rights,
-        timeout_seconds=args.timeout_seconds,
+        timeout_seconds=args.timeout_seconds, prior_evidence=args.prior_category_evidence,
     )
     print(json.dumps(result, sort_keys=True))
 

@@ -778,3 +778,24 @@ def test_cloud_bulk_expired_reviewed_plan_still_rejects_startup(monkeypatch):
     with pytest.raises(ValueError, match="Bulk authorization expired"):
         DocumentationSpider(cohort="all", confirm_full_inventory="yes",
                             collection_mode="validation")
+
+
+def test_r2_only_reviewed_zero_redirect_full_category_enables_containment(monkeypatch):
+    from scrapy.http import HtmlResponse
+    from agentfuse_crawlers.validation_containment import state_for
+    selected, reviews, plans, pid, _ = fake_case(count=194, allowed_count=2)
+    plans["plans"][pid]["max_redirects_per_source"] = 0
+    _mock_private_registries(monkeypatch, reviews, plans)
+    spider = DocumentationSpider(cohort="all", confirm_full_inventory="yes")
+    state = state_for(spider)
+    assert state is not None
+    # The actual parser latches a known 429 before the Item pipeline.
+    src = selected[0]
+    resp = HtmlResponse(src["url"], status=429, request=Request(src["url"]),
+                        body=b"<html>limited</html>", encoding="utf-8")
+    row, = list(spider.parse_page(resp, src))
+    assert row["status"] == "source_access_limited"
+    assert row["validation_containment_group"] == state.by_source[src["id"]]
+    assert len(state.blocked) == 1 and state.global_reason is None
+    single = DocumentationSpider(cohort="all", source_ids=src["id"])
+    assert state_for(single) is None

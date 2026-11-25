@@ -996,3 +996,110 @@ def test_future_review_is_not_counted_as_current_campaign_eligibility():
                               now=NOW + timedelta(minutes=1))
     assert report["reviewed_bulk_source_count_in_campaign"] == 200
     assert not report["readiness_to_launch_from_this_report"]
+
+
+def _r2_hold(row):
+    from agentfuse_crawlers.validation_containment import group_index, GROUP_HOLD
+    groups, _ = group_index(load_sources())
+    row.update(status="source_bulk_validation_not_approved", error=GROUP_HOLD,
+               http_status=None, final_url="",
+               policy_observation="not_fetched_by_downloader_time_access_gate",
+               validation_containment_group=groups[row["source_id"]],
+               validation_containment_block_reason="agentfuse_validation_http_429",
+               validation_containment_pending_at_hold=False,
+               validation_containment_global_reason="")
+
+
+def test_r2_archive_distinguishes_intentional_hold_from_missing_item(tmp_path):
+    args = _params(tmp_path, target=200)
+    paths, records, loader = _synthetic_campaign_archives(
+        args["g3_rows"], 200, args["access"], args["plans"])
+    row = next(r for r in records["pricing"][1] if r["http_status"] == 200)
+    _r2_hold(row)
+    result = audit.audit_archives(args["g3_rows"], 200, paths,
+                                  access=args["access"], plans=args["plans"], now=NOW,
+                                  loader=loader)
+    assert result["full_campaign_items_coverage_complete"] is True
+    assert result["target_http200_items_NOT_ACCURACY"] == 199
+    assert result["target_containment_hold_count"] == 1
+    assert result["status"] == "NO_GO_INCOMPLETE_OR_ACCESS_BARRIER"
+    assert result["categories"]["pricing"]["target_containment_hold_ids"] == [row["source_id"]]
+    row["validation_containment_block_reason"] = ""
+    with pytest.raises(ValueError, match="Selected source was not authorized"):
+        audit.audit_archives(args["g3_rows"], 200, paths,
+                             access=args["access"], plans=args["plans"], now=NOW,
+                             loader=loader)
+
+
+def test_r2_requests_audit_separates_intentional_hold_from_actual_get(tmp_path):
+    context, _, _, remote, requests, logs = _evidence_context(tmp_path)
+    ctx = context()
+    row = next(r for r in ctx["items"] if r["source_id"] in ctx["target_ids"])
+    _r2_hold(row)
+    remaining = [r for r in requests if r["url"] != row["source_url"]]
+    remote["scrapystats"]["downloader/request_count"] = len(remaining)
+    # The synthetic storage API returns contiguous job ordinals.
+    for i, request_row in enumerate(remaining):
+        request_row["_key"] = ctx["job"]["job_id"] + "/" + str(i)
+    result = evidence.export_evidence(ctx, tmp_path / "r2-evidence",
+                                      key="SYNTHETIC_KEY_NO_HTTP",
+                                      fetch=_fake_evidence_fetch(remote, remaining, logs))
+    sid = row["source_id"]
+    assert sid in result["target_without_primary_get_ids"]
+    assert sid in result["intentional_containment_hold_ids"]
+    assert sid not in result["unexpected_target_without_primary_get_ids"]
+    assert result["issues"]["intentional_containment_hold"] == 1
+    assert result["approved_for_advisor"] is False
+
+
+@pytest.mark.parametrize("category", ["documentation", "changelog"])
+def test_r2_later_category_without_predecessor_evidence_never_calls_api(tmp_path, category):
+    args = _params(tmp_path, target=200)
+    args["category"] = category
+    args["account_preflight"] = lambda *_: pytest.fail("No account GET before prior evidence")
+    with pytest.raises(ValueError, match="prior category"):
+        launch.dispatch_one(**args, post=lambda *_: pytest.fail("unsafe POST"))
+
+
+@pytest.mark.parametrize("mutation", ["clean", "hold", "missing", "wrong_job", "log_error"])
+def test_r2_predecessor_replay_gate(tmp_path, monkeypatch, mutation):
+    args = _params(tmp_path, target=200)
+    args["category"] = "documentation"
+    args["prior_evidence"] = [(tmp_path / "archive", tmp_path / "raw-evidence")]
+    context = {"job": {"job_id": PROJECT + "/3/9"}, "target_ids": {"a", "b"}}
+    checked = []
+
+    def load(*values, **kwargs):
+        assert values[2] == args["campaign_sha256"] and values[3] == "pricing"
+        checked.append("archive")
+        return context
+
+    def replay(ctx, path):
+        assert ctx is context and path == args["prior_evidence"][0][1]
+        checked.append("raw_replay")
+        report = dict(campaign_sha256=args["campaign_sha256"], category="pricing",
+                      job_id=context["job"]["job_id"], missing_manifest_ids=[],
+                      target_without_primary_get_ids=[], blocked_publisher_group_ids=[],
+                      intentional_containment_hold_ids=[], issues={},
+                      log_error_or_critical_records=0, target_primary_urls_observed=2)
+        if mutation == "hold":
+            report["intentional_containment_hold_ids"] = ["a"]
+        elif mutation == "missing":
+            report["missing_manifest_ids"] = ["b"]
+        elif mutation == "wrong_job":
+            report["job_id"] = PROJECT + "/3/99"
+        elif mutation == "log_error":
+            report["log_error_or_critical_records"] = 1
+        return report
+
+    monkeypatch.setattr(evidence, "load_context", load)
+    monkeypatch.setattr(evidence, "replay_evidence", replay)
+    if mutation == "clean":
+        result = launch.dispatch_one(**args,
+            post=lambda *_: b'{"status":"ok","jobid":"883514/2/99"}')
+        assert result["scheduled"] == 1
+    else:
+        args["account_preflight"] = lambda *_: pytest.fail("Unsafe GET after prior issue")
+        with pytest.raises(ValueError, match="predecessor access/coverage barrier"):
+            launch.dispatch_one(**args, post=lambda *_: pytest.fail("unsafe POST"))
+    assert checked == ["archive", "raw_replay"]

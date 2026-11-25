@@ -22,6 +22,7 @@ from agentfuse_crawlers.documentation_scope import compact_documentation_record
 from agentfuse_crawlers.provider_profiles import identify_source_product
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.diagnostics import derive_diagnostics
+from agentfuse_crawlers.validation_containment import Containment, state_for
 from agentfuse_crawlers.source_lifecycle import (
     COLLECTION_MODES, collection_decision, registry_revision_sha256,
     source_lifecycle,
@@ -86,6 +87,9 @@ class OfficialBaseSpider(scrapy.Spider):
                  expected_bulk_plan_sha256=None,
                  expected_deployment_package_sha256=None, **kwargs):
         super().__init__(**kwargs)
+        # Internal run-control state is not a configurable spider argument.
+        self._agentfuse_containment = None
+        self._agentfuse_validation_stop_reason = None
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
         # a previously unbounded scheduled job must be consciously updated.
@@ -214,6 +218,15 @@ class OfficialBaseSpider(scrapy.Spider):
                 if self.run_context["zyte_job_id"]:
                     raise ValueError(message)
                 self.logger.warning("%s Local held-only accounting.", message)
+            # Owner-approved R2 policy applies only to the three explicitly
+            # confirmed, exact-plan, zero-redirect full-category jobs.
+            # All single sources, shards and legacy plans retain global stop.
+            if (cohort == "all" and source_ids is None and limit is None
+                    and self.offset == 0 and confirm_full_inventory == "yes"
+                    and self.bulk_gate_decision == "exact_git_reviewed_bounded_run_plan"
+                    and self.bulk_plan_id and self.bulk_authorized_ids
+                    and self.bulk_max_redirects_per_source == 0):
+                self._agentfuse_containment = Containment(self, load_sources())
         else:
             if (bulk_run_plan_id is not None or
                     expected_bulk_plan_sha256 is not None or
@@ -357,6 +370,11 @@ class OfficialBaseSpider(scrapy.Spider):
         }
 
     def _emit_status(self, record):
+        state = state_for(self)
+        if state is not None:
+            # Latch parser-discovered barriers before yielding to asynchronous
+            # pipelines; coverage owns the subsequent global close call.
+            state.annotate(record)
         record.update(derive_diagnostics(record))
         if getattr(self, "crawler", None) is not None:
             self.crawler.stats.inc_value(f'agentfuse/status/{record["status"]}')
@@ -517,6 +535,8 @@ class OfficialBaseSpider(scrapy.Spider):
             cache_warnings=record["freshness_warnings"],
             cached=any("cache" in f for f in flags),
         )
+        access_challenge = (state_for(self) is not None and status == "blocked"
+                            and reason == "access_or_login_challenge")
         if chain and urlsplit(_visible_url(response.url)).path.rstrip("/") != (
             urlsplit(source["url"]).path.rstrip("/")
         ):
@@ -533,6 +553,12 @@ class OfficialBaseSpider(scrapy.Spider):
             # A first-party host may serve the wrong product/landing page.
             # Retain the conflict rather than treating HTTP 200 as ownership.
             status, reason = "needs_review", "source_product_title_conflict"
+        # Canonical/product mismatch must not mask a detected access barrier
+        # during a bounded diagnostic. Preserve monitoring's legacy behavior.
+        if access_challenge:
+            status, reason = "blocked", "access_or_login_challenge"
+            state_for(self).observe({"source_id": source["id"], "status": status,
+                                     "error": reason, "http_status": response.status})
         record.update(status=status, error=reason)
         # Include diagnostics in Item-size compaction, not as hidden overage.
         record.update(derive_diagnostics(record))
