@@ -1,0 +1,30 @@
+name: One-time R1 public robots observations
+on:
+  push:
+    branches:
+      - ops/r1-live-policy-evidence-20261125
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install same robots parser used by validated package
+        run: python -m pip install --disable-pip-version-check protego==0.7.0
+      - name: Collect once per origin (robots only, not approval)
+        run: PYTHONPATH=. python ops/r1_live/observe.py
+      - name: Upload bounded policy metadata (no bodies or secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1-public-policy-observations
+          path: r1_policy_observations.json
+          if-no-files-found: warn
+          retention-days: 7
