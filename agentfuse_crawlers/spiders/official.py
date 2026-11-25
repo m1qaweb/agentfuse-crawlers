@@ -23,6 +23,9 @@ from agentfuse_crawlers.provider_profiles import identify_source_product
 from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.diagnostics import derive_diagnostics
 from agentfuse_crawlers.validation_containment import Containment, state_for
+from agentfuse_crawlers.public_diagnostic import (
+    PUBLIC_DIAGNOSTIC, PUBLIC_GATE, authorize_public_diagnostic,
+)
 from agentfuse_crawlers.source_lifecycle import (
     COLLECTION_MODES, collection_decision, registry_revision_sha256,
     source_lifecycle,
@@ -85,23 +88,32 @@ class OfficialBaseSpider(scrapy.Spider):
                  expected_selection_ids_sha256=None, collection_mode="validation",
                  expected_source_registry_sha256=None, bulk_run_plan_id=None,
                  expected_bulk_plan_sha256=None,
-                 expected_deployment_package_sha256=None, **kwargs):
+                 expected_deployment_package_sha256=None,
+                 public_diagnostic_held_groups=None, **kwargs):
         super().__init__(**kwargs)
         # Internal run-control state is not a configurable spider argument.
         self._agentfuse_containment = None
         self._agentfuse_validation_stop_reason = None
+        self._public_diagnostic_scope = None
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
         # a previously unbounded scheduled job must be consciously updated.
         explicit_cohort = cohort is not None
         cohort = "proven" if cohort is None else cohort
-        if cohort == "all" and source_ids is None and confirm_full_inventory != "yes":
+        public_diagnostic = confirm_full_inventory == PUBLIC_DIAGNOSTIC
+        if cohort == "all" and source_ids is None and confirm_full_inventory not in ("yes", PUBLIC_DIAGNOSTIC):
             raise ValueError(
                 "cohort=all requires confirm_full_inventory=yes when "
                 "source_ids is omitted; use cohort=proven for smoke tests"
             )
-        if confirm_full_inventory not in (None, "yes"):
-            raise ValueError("confirm_full_inventory must be 'yes' when provided")
+        if confirm_full_inventory not in (None, "yes", PUBLIC_DIAGNOSTIC):
+            raise ValueError("confirm_full_inventory must be 'yes' or 'public_diagnostic' when provided")
+        if public_diagnostic and (cohort != "all" or source_ids is not None
+                or limit is not None or str(offset) != "0" or collection_mode != "validation"
+                or bulk_run_plan_id is not None or expected_bulk_plan_sha256 is not None):
+            raise ValueError("Public diagnostic requires an explicit whole-category validation run")
+        if not public_diagnostic and public_diagnostic_held_groups is not None:
+            raise ValueError("Public diagnostic held groups require public_diagnostic confirmation")
         # Source IDs must exist in the reviewed manifest. Never accept URL args.
         self.selected = select_sources(self.category, cohort, source_ids, limit, offset)
         if collection_mode not in COLLECTION_MODES:
@@ -187,13 +199,23 @@ class OfficialBaseSpider(scrapy.Spider):
                     expected_deployment_package_sha256 = (
                         self.run_context["deployment_revision"]
                     )
-            decision = authorize_bulk_run(
-                selected=self.selected, category=self.category, cohort=self.cohort,
-                collection_mode=self.collection_mode, plan_id=bulk_run_plan_id,
-                expected_plan_sha256=expected_bulk_plan_sha256,
-                expected_package_sha256=expected_deployment_package_sha256,
-                current_package_sha256=self.run_context["deployment_revision"],
-            )
+            if public_diagnostic:
+                if (expected_deployment_package_sha256 is not None
+                        and expected_deployment_package_sha256 != self.run_context["deployment_revision"]):
+                    raise ValueError("Public diagnostic deployment package fingerprint mismatch")
+                self._public_diagnostic_scope, decision = authorize_public_diagnostic(
+                    selected=self.selected, category=self.category,
+                    held_groups=public_diagnostic_held_groups,
+                )
+                self.validation_scope = PUBLIC_DIAGNOSTIC
+            else:
+                decision = authorize_bulk_run(
+                    selected=self.selected, category=self.category, cohort=self.cohort,
+                    collection_mode=self.collection_mode, plan_id=bulk_run_plan_id,
+                    expected_plan_sha256=expected_bulk_plan_sha256,
+                    expected_package_sha256=expected_deployment_package_sha256,
+                    current_package_sha256=self.run_context["deployment_revision"],
+                )
             self.bulk_plan_id = decision["plan_id"]
             self.bulk_plan_sha256 = decision["plan_sha256"]
             self.bulk_authorized_ids = decision["authorized_source_ids"]
@@ -222,11 +244,13 @@ class OfficialBaseSpider(scrapy.Spider):
             # confirmed, exact-plan, zero-redirect full-category jobs.
             # All single sources, shards and legacy plans retain global stop.
             if (cohort == "all" and source_ids is None and limit is None
-                    and self.offset == 0 and confirm_full_inventory == "yes"
-                    and self.bulk_gate_decision == "exact_git_reviewed_bounded_run_plan"
+                    and self.offset == 0 and confirm_full_inventory in ("yes", PUBLIC_DIAGNOSTIC)
+                    and self.bulk_gate_decision in ("exact_git_reviewed_bounded_run_plan", PUBLIC_GATE)
                     and self.bulk_plan_id and self.bulk_authorized_ids
                     and self.bulk_max_redirects_per_source == 0):
-                self._agentfuse_containment = Containment(self, load_sources())
+                self._agentfuse_containment = Containment(
+                    self, load_sources(), consecutive_barriers=public_diagnostic,
+                )
         else:
             if (bulk_run_plan_id is not None or
                     expected_bulk_plan_sha256 is not None or
@@ -297,8 +321,8 @@ class OfficialBaseSpider(scrapy.Spider):
                 record = self._base_record(source)
                 record.update(
                     status="source_bulk_validation_not_approved",
-                    error=("bulk_run_plan_not_present"
-                           if not self.bulk_plan_id
+                    error=("public_diagnostic_source_not_in_scope" if self._public_diagnostic_scope is not None
+                           else "bulk_run_plan_not_present" if not self.bulk_plan_id
                            else "bulk_source_not_in_authorized_scope"),
                     http_status=None, final_url="",
                     policy_observation="not_fetched_by_bulk_source_access_gate",
@@ -348,8 +372,15 @@ class OfficialBaseSpider(scrapy.Spider):
             "bulk_max_redirects_per_source": self.bulk_max_redirects_per_source,
             "bulk_source_authorized_by_reviewed_plan": bool(
                 self.bulk_validation_required
+                and self._public_diagnostic_scope is None
                 and source["id"] in self.bulk_authorized_ids
             ),
+            **({
+                "public_diagnostic_source_in_scope": source["id"] in self.bulk_authorized_ids,
+                "public_diagnostic_publisher_rights_independently_verified": False,
+                "public_diagnostic_scope_id": self.bulk_plan_id,
+                "public_diagnostic_scope_sha256": self.bulk_plan_sha256,
+            } if self._public_diagnostic_scope is not None else {}),
             "bulk_gate_decision": self.bulk_gate_decision,
             "source_lifecycle_state": profile["state"],
             "source_policy_status": profile["policy_status"],
