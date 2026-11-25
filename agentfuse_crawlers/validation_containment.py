@@ -5,9 +5,10 @@ Known product families, exact providers and shared DNS suffixes are joined
 transitively. A shared platform may hold multiple independent publishers;
 these groups are conservative operational boundaries, not ownership proof.
 """
+import re
 from math import isfinite
 from time import monotonic
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 GROUP_HOLD = "validation_publisher_group_held"
 GLOBAL_HOLD = "validation_global_stop_requested"
@@ -18,7 +19,10 @@ TRANSPORT_STOP = "agentfuse_validation_unresolved_transport_failure"
 TIMEOUT_STOP = "agentfuse_validation_containment_runtime_expired"
 MAX_RUNTIME_SECONDS = 3300
 MAX_BLOCKED_GROUPS = 3
+ORDINARY_REDIRECT = "agentfuse_validation_ordinary_redirect_deferred"
+REDIRECT_BARRIER = "agentfuse_validation_unreviewed_redirect"
 GROUP_BARRIERS = frozenset({
+    ORDINARY_REDIRECT,
     "agentfuse_validation_http_access_denied", "agentfuse_validation_http_429",
     "agentfuse_validation_unreviewed_redirect", "agentfuse_validation_http_server_failure",
     "agentfuse_validation_robots_or_policy_denied", "agentfuse_validation_access_or_login_challenge",
@@ -70,6 +74,45 @@ def group_index(sources):
     return by_source, by_origin
 
 
+def ordinary_redirect_target(status, source_url, locations):
+    """Conservatively classify a normal same-origin path move, never follow it.
+
+    Ambiguous, cross-origin, encoded, query-bearing, login/challenge, missing,
+    duplicate and malformed locations keep the original access-barrier behavior.
+    """
+    if status not in (301, 302, 303, 307, 308) or len(locations) != 1:
+        return None
+    try:
+        raw = locations[0].decode("ascii")
+        if (not raw or len(raw) > 2048 or not re.fullmatch(r"[A-Za-z0-9._~:/-]+", raw)
+                or not (raw.startswith("https://") or raw.startswith("/") and not raw.startswith("//"))):
+            return None
+        original = urlsplit(source_url)
+        supplied = urlsplit(raw)
+        # urljoin repairs an absolute URL such as https:///path into a
+        # same-host path. Do not let that disguise a malformed Location.
+        if raw.startswith("https://") and supplied.netloc != original.netloc:
+            return None
+        if any(segment in (".", "..") for segment in supplied.path.split("/")):
+            return None
+        target = urljoin(source_url, raw)
+        parts = urlsplit(target)
+        path = parts.path or "/"
+        if (original.scheme != "https" or parts.scheme != "https"
+                or parts.netloc != original.netloc or parts.username or parts.password
+                or original.query or original.fragment or parts.query or parts.fragment
+                or path == (original.path or "/") or target == source_url
+                or len(path) > 600 or "//" in path
+                or not re.fullmatch(r"/[A-Za-z0-9._~/-]*", path)):
+            return None
+        if re.search(r"(?:^|[^a-z0-9])(?:login|log[-_]?in|sign[-_]?in|sign[-_]?on|sso|oauth2?|auth(?:enticate|entication|orize|orization)?|captcha|challenge|access[-_]?denied|forbidden|blocked|verify|account|session|consent)(?:$|[^a-z0-9])",
+                     path.lower()):
+            return None
+        return "https://" + parts.netloc + path
+    except (AttributeError, TypeError, UnicodeError, ValueError):
+        return None
+
+
 class Containment:
     """A single spider's monotone group/global stop state, no network I/O."""
 
@@ -82,6 +125,7 @@ class Containment:
         self.blocked = {}
         self.consecutive_barriers = consecutive_barriers
         self.recent_blocked_groups = set()
+        self.ordinary_redirect_responses = {}
         self.healthy_sources = set()
         self.active = {}
         self.pending_at_hold = set()
@@ -98,10 +142,18 @@ class Containment:
         if group not in self.by_source.values() or reason not in GROUP_BARRIERS:
             self.stop(INTEGRITY_STOP)
             return
-        if group not in self.blocked:
+        previous = self.blocked.get(group)
+        if previous is None:
             self.blocked[group] = reason
-            self.recent_blocked_groups.add(group)
             self.pending_at_hold.update(token for token, g in self.active.items() if g == group)
+        elif previous == ORDINARY_REDIRECT and reason != ORDINARY_REDIRECT:
+            # An already-admitted response can expose a genuine barrier after
+            # an ordinary redirect. Upgrade the hold, never downgrade it.
+            self.blocked[group] = reason
+        else:
+            return
+        if not (self.consecutive_barriers and reason == ORDINARY_REDIRECT):
+            self.recent_blocked_groups.add(group)
         # Preserve the legacy reviewed-plan threshold. For explicitly selected
         # broad public diagnostics, isolated failures separated by healthy
         # primary responses are not evidence of a systemic outage. Holds
@@ -137,6 +189,22 @@ class Containment:
     def finish(self, token):
         return self.active.pop(token, None)
 
+    def primary_response(self, sid, group, status, source_url, locations):
+        """Record one trusted downloader classification before Item pipelines."""
+        if self.by_source.get(sid) != group:
+            self.stop(INTEGRITY_STOP)
+            return
+        reason, systemic = http_barrier(status)
+        if reason == REDIRECT_BARRIER and self.consecutive_barriers:
+            target = ordinary_redirect_target(status, source_url, locations)
+            if target is not None:
+                self.ordinary_redirect_responses[sid] = (status, target)
+                reason = ORDINARY_REDIRECT
+        if systemic:
+            self.stop(reason)
+        elif reason:
+            self.barrier(group, reason)
+
     def observe(self, item):
         sid = item.get("source_id")
         group = self.by_source.get(sid)
@@ -144,6 +212,14 @@ class Containment:
             self.stop(INTEGRITY_STOP)
             return
         reason, systemic = item_barrier(item)
+        if (reason == REDIRECT_BARRIER and self.consecutive_barriers
+                and item.get("status") == "redirect_needs_review"
+                and item.get("error") == "bulk_source_redirect_target_requires_review"
+                and self.ordinary_redirect_responses.get(sid)
+                == (item.get("http_status"), item.get("redirect_review_target"))):
+            # Only a matching classification made at the downloader boundary
+            # can keep a redirect out of the consecutive systemic counter.
+            reason = ORDINARY_REDIRECT
         if systemic:
             self.stop(reason)
         elif reason:

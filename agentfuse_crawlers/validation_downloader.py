@@ -23,7 +23,7 @@ from agentfuse_crawlers.robots_policy import reviewed_robots_body
 from agentfuse_crawlers.public_diagnostic import public_diagnostic_access_decision
 from agentfuse_crawlers.validation_containment import (
     GLOBAL_HOLD, INTEGRITY_STOP, PROXY_STOP, TRANSPORT_STOP,
-    http_barrier, state_for,
+    state_for,
 )
 
 from agentfuse_crawlers.sources import load_sources
@@ -307,11 +307,8 @@ class ValidationDownloadGate:
             # All other robots responses go through the strict body/parser
             # gate (including genuine 404/410, which are not HTML permits).
             return response
-        reason, systemic = http_barrier(response.status)
-        if systemic:
-            state.stop(reason)
-        elif reason:
-            state.barrier(group, reason)
+        state.primary_response(token, group, response.status, request.url,
+                               response.headers.getlist(b"Location"))
         return response
 
     def process_exception(self, request, exception, spider):
