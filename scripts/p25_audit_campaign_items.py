@@ -14,6 +14,9 @@ from pathlib import Path
 from agentfuse_crawlers.run_context import selection_ids_sha256
 from agentfuse_crawlers.sources import load_sources, select_sources
 from agentfuse_crawlers.validation_access import digest
+from agentfuse_crawlers.validation_containment import (
+    GROUP_BARRIERS, group_index, intentional_hold, item_barrier,
+)
 from scripts.archive_jobs import load_archive
 from scripts.p25_large_campaign import ORDER, SPIDERS, build_campaign, read_g3_review_csv
 from scripts.plan_documentation_children import _private_new_directory, _write_private
@@ -46,6 +49,7 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
     if len(paths) != 3 or len({str(Path(p).resolve()) for p in paths}) != 3:
         raise ValueError("Exactly 3 distinct full-category immutable archives required")
     manifest = {s["id"]: s for s in load_sources()}
+    groups, _ = group_index(manifest.values())
     by_category = {job["category"]: job for job in campaign["jobs"]}
     discovered, seen_source, job_ids = {}, set(), set()
     for path in paths:
@@ -72,6 +76,7 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
         expected_ids = {s["id"] for s in cat_sources}
         target_ids = set(expected["target_source_ids_manifest_order"])
         found, counted, good200, captured, barrier = set(), Counter(), 0, 0, 0
+        containment_holds, blocked_groups, pending_at_hold = set(), set(), set()
         for row in rows:
             sid = row.get("source_id") if isinstance(row, dict) else None
             source = manifest.get(sid) if isinstance(sid, str) else None
@@ -106,12 +111,19 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
                     raise ValueError("Non-target source has an unauthorized request/Item: " + sid)
             else:
                 if status in HELD_STATUSES or status == "source_single_validation_not_approved":
-                    raise ValueError("Selected source was not authorized under P25: " + sid)
+                    if not intentional_hold(row, groups):
+                        raise ValueError("Selected source was not authorized under P25: " + sid)
+                    containment_holds.add(sid)
                 good200 += int(row.get("http_status") == 200)
                 captured += int(status == "captured")
-                barrier += int(status in BARRIERS or row.get("http_status") in (
-                    401, 403, 407, 429,
-                ))
+                reason, systemic = item_barrier(row)
+                barrier += int(bool(reason))
+                if ((reason and not systemic) or
+                        (row.get("validation_containment_group") == groups[sid]
+                         and row.get("validation_containment_block_reason") in GROUP_BARRIERS)):
+                    blocked_groups.add(groups[sid])
+                if row.get("validation_containment_pending_at_hold") is True:
+                    pending_at_hold.add(sid)
         discovered[category] = {
             "job_id": job["job_id"], "close_reason": job.get("close_reason"),
             "expected_manifest_items": len(cat_sources),
@@ -121,6 +133,10 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
             "target_http200_items_NOT_ACCURACY": good200,
             "target_captured_status_NOT_VERIFIED": captured,
             "target_access_barrier_count": barrier,
+            "target_containment_hold_ids": sorted(containment_holds),
+            "target_containment_hold_count": len(containment_holds),
+            "blocked_publisher_group_ids": sorted(blocked_groups),
+            "target_admitted_pending_at_hold_ids_NOT_GET_PROOF": sorted(pending_at_hold),
             "observed_statuses": dict(sorted(counted.items())),
             "archive_scope_verified": True,
         }
@@ -131,11 +147,12 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
         for j in discovered.values()
     ) and len(seen_source) == 460
     barriers = sum(j["target_access_barrier_count"] for j in discovered.values())
+    holds = sum(j["target_containment_hold_count"] for j in discovered.values())
     result = {
         "schema_version": "1.0", "kind": KIND,
         "status": (
             "NO_GO_ARCHIVED_ITEMS_COMPLETE_NOT_REQUESTS_OR_GOLD"
-            if complete and barriers == 0 else
+            if complete and barriers == 0 and holds == 0 else
             "NO_GO_INCOMPLETE_OR_ACCESS_BARRIER"
         ),
         "campaign_sha256": campaign["campaign_sha256"],
@@ -151,6 +168,9 @@ def audit_archives(g3_rows, target, archive_dirs, *, access=None, plans=None,
             j["target_captured_status_NOT_VERIFIED"] for j in discovered.values()
         ),
         "target_access_barrier_count": barriers,
+        "target_containment_hold_count": holds,
+        "blocked_publisher_group_ids": sorted({g for j in discovered.values()
+                                               for g in j["blocked_publisher_group_ids"]}),
         "categories": discovered,
         "requests_and_logs_independently_reconciled": False,
         "publisher_html_and_human_gold_independently_verified": False,

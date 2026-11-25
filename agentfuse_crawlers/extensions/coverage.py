@@ -7,6 +7,7 @@ were relevant, complete, fresh, or suitable for an AI recommendation.
 from collections import Counter
 
 from agentfuse_crawlers.diagnostics import AXES as DIAGNOSTIC_AXES
+from agentfuse_crawlers.validation_containment import INTEGRITY_STOP, state_for
 
 from scrapy import signals
 from scrapy.exceptions import CloseSpider
@@ -212,39 +213,45 @@ class SourceCoverageAudit:
             ):
                 self.context_errors.add(source_id)
 
-            # item_scraped fires AFTER the Item Pipeline. Preserve the
-            # triggering denial/redirect Item before requesting shutdown.
-            # Does not grant publisher access, and already-in-flight requests
-            # may still complete: P23E/P23F must enforce external budgets.
-            if (getattr(spider, "collection_mode", None) == "validation"
-                    and not self.validation_abort_requested
-                    and source_id in {s["id"] for s in spider.selected}):
-                stop_reason = _validation_access_abort_reason(item)
-                if stop_reason:
-                    # Latch the existing global stop before calling the
-                    # engine. Later downloader admissions must not continue
-                    # while the asynchronous shutdown is being processed.
-                    # Requests already admitted may still complete.
-                    spider._agentfuse_validation_stop_reason = stop_reason
-                    engine = getattr(self.crawler, "engine", None)
-                    if engine is None:
-                        raise RuntimeError(
-                            "Cannot enforce validation access stop without Scrapy engine"
-                        )
-                    self.validation_abort_requested = True
-                    self.crawler.stats.set_value(
-                        "agentfuse/run/validation_abort_reason", stop_reason,
-                    )
-                    self.crawler.stats.set_value(
-                        "agentfuse/run/validation_abort_source_id", source_id,
-                    )
-                    spider.logger.warning(
-                        "Stopping validation job after access barrier: %s (%s)",
-                        source_id, stop_reason,
-                    )
-                    # Scrapy 2.18 supports close_spider(). Do not return its
-                    # Deferred from item_scraped: closing waits for pipelines.
-                    engine.close_spider(spider, reason=stop_reason)
+        # R2 state is latched synchronously at response/robots/parser
+        # boundaries, BEFORE an asynchronous Item Pipeline can delay it.
+        # A legacy single-source or shard still uses the original global
+        # stop on the first access barrier.
+        state = state_for(spider)
+        selected = {s["id"] for s in spider.selected}
+        if state is not None:
+            if (source_id not in selected or self.duplicates
+                    or self.context_errors or self.advisor_approval_anomalies
+                    or self.lifecycle_metadata_errors or self.missing_modern_diagnostics
+                    or item.get("validation_containment_group") != state.by_source.get(source_id)):
+                state.stop(INTEGRITY_STOP)
+            else:
+                state.observe(item)
+            if state.global_reason:
+                self._request_global_stop(spider, source_id, state.global_reason)
+        elif (getattr(spider, "collection_mode", None) == "validation"
+                and source_id in selected):
+            stop_reason = _validation_access_abort_reason(item)
+            if stop_reason:
+                self._request_global_stop(spider, source_id, stop_reason)
+
+    def _request_global_stop(self, spider, source_id, stop_reason):
+        if self.validation_abort_requested:
+            return
+        # Latch before asynchronous shutdown; requests already admitted
+        # cannot be claimed cancellable. Preserve triggering Item first.
+        spider._agentfuse_validation_stop_reason = stop_reason
+        engine = getattr(self.crawler, "engine", None)
+        if engine is None:
+            raise RuntimeError(
+                "Cannot enforce validation access stop without Scrapy engine"
+            )
+        self.validation_abort_requested = True
+        self.crawler.stats.set_value("agentfuse/run/validation_abort_reason", stop_reason)
+        self.crawler.stats.set_value("agentfuse/run/validation_abort_source_id", source_id)
+        spider.logger.warning("Stopping validation job: %s (%s)", source_id, stop_reason)
+        # Do not return the Deferred: closing waits for Item pipelines.
+        engine.close_spider(spider, reason=stop_reason)
 
     def summary(self, spider):
         expected = {row["id"] for row in spider.selected}
@@ -275,6 +282,18 @@ class SourceCoverageAudit:
             quality = "all_captured_unverified"
 
         stats = self.crawler.stats
+        state = state_for(spider)
+        if state is not None:
+            stats.set_value("agentfuse/containment/blocked_groups", dict(sorted(state.blocked.items())))
+            stats.set_value("agentfuse/containment/held_source_ids", sorted(state.held_sources))
+            # Admission is before the physical downloader slot; these
+            # tokens might already have been sent or still be slot-queued.
+            # Never count them as confirmed GETs without Requests evidence.
+            stats.set_value("agentfuse/containment/admitted_pending_at_hold",
+                            sorted(state.pending_at_hold))
+            stats.set_value("agentfuse/containment/still_pending_at_close",
+                            sorted(state.active))
+            stats.set_value("agentfuse/containment/global_reason", state.global_reason or "")
         metrics = {
             "expected_sources": len(expected),
             "reported_sources": len(expected & observed),
@@ -361,7 +380,12 @@ class SourceCoverageAudit:
     def spider_idle(self, spider):
         if spider.name not in VALID_NAMES:
             return
+        state = state_for(spider)
+        if state is not None and state.active:
+            state.stop(INTEGRITY_STOP)
         missing, extra, captured, partial = self.summary(spider)
+        if state is not None and state.global_reason:
+            raise CloseSpider(state.global_reason)
         if (missing or extra or self.duplicates or self.context_errors
                 or self.advisor_approval_anomalies
                 or self.lifecycle_metadata_errors or self.missing_modern_diagnostics):

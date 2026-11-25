@@ -289,3 +289,31 @@ def test_global_stop_latched_before_engine_shutdown_and_for_missing_engine():
             with pytest.raises(RuntimeError, match="without Scrapy engine"):
                 audit.item_scraped(row, None, spider)
         assert spider._agentfuse_validation_stop_reason == reason
+
+
+def test_r2_coverage_does_not_close_on_isolated_barrier_then_closes_on_systemic():
+    from agentfuse_crawlers.validation_containment import Containment, PROXY_STOP
+    audit, spider, stats = setup(("a", "b", "c"))
+    spider.collection_mode = "validation"
+    spider.source_registry_sha256 = "synthetic"
+    spider.selected = [
+        {"id": sid, "provider": sid, "category": "changelog",
+         "url": "https://" + sid + ".invalid/changelog"}
+        for sid in ("a", "b", "c")]
+    engine = RecordingEngine()
+    audit.crawler.engine = engine
+    state = Containment(spider, spider.selected)
+    spider._agentfuse_containment = state
+
+    def row(sid, status):
+        result = dict(source_id=sid, status="http_error", http_status=status,
+                      collection_mode="validation", source_registry_sha256="synthetic",
+                      approved_for_advisor=False)
+        state.annotate(result)
+        return result
+
+    audit.item_scraped(row("a", 429), None, spider)
+    assert not engine.closed and len(state.blocked) == 1
+    audit.item_scraped(row("b", 407), None, spider)
+    assert engine.closed == [(spider, PROXY_STOP)]
+    assert spider._agentfuse_validation_stop_reason == PROXY_STOP

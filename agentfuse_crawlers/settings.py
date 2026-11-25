@@ -23,6 +23,7 @@ RETRY_HTTP_CODES = [500, 502, 503, 504]
 # fetch itself remains subject to separate per-source human policy review.
 DOWNLOADER_MIDDLEWARES = {
     "scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware": None,
+    "agentfuse_crawlers.validation_downloader.ValidationPreRobotsGuard": 90,
     "agentfuse_crawlers.validation_downloader.ValidationRobotsMiddleware": 100,
     "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 110,
 }

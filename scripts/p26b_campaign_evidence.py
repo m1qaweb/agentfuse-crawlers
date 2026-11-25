@@ -16,7 +16,10 @@ from urllib.parse import urlsplit
 
 from agentfuse_crawlers import validation_access as policy
 from agentfuse_crawlers.run_context import selection_ids_sha256
-from agentfuse_crawlers.sources import select_sources
+from agentfuse_crawlers.sources import load_sources, select_sources
+from agentfuse_crawlers.validation_containment import (
+    GROUP_BARRIERS, group_index, http_barrier, intentional_hold, item_barrier,
+)
 from scripts.archive_jobs import JOB_ID, _job_details, _request, load_archive
 from scripts.p23c2_zyte_requests_logs_html_gate import (
     _check_log_schema, _check_request_schema, _ms_to_time, _pairs_no_duplicates,
@@ -260,6 +263,9 @@ def diagnose(context, metadata, requests, logs):
     statuses = {}
     issues = Counter()
     robots_count = 0
+    robots_counts = Counter()
+    groups, origin_groups = group_index(load_sources())
+    blocked_groups, containment_holds, pending_at_hold = set(), set(), set()
     for row in requests:
         t = _ms_to_time(row["time"])
         if not start <= t <= end:
@@ -274,12 +280,22 @@ def diagnose(context, metadata, requests, logs):
                 issues["primary_request_timestamp_outside_review_window"] += 1
         elif row["url"] in robots_urls:
             robots_count += 1
+            robots_counts[row["url"]] += 1
         else:
             # No broad redirect allowance: flag even possibly legitimate
             # robots redirects for independent review rather than pass them.
             issues["unreconciled_or_out_of_scope_url"] += 1
-        if row["status"] in ALLOWED_HTTP_BARRIERS:
+        reason, systemic = http_barrier(row["status"])
+        if reason:
             issues["http_access_barrier"] += 1
+            if not systemic:
+                if row["url"] in target_urls:
+                    blocked_groups.add(groups[target_urls[row["url"]]])
+                elif row["url"] in robots_urls:
+                    blocked_groups.add(origin_groups[urlsplit(row["url"]).hostname])
+    for count in robots_counts.values():
+        if count > 1:
+            issues["duplicate_robots_request"] += count - 1
     for count in requests_by_source.values():
         if count > 1:
             issues["duplicate_primary_request"] += count - 1
@@ -295,14 +311,22 @@ def diagnose(context, metadata, requests, logs):
         if type(status) is int and (requests_by_source[sid] != 1 or statuses.get(sid) != status):
             issues["item_http_status_not_reconciled"] += 1
         if row.get("status") in HELD_STATUSES:
-            issues["selected_source_held"] += 1
+            if intentional_hold(row, groups) and not requests_by_source[sid]:
+                containment_holds.add(sid)
+                issues["intentional_containment_hold"] += 1
+            else:
+                issues["selected_source_held"] += 1
             if requests_by_source[sid]:
                 issues["held_source_has_primary_request"] += 1
-        if (row.get("status") in {"robots_or_policy_denied", "rejected_redirect",
-                                  "redirect_needs_review", "source_access_limited"}
-                or (row.get("status") == "blocked" and
-                    row.get("error") == "access_or_login_challenge")):
+        reason, systemic = item_barrier(row)
+        if reason:
             issues["item_access_barrier"] += 1
+        if ((reason and not systemic) or
+                (row.get("validation_containment_group") == groups[sid]
+                 and row.get("validation_containment_block_reason") in GROUP_BARRIERS)):
+            blocked_groups.add(groups[sid])
+        if row.get("validation_containment_pending_at_hold") is True:
+            pending_at_hold.add(sid)
     expected = metadata.get("scrapy_downloader_request_count")
     if type(expected) is not int or expected != len(requests):
         issues["requests_count_not_reconciled_with_scrapy_stats"] += 1
@@ -310,8 +334,11 @@ def diagnose(context, metadata, requests, logs):
     unattempted = sorted(allowed - set(requests_by_source))
     if missing:
         issues["missing_manifest_items"] = len(missing)
-    if unattempted:
-        issues["target_without_recorded_primary_get"] = len(unattempted)
+    unexpected_unattempted = sorted(set(unattempted) - containment_holds)
+    if unexpected_unattempted:
+        issues["target_without_recorded_primary_get"] = len(unexpected_unattempted)
+    if blocked_groups:
+        issues["blocked_publisher_groups"] = len(blocked_groups)
     if context["job"].get("close_reason") != "finished":
         issues["job_not_normally_closed"] += 1
     return {
@@ -319,6 +346,10 @@ def diagnose(context, metadata, requests, logs):
         **context["bindings"], "target_primary_urls": len(allowed),
         "manifest_slots": len(sources), "items_observed": len(seen),
         "missing_manifest_ids": missing, "target_without_primary_get_ids": unattempted,
+        "intentional_containment_hold_ids": sorted(containment_holds),
+        "unexpected_target_without_primary_get_ids": unexpected_unattempted,
+        "blocked_publisher_group_ids": sorted(blocked_groups),
+        "admitted_pending_at_hold_ids_NOT_GET_PROOF": sorted(pending_at_hold),
         "target_primary_urls_observed": len(requests_by_source),
         "recorded_primary_gets": sum(requests_by_source.values()),
         "robots_gets": robots_count, "request_records": len(requests),

@@ -426,3 +426,174 @@ def test_global_validation_stop_latch_does_not_change_monitoring():
     spider._agentfuse_validation_stop_reason = "agentfuse_validation_http_429"
     gate = ValidationDownloadGate(clock=lambda: NOW)
     assert gate.process_request(request(src), spider) is None
+
+
+# R2: actual Scrapy Requests/Responses, fictional reviewed access only.
+# No download handler or external publisher is ever called.
+def _contained_spider(monkeypatch):
+    from agentfuse_crawlers.validation_containment import Containment
+    rows = [source(sid) for sid in (
+        "aws_bedrock_docs", "aws_sagemaker_ai_docs", "openai_api_docs",
+        "anthropic_api_docs", "mistral_docs", "qdrant_docs")]
+    access = registry(rows[0], scopes=("bulk_validation",))
+    for src in rows[1:]:
+        access["reviews"].update(registry(src, scopes=("bulk_validation",))["reviews"])
+    mock_policy(monkeypatch, access)
+    spider = fake_spider(rows[0], single=False, selected=rows,
+                         permitted={s["id"] for s in rows})
+    spider.bulk_max_primary_requests = len(rows)
+    spider._agentfuse_containment = Containment(spider, load_sources())
+    return spider, rows, spider._agentfuse_containment
+
+
+def test_r2_isolated_rate_limit_blocks_group_before_item_pipeline(monkeypatch):
+    from scrapy.http import Response
+    from agentfuse_crawlers.validation_containment import GROUP_HOLD
+    spider, rows, state = _contained_spider(monkeypatch)
+    first, sibling, unrelated = rows[:3]
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    req = request(first)
+    gate.process_request(req, spider)
+    response = Response(req.url, status=429)
+    assert gate.process_response(req, response, spider) is response
+    assert state.global_reason is None
+    assert state.by_source[first["id"]] == state.by_source[sibling["id"]]
+    for blocked in (request(sibling), _exact_robots(sibling)):
+        with pytest.raises(IgnoreRequest, match=GROUP_HOLD):
+            gate.process_request(blocked, spider)
+        assert blocked.meta[HOLD_META] == GROUP_HOLD
+    assert gate._already_attempted == {first["id"]}
+    robots = _exact_robots(unrelated)
+    gate.process_request(robots, spider)
+    gate.process_response(robots, Response(robots.url, status=404), spider)
+    allowed = request(unrelated)
+    gate.process_request(allowed, spider)
+    gate.process_response(allowed, Response(allowed.url, status=200), spider)
+    assert gate._already_attempted == {first["id"], unrelated["id"]}
+    assert state.global_reason is None and not state.active
+
+
+def test_r2_accounts_for_already_admitted_sibling_response(monkeypatch):
+    from scrapy.http import Response
+    spider, rows, state = _contained_spider(monkeypatch)
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    a, b = [request(src) for src in rows[:2]]
+    gate.process_request(a, spider)
+    gate.process_request(b, spider)
+    gate.process_response(a, Response(a.url, status=403), spider)
+    assert state.pending_at_hold == {rows[1]["id"]}
+    assert gate.process_response(b, Response(b.url, status=200), spider).status == 200
+    assert not state.active
+    assert state.pending_at_hold == {rows[1]["id"]}
+
+
+def test_r2_third_distinct_group_is_systemic(monkeypatch):
+    from scrapy.http import Response
+    from agentfuse_crawlers.validation_containment import SYSTEMIC_STOP, GLOBAL_HOLD
+    spider, rows, state = _contained_spider(monkeypatch)
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    for src, code in zip((rows[0], rows[2], rows[3]), (403, 429, 302)):
+        req = request(src)
+        gate.process_request(req, spider)
+        gate.process_response(req, Response(req.url, status=code), spider)
+    assert state.global_reason == SYSTEMIC_STOP
+    for req in (request(rows[4]), _exact_robots(rows[4])):
+        with pytest.raises(IgnoreRequest, match=GLOBAL_HOLD):
+            gate.process_request(req, spider)
+
+
+@pytest.mark.parametrize("status,body", [
+    (403, b"User-agent: *"), (429, b"User-agent: *"), (503, b"User-agent: *"),
+    (302, b"User-agent: *"), (200, b"<html>error</html>"),
+    (200, b"User-agent: *\nCrawl-delay: 5\n"),
+])
+def test_r2_unresolved_robots_blocks_linked_group_without_html(monkeypatch, status, body):
+    from scrapy.http import Response
+    from agentfuse_crawlers.validation_containment import GROUP_HOLD
+    spider, rows, state = _contained_spider(monkeypatch)
+    src, sibling, unrelated = rows[:3]
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    mw, _ = _robots_middleware()
+    mw.crawler.spider = spider
+    lookup = _exact_robots(src)
+    gate.process_request(lookup, spider)
+    resp = Response(lookup.url, status=status, body=body,
+                    headers={b"Content-Type": b"text/plain"})
+    gate.process_response(lookup, resp, spider)
+    with pytest.raises(IgnoreRequest):
+        asyncio.run(mw._parse_robots(resp, urlsplit(src["url"]).netloc, request(src)))
+    with pytest.raises(IgnoreRequest, match=GROUP_HOLD):
+        mw.process_request_2(None, request(sibling))
+    assert not gate._already_attempted
+    assert state.global_reason is None
+    gate.process_request(request(unrelated), spider)
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_r2_genuine_missing_robots_does_not_hold_group(monkeypatch, status):
+    from scrapy.http import Response
+    spider, rows, state = _contained_spider(monkeypatch)
+    mw, base = _robots_middleware()
+    mw.crawler.spider = spider
+    parsed = []
+
+    async def parse(self, response, netloc, req):
+        parsed.append(response.body)
+
+    monkeypatch.setattr(base, "_parse_robots", parse)
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    lookup = _exact_robots(rows[0])
+    gate.process_request(lookup, spider)
+    resp = Response(lookup.url, status=status, body=b"missing",
+                    headers={b"Content-Type": b"text/html"})
+    gate.process_response(lookup, resp, spider)
+    asyncio.run(mw._parse_robots(resp, urlsplit(rows[0]["url"]).netloc, request(rows[0])))
+    assert parsed == [b""]
+    assert not state.blocked and state.global_reason is None
+
+
+@pytest.mark.parametrize("robots", [True, False])
+def test_r2_proxy_authentication_failure_is_immediately_global(monkeypatch, robots):
+    from scrapy.http import Response
+    from agentfuse_crawlers.validation_containment import PROXY_STOP, GLOBAL_HOLD
+    spider, rows, state = _contained_spider(monkeypatch)
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    req = _exact_robots(rows[0]) if robots else request(rows[0])
+    gate.process_request(req, spider)
+    gate.process_response(req, Response(req.url, status=407), spider)
+    assert state.global_reason == PROXY_STOP
+    with pytest.raises(IgnoreRequest, match=GLOBAL_HOLD):
+        gate.process_request(request(rows[2]), spider)
+
+
+def test_r2_pre_robots_guard_rejects_wrong_method_before_lookup(monkeypatch):
+    from agentfuse_crawlers.validation_downloader import ValidationPreRobotsGuard
+    from agentfuse_crawlers.validation_containment import INTEGRITY_STOP
+    spider, rows, state = _contained_spider(monkeypatch)
+    early = ValidationPreRobotsGuard()
+    early.gate._clock = lambda: NOW
+    with pytest.raises(IgnoreRequest, match="validation_pre_robots_source_not_exact"):
+        early.process_request(request(rows[0], method="POST"), spider)
+    assert state.global_reason == INTEGRITY_STOP
+
+
+def test_r2_expired_bulk_plan_stops_remaining_admissions(monkeypatch):
+    from agentfuse_crawlers.validation_containment import INTEGRITY_STOP, GLOBAL_HOLD
+    spider, rows, state = _contained_spider(monkeypatch)
+    spider.bulk_plan_expires_at_utc = (NOW - timedelta(seconds=1)).isoformat()
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    with pytest.raises(IgnoreRequest, match="download_time_bulk_plan_missing_or_expired"):
+        gate.process_request(request(rows[0]), spider)
+    assert state.global_reason == INTEGRITY_STOP
+    with pytest.raises(IgnoreRequest, match=GLOBAL_HOLD):
+        gate.process_request(request(rows[2]), spider)
+
+
+def test_r2_duplicate_source_attempt_is_systemic(monkeypatch):
+    from agentfuse_crawlers.validation_containment import INTEGRITY_STOP
+    spider, rows, state = _contained_spider(monkeypatch)
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    gate.process_request(request(rows[0]), spider)
+    with pytest.raises(IgnoreRequest, match="duplicate_validation_source_get"):
+        gate.process_request(request(rows[0]), spider)
+    assert state.global_reason == INTEGRITY_STOP
