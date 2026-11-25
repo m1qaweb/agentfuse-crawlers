@@ -257,6 +257,7 @@ def test_real_job40_redirect_sequence_does_not_stop_other_publishers(monkeypatch
 @pytest.mark.parametrize("locations", [
     [], [b"/a", b"/b"], [b"http://example.invalid/next"],
     [b"https://other.invalid/next"], [b"//example.invalid/next"],
+    [b"https:///docs/new"], [b"https:////docs/new"],
     [b"/login"], [b"/auth/authorize"], [b"/captcha"], [b"/challenge/verify"],
     [b"/docs?token=abc"], [b"/%6cogin"], [b"/a/../docs"],
     [b"/a\\b"], [b"/docs#anchor"], [b"/docs/old"], [b"/a\x00b"],
@@ -268,6 +269,7 @@ def test_ambiguous_or_suspicious_redirect_is_not_a_routine_move(locations):
 def test_ordinary_relative_path_is_deferred_but_never_followed():
     assert ordinary_redirect_target(308, "https://example.invalid/docs", [b"/docs/"]) == "https://example.invalid/docs/"
     assert ordinary_redirect_target(304, "https://example.invalid/docs", [b"/docs/"]) is None
+    assert ordinary_redirect_target(308, "https://example.invalid/", [b"https://example.invalid"]) is None
 
 
 def test_genuine_barriers_still_stop_and_ordinary_redirects_cannot_clear_or_downgrade_holds():

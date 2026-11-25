@@ -89,6 +89,10 @@ def ordinary_redirect_target(status, source_url, locations):
             return None
         original = urlsplit(source_url)
         supplied = urlsplit(raw)
+        # urljoin repairs an absolute URL such as https:///path into a
+        # same-host path. Do not let that disguise a malformed Location.
+        if raw.startswith("https://") and supplied.netloc != original.netloc:
+            return None
         if any(segment in (".", "..") for segment in supplied.path.split("/")):
             return None
         target = urljoin(source_url, raw)
@@ -96,7 +100,8 @@ def ordinary_redirect_target(status, source_url, locations):
         path = parts.path or "/"
         if (original.scheme != "https" or parts.scheme != "https"
                 or parts.netloc != original.netloc or parts.username or parts.password
-                or parts.query or parts.fragment or target == source_url
+                or original.query or original.fragment or parts.query or parts.fragment
+                or path == (original.path or "/") or target == source_url
                 or len(path) > 600 or "//" in path
                 or not re.fullmatch(r"/[A-Za-z0-9._~/-]*", path)):
             return None
