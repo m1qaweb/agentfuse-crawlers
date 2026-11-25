@@ -233,8 +233,9 @@ def test_unreviewed_registry_never_allows_manually_forged_request(monkeypatch):
         gate.process_request(request(src), fake_spider(src))
 
 
-def test_internal_robots_lookup_and_monitoring_remain_separate():
+def test_internal_robots_lookup_and_monitoring_remain_separate(monkeypatch):
     src = source()
+    mock_policy(monkeypatch, registry(src))
     gate = ValidationDownloadGate(clock=lambda: NOW)
     host = urlsplit(src["url"]).hostname
     robots = Request(
@@ -334,3 +335,94 @@ def test_robots_parser_failure_is_held_in_validation_but_monitor_unchanged(monke
     monitor, _ = _robots_middleware("monitor")
     assert monitor.process_request_2(None, request(source())) is None
     assert calls == [parser, None]
+
+
+def _exact_robots(src, *, url=None):
+    return Request(url or ("https://" + urlsplit(src["url"]).netloc + "/robots.txt"),
+                   meta={"dont_obey_robotstxt": True})
+
+
+@pytest.mark.parametrize("opts", [
+    {"permitted": set()},
+    {"plan_id": ""},
+    {"expires": "2026-11-14"},
+    {"expires": (NOW - timedelta(seconds=1)).isoformat()},
+])
+def test_robots_requires_current_bulk_plan(monkeypatch, opts):
+    src = source()
+    mock_policy(monkeypatch, registry(src, scopes=("bulk_validation",)))
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    req = _exact_robots(src)
+    with pytest.raises(IgnoreRequest, match="robots_origin_no_current_authorized_source"):
+        gate.process_request(req, fake_spider(src, single=False, **opts))
+    assert req.meta[HOLD_META] == "robots_origin_no_current_authorized_source"
+
+
+def test_robots_requires_current_review_even_for_selected_origin(monkeypatch):
+    src = source()
+    empty = registry(src)
+    empty["reviews"] = {}
+    mock_policy(monkeypatch, empty)
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    with pytest.raises(IgnoreRequest, match="robots_origin_no_current_authorized_source"):
+        gate.process_request(_exact_robots(src), fake_spider(src))
+
+
+def test_robots_cannot_start_after_source_review_expires(monkeypatch):
+    src = source()
+    mock_policy(monkeypatch, registry(src, expiry=NOW + timedelta(hours=1)))
+    gate = ValidationDownloadGate(clock=lambda: NOW + timedelta(hours=2))
+    with pytest.raises(IgnoreRequest, match="robots_origin_no_current_authorized_source"):
+        gate.process_request(_exact_robots(src), fake_spider(src))
+
+
+def test_robots_origin_can_be_shared_only_by_current_authorized_source(monkeypatch):
+    held = source("aws_bedrock_docs")
+    allowed = source("aws_sagemaker_ai_docs")
+    assert urlsplit(held["url"]).netloc == urlsplit(allowed["url"]).netloc
+    mock_policy(monkeypatch, registry(allowed, scopes=("bulk_validation",)))
+    spider = fake_spider(held, single=False, selected=[held, allowed],
+                         permitted={allowed["id"]})
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    assert gate.process_request(_exact_robots(held), spider) is None
+    with pytest.raises(IgnoreRequest, match="duplicate_validation_robots_get"):
+        gate.process_request(_exact_robots(allowed), spider)
+    # A robots lookup consumes no primary source attempt.
+    assert gate.process_request(request(allowed), spider) is None
+    with pytest.raises(IgnoreRequest, match="download_time_bulk_source_policy_not_reviewed"):
+        gate.process_request(request(held), spider)
+
+
+def test_robots_rejects_noncanonical_origin(monkeypatch):
+    src = source()
+    mock_policy(monkeypatch, registry(src))
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    url = "https://" + urlsplit(src["url"]).netloc + ":443/robots.txt"
+    # Scrapy may normalize an explicit default port away. Use an alternate
+    # port to test the actual non-manifest origin, independent of normalization.
+    url = url.replace(":443/", ":444/")
+    with pytest.raises(IgnoreRequest, match="unreviewed_robots_lookup_target"):
+        gate.process_request(_exact_robots(src, url=url), fake_spider(src))
+
+
+@pytest.mark.parametrize("robots", [False, True])
+def test_existing_global_stop_holds_late_validation_admissions(monkeypatch, robots):
+    src = source()
+    mock_policy(monkeypatch, registry(src))
+    spider = fake_spider(src)
+    spider._agentfuse_validation_stop_reason = "agentfuse_validation_http_429"
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    req = _exact_robots(src) if robots else request(src)
+    with pytest.raises(IgnoreRequest, match="validation_global_stop_requested"):
+        gate.process_request(req, spider)
+    assert req.meta[HOLD_META] == "validation_global_stop_requested"
+    assert not gate._already_attempted
+    assert not gate._robots_attempted
+
+
+def test_global_validation_stop_latch_does_not_change_monitoring():
+    src = source()
+    spider = fake_spider(src, mode="monitor")
+    spider._agentfuse_validation_stop_reason = "agentfuse_validation_http_429"
+    gate = ValidationDownloadGate(clock=lambda: NOW)
+    assert gate.process_request(request(src), spider) is None

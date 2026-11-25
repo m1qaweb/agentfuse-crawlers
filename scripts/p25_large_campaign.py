@@ -187,7 +187,7 @@ def build_campaign(g3_rows, target, *, access=None, plans=None, now=None,
         currently_reviewed[sid] = bool(
             review and review["decision"] == "allowed_reviewed"
             and "bulk_validation" in review["scopes"]
-            and _utc(review["expires_at_utc"]) > clock
+            and _utc(review["reviewed_at_utc"]) <= clock < _utc(review["expires_at_utc"])
             and collection_decision(known[sid], "validation")[0]
         )
     chosen = set()

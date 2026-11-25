@@ -89,6 +89,7 @@ class ValidationDownloadGate:
     def __init__(self, *, clock=None):
         self._by_id = {s["id"]: s for s in load_sources()}
         self._already_attempted = set()
+        self._robots_attempted = set()
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     @classmethod
@@ -102,9 +103,42 @@ class ValidationDownloadGate:
         request.meta[HOLD_META] = reason
         raise IgnoreRequest(reason)
 
+    def _current_access_hold_reason(self, source, spider, now):
+        single = getattr(spider, "single_validation_required", False) is True
+        bulk = getattr(spider, "bulk_validation_required", False) is True
+        if single == bulk:
+            return "validation_scope_not_explicitly_authorized"
+        scope = SCOPE_SINGLE if single else SCOPE_BULK
+
+        if (not isinstance(now, datetime) or now.tzinfo is None
+                or now.utcoffset() is None):
+            return "invalid_downloader_access_clock"
+        now = now.astimezone(timezone.utc)
+
+        # Re-run production P23B source/URL/lifecycle/expiry validation at
+        # download time, not just when the spider yielded the Request.
+        permitted, reason = validation_access_decision(
+            source, scope=scope, now=now,
+        )
+        if not permitted:
+            return "download_time_" + reason
+
+        if bulk:
+            expires = _utc_expiry(
+                getattr(spider, "bulk_plan_expires_at_utc", None)
+            )
+            if (not getattr(spider, "bulk_plan_id", "")
+                    or source["id"] not in getattr(spider, "bulk_authorized_ids", ())
+                    or expires is None or now >= expires):
+                return "download_time_bulk_plan_missing_or_expired"
+
+        return None
+
     def process_request(self, request, spider):
         if getattr(spider, "collection_mode", None) != "validation":
             return None
+        if getattr(spider, "_agentfuse_validation_stop_reason", None):
+            self._hold(request, "validation_global_stop_requested")
 
         # Scrapy itself makes robots lookups (with dont_obey_robotstxt=True)
         # when ROBOTSTXT_OBEY is on. They have no source cb_kwargs and are
@@ -117,14 +151,29 @@ class ValidationDownloadGate:
             # The ONLY bypass is Scrapy's internal exact-host /robots.txt
             # lookup, never an arbitrary publisher page using this meta flag.
             parts = urlsplit(request.url)
-            selected_hosts = {
-                urlsplit(s["url"]).hostname for s in getattr(spider, "selected", ())
-            }
-            if (parts.scheme != "https" or parts.path != "/robots.txt"
-                    or parts.query or parts.fragment or parts.username
-                    or parts.password or parts.port not in (None, 443)
-                    or parts.hostname not in selected_hosts):
+            if (parts.scheme != "https" or not parts.hostname
+                    or parts.path != "/robots.txt" or parts.query or parts.fragment
+                    or parts.username or parts.password
+                    or request.url != "https://" + parts.netloc + "/robots.txt"):
                 self._hold(request, "unreviewed_robots_lookup_target")
+            # Full-category selection includes held sources. Require at least
+            # one currently authorized exact source on this exact origin,
+            # not merely a hostname present in the selected inventory.
+            candidates = [s for s in getattr(spider, "selected", ())
+                          if isinstance(s, dict) and isinstance(s.get("id"), str)
+                          and self._by_id.get(s["id"]) == s
+                          and s["category"] == getattr(spider, "category", None)
+                          and urlsplit(s["url"]).scheme == parts.scheme
+                          and urlsplit(s["url"]).netloc == parts.netloc]
+            if not candidates:
+                self._hold(request, "unreviewed_robots_lookup_target")
+            now = self._clock()
+            if not any(self._current_access_hold_reason(s, spider, now) is None
+                       for s in candidates):
+                self._hold(request, "robots_origin_no_current_authorized_source")
+            if request.url in self._robots_attempted:
+                self._hold(request, "duplicate_validation_robots_get")
+            self._robots_attempted.add(request.url)
             # Never follow a robots redirect or retry an access barrier in
             # supervised validation. The exact reviewed URL must be resolved
             # directly; a new robots target requires separate review.
@@ -146,33 +195,9 @@ class ValidationDownloadGate:
                 or request.meta.get("dont_retry") is not True):
             self._hold(request, "validation_source_url_or_method_not_exact")
 
-        single = getattr(spider, "single_validation_required", False) is True
-        bulk = getattr(spider, "bulk_validation_required", False) is True
-        if single == bulk:
-            self._hold(request, "validation_scope_not_explicitly_authorized")
-        scope = SCOPE_SINGLE if single else SCOPE_BULK
-
-        now = self._clock()
-        if not isinstance(now, datetime) or now.tzinfo is None:
-            self._hold(request, "invalid_downloader_access_clock")
-        now = now.astimezone(timezone.utc)
-
-        # Re-run production P23B source/URL/lifecycle/expiry validation at
-        # download time, not just when the spider yielded the Request.
-        permitted, reason = validation_access_decision(
-            source, scope=scope, now=now,
-        )
-        if not permitted:
-            self._hold(request, "download_time_" + reason)
-
-        if bulk:
-            expires = _utc_expiry(
-                getattr(spider, "bulk_plan_expires_at_utc", None)
-            )
-            if (not getattr(spider, "bulk_plan_id", "")
-                    or sid not in getattr(spider, "bulk_authorized_ids", ())
-                    or expires is None or now >= expires):
-                self._hold(request, "download_time_bulk_plan_missing_or_expired")
+        reason = self._current_access_hold_reason(source, spider, self._clock())
+        if reason is not None:
+            self._hold(request, reason)
 
         # The same approved source can be attempted only once in this job.
         # Scrapy request retries are separately disabled by P24B; duplicate

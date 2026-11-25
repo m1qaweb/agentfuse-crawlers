@@ -200,8 +200,9 @@ def validation_access_decision(source, *, scope="bulk_validation",
     # Revalidate even an already cached installed registry at the exact
     # permission boundary; no injected/stale/mutated in-memory record can
     # silently gain a single-source request by avoiding the initial load.
+    clock = _now(now)
     data = load_access_registry() if registry is None else registry
-    validate_access_registry(data, now=now)
+    validate_access_registry(data, now=clock)
     # Independently, the lifecycle registry may prohibit any source fetch.
     allowed_by_lifecycle, lifecycle_reason = collection_decision(
         source, mode="validation",
@@ -217,7 +218,11 @@ def validation_access_decision(source, *, scope="bulk_validation",
         return False, prefix + "_policy_not_reviewed"
     if review["decision"] != "allowed_reviewed":
         return False, prefix + "_policy_denied_or_deferred"
-    if _utc(review["expires_at_utc"]) <= _now(now):
+    # Registry validation tolerates small clock skew, but a future review
+    # must never grant access before its recorded effective time.
+    if _utc(review["reviewed_at_utc"]) > clock:
+        return False, prefix + "_policy_review_not_yet_effective"
+    if _utc(review["expires_at_utc"]) <= clock:
         return False, prefix + "_policy_review_expired"
     if scope not in review["scopes"]:
         return False, prefix + "_review_scope_not_approved"
@@ -388,6 +393,8 @@ def authorize_bulk_run(*, selected, category, cohort, collection_mode,
             or not SHA256.fullmatch(expected_package_sha256)
             or expected_package_sha256 != current_package_sha256):
         raise ValueError("Bulk job's deployed package fingerprint is not pinned")
+    if _utc(plan["reviewed_at_utc"]) > clock:
+        raise ValueError("Bulk authorization not yet effective, no source GET permitted")
     if _utc(plan["expires_at_utc"]) <= clock:
         raise ValueError("Bulk authorization expired, no source GET permitted")
     if (plan["category"] != category

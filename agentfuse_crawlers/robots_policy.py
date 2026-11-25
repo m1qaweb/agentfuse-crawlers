@@ -52,5 +52,14 @@ def reviewed_robots_body(*, expected_url, response_url, status, content_type, bo
             key in ("user-agent", "sitemap") and value
             for key, value in active):
         raise ValueError("robots_no_recognizable_rules")
+    # A robots parser can decide URL access without enforcing Crawl-delay.
+    # Our current validation scheduler has no demonstrated per-origin delay
+    # guarantee, including between robots and the first page. Until that is
+    # implemented and tested, conservatively hold the entire origin for any
+    # positive or malformed Crawl-delay, even in a nonmatching UA group.
+    # Zero-valued directives require no additional spacing.
+    if any(key == "crawl-delay" and re.fullmatch(r"0+(?:\.0+)?", value) is None
+           for key, value in active):
+        raise ValueError("robots_crawl_delay_not_enforced")
     # Pass original bytes, not rewritten rules, to Scrapy.
     return body

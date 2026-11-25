@@ -979,3 +979,20 @@ def test_p26c_campaign_reports_runtime_pins_only_for_exact_plan():
              "default_policy": "no_bulk_runs_authorized", "plans": {}}
     blocked = p.build_campaign(rows, 200, access=access, plans=blank, now=NOW)
     assert all(job["pinned_spider_args"] is None for job in blocked["jobs"])
+
+
+def test_future_review_is_not_counted_as_current_campaign_eligibility():
+    rows = _g3_all460_rows()
+    access, plans = _fake_policy(rows, 200)
+    plans["plans"] = {}
+    future_id = next(sid for sid, rec in access["reviews"].items()
+                     if rec["category"] == "pricing")
+    access["reviews"][future_id]["reviewed_at_utc"] = _date(timedelta(minutes=1))
+    report = p.build_campaign(rows, 200, access=access, plans=plans, now=NOW)
+    assert report["reviewed_bulk_source_count_in_campaign"] == 199
+    assert report["missing_current_source_access_reviews"] == 1
+    assert not report["local_policy_and_three_plan_scope_complete"]
+    report = p.build_campaign(rows, 200, access=access, plans=plans,
+                              now=NOW + timedelta(minutes=1))
+    assert report["reviewed_bulk_source_count_in_campaign"] == 200
+    assert not report["readiness_to_launch_from_this_report"]

@@ -188,6 +188,7 @@ def test_validation_shard_requests_shutdown_after_real_item_pipeline(
     assert audit.validation_abort_requested is True
     assert stats.rows["agentfuse/run/validation_abort_reason"] == reason
     assert stats.rows["agentfuse/run/validation_abort_source_id"] == "a"
+    assert spider._agentfuse_validation_stop_reason == reason
     # Later in-flight failures must not issue competing close calls.
     audit.item_scraped({**row, "source_id": "b"}, None, spider)
     assert engine.closed == [(spider, reason)]
@@ -218,6 +219,7 @@ def test_nonfatal_holds_and_monitoring_do_not_request_validation_shutdown(
     ), None, spider)
     assert engine.closed == []
     assert audit.validation_abort_requested is False
+    assert not getattr(spider, "_agentfuse_validation_stop_reason", None)
     assert "agentfuse/run/validation_abort_reason" not in stats.rows
 
 
@@ -259,3 +261,31 @@ def test_actual_synthetic_429_spider_item_triggers_extension_stop():
     audit = SourceCoverageAudit(SimpleNamespace(stats=stats, engine=engine))
     audit.item_scraped(observed[0], response, spider)
     assert engine.closed == [(spider, "agentfuse_validation_http_429")]
+
+
+def test_global_stop_latched_before_engine_shutdown_and_for_missing_engine():
+    reason = "agentfuse_validation_http_429"
+    for has_engine in (True, False):
+        audit, spider, stats = setup(("a", "b"))
+        spider.collection_mode = "validation"
+        spider.source_registry_sha256 = "synthetic"
+
+        class CheckingEngine(RecordingEngine):
+            def close_spider(self, spider, reason="cancelled"):
+                assert spider._agentfuse_validation_stop_reason == reason
+                super().close_spider(spider, reason=reason)
+
+        engine = CheckingEngine() if has_engine else None
+        audit.crawler.engine = engine
+        row = dict(
+            source_id="a", collection_mode="validation",
+            source_registry_sha256="synthetic", approved_for_advisor=False,
+            status="source_access_limited", http_status=429, error="HTTP 429",
+        )
+        if has_engine:
+            audit.item_scraped(row, None, spider)
+            assert engine.closed == [(spider, reason)]
+        else:
+            with pytest.raises(RuntimeError, match="without Scrapy engine"):
+                audit.item_scraped(row, None, spider)
+        assert spider._agentfuse_validation_stop_reason == reason
