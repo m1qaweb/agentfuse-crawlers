@@ -73,13 +73,16 @@ def group_index(sources):
 class Containment:
     """A single spider's monotone group/global stop state, no network I/O."""
 
-    def __init__(self, spider, sources, *, clock=monotonic):
+    def __init__(self, spider, sources, *, clock=monotonic, consecutive_barriers=False):
         self.spider = spider
         self.clock = clock
         self.started = clock()
         self.deadline = self.started + MAX_RUNTIME_SECONDS
         self.by_source, self.by_origin = group_index(sources)
         self.blocked = {}
+        self.consecutive_barriers = consecutive_barriers
+        self.recent_blocked_groups = set()
+        self.healthy_sources = set()
         self.active = {}
         self.pending_at_hold = set()
         self.held_sources = set()
@@ -97,8 +100,14 @@ class Containment:
             return
         if group not in self.blocked:
             self.blocked[group] = reason
+            self.recent_blocked_groups.add(group)
             self.pending_at_hold.update(token for token, g in self.active.items() if g == group)
-        if len(self.blocked) >= MAX_BLOCKED_GROUPS:
+        # Preserve the legacy reviewed-plan threshold. For explicitly selected
+        # broad public diagnostics, isolated failures separated by healthy
+        # primary responses are not evidence of a systemic outage. Holds
+        # themselves are never cleared, and immediate systemic stops remain.
+        failures = self.recent_blocked_groups if self.consecutive_barriers else self.blocked
+        if len(failures) >= MAX_BLOCKED_GROUPS:
             self.stop(SYSTEMIC_STOP)
 
     def limit_runtime(self, seconds):
@@ -139,6 +148,11 @@ class Containment:
             self.stop(reason)
         elif reason:
             self.barrier(group, reason)
+        elif (self.consecutive_barriers and group not in self.blocked
+                and sid not in self.healthy_sources and item.get("http_status") == 200
+                and item.get("status") in {"captured", "needs_review", "partial_capture"}):
+            self.healthy_sources.add(sid)
+            self.recent_blocked_groups.clear()
         if item.get("error") == GROUP_HOLD:
             if group not in self.blocked:
                 self.stop(INTEGRITY_STOP)

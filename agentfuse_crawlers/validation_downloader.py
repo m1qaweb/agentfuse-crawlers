@@ -20,6 +20,7 @@ from scrapy.exceptions import IgnoreRequest
 from scrapy.downloadermiddlewares.robotstxt import RobotsTxtMiddleware
 
 from agentfuse_crawlers.robots_policy import reviewed_robots_body
+from agentfuse_crawlers.public_diagnostic import public_diagnostic_access_decision
 from agentfuse_crawlers.validation_containment import (
     GLOBAL_HOLD, INTEGRITY_STOP, PROXY_STOP, TRANSPORT_STOP,
     http_barrier, state_for,
@@ -148,9 +149,17 @@ class ValidationDownloadGate:
 
         # Re-run production P23B source/URL/lifecycle/expiry validation at
         # download time, not just when the spider yielded the Request.
-        permitted, reason = validation_access_decision(
-            source, scope=scope, now=now,
-        )
+        public_scope = getattr(spider, "_public_diagnostic_scope", None)
+        if public_scope is not None:
+            if not bulk:
+                return "public_diagnostic_scope_not_bulk"
+            permitted, reason = public_diagnostic_access_decision(
+                source, public_scope, now=now,
+            )
+        else:
+            permitted, reason = validation_access_decision(
+                source, scope=scope, now=now,
+            )
         if not permitted:
             return "download_time_" + reason
 
