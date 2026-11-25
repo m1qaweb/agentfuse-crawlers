@@ -24,7 +24,8 @@ from agentfuse_crawlers.run_context import build_run_context
 from agentfuse_crawlers.diagnostics import derive_diagnostics
 from agentfuse_crawlers.validation_containment import Containment, state_for
 from agentfuse_crawlers.public_diagnostic import (
-    PUBLIC_DIAGNOSTIC, PUBLIC_GATE, authorize_public_diagnostic,
+    PUBLIC_DIAGNOSTIC, PUBLIC_GATE, PUBLIC_RESUME, RESUME_DESCRIPTOR_SHA256,
+    authorize_public_diagnostic, public_resume_skip_reason,
 )
 from agentfuse_crawlers.source_lifecycle import (
     COLLECTION_MODES, collection_decision, registry_revision_sha256,
@@ -95,19 +96,24 @@ class OfficialBaseSpider(scrapy.Spider):
         self._agentfuse_containment = None
         self._agentfuse_validation_stop_reason = None
         self._public_diagnostic_scope = None
+        self._public_diagnostic_resume = None
+        self._public_diagnostic_resume_selection_sha256 = None
         # A missing cohort now means the tiny historical smoke-test scope.
         # Explicit cohort=all is intentionally disruptive without this guard:
         # a previously unbounded scheduled job must be consciously updated.
         explicit_cohort = cohort is not None
         cohort = "proven" if cohort is None else cohort
-        public_diagnostic = confirm_full_inventory == PUBLIC_DIAGNOSTIC
-        if cohort == "all" and source_ids is None and confirm_full_inventory not in ("yes", PUBLIC_DIAGNOSTIC):
+        resume = confirm_full_inventory == PUBLIC_RESUME
+        public_diagnostic = confirm_full_inventory in (PUBLIC_DIAGNOSTIC, PUBLIC_RESUME)
+        if cohort == "all" and source_ids is None and confirm_full_inventory not in ("yes", PUBLIC_DIAGNOSTIC, PUBLIC_RESUME):
             raise ValueError(
                 "cohort=all requires confirm_full_inventory=yes when "
                 "source_ids is omitted; use cohort=proven for smoke tests"
             )
-        if confirm_full_inventory not in (None, "yes", PUBLIC_DIAGNOSTIC):
-            raise ValueError("confirm_full_inventory must be 'yes' or 'public_diagnostic' when provided")
+        if confirm_full_inventory not in (None, "yes", PUBLIC_DIAGNOSTIC, PUBLIC_RESUME):
+            raise ValueError("confirm_full_inventory must be 'yes' or 'public_diagnostic' or 'public_diagnostic_resume' when provided")
+        if resume and self.category != "documentation":
+            raise ValueError("Public diagnostic resume is documentation only")
         if public_diagnostic and (cohort != "all" or source_ids is not None
                 or limit is not None or str(offset) != "0" or collection_mode != "validation"
                 or bulk_run_plan_id is not None or expected_bulk_plan_sha256 is not None):
@@ -206,8 +212,11 @@ class OfficialBaseSpider(scrapy.Spider):
                 self._public_diagnostic_scope, decision = authorize_public_diagnostic(
                     selected=self.selected, category=self.category,
                     held_groups=public_diagnostic_held_groups,
+                    resume=resume,
                 )
-                self.validation_scope = PUBLIC_DIAGNOSTIC
+                self._public_diagnostic_resume = decision.get("resume_descriptor")
+                self._public_diagnostic_resume_selection_sha256 = decision.get("resume_selection_sha256")
+                self.validation_scope = PUBLIC_RESUME if resume else PUBLIC_DIAGNOSTIC
             else:
                 decision = authorize_bulk_run(
                     selected=self.selected, category=self.category, cohort=self.cohort,
@@ -244,7 +253,7 @@ class OfficialBaseSpider(scrapy.Spider):
             # confirmed, exact-plan, zero-redirect full-category jobs.
             # All single sources, shards and legacy plans retain global stop.
             if (cohort == "all" and source_ids is None and limit is None
-                    and self.offset == 0 and confirm_full_inventory in ("yes", PUBLIC_DIAGNOSTIC)
+                    and self.offset == 0 and confirm_full_inventory in ("yes", PUBLIC_DIAGNOSTIC, PUBLIC_RESUME)
                     and self.bulk_gate_decision in ("exact_git_reviewed_bounded_run_plan", PUBLIC_GATE)
                     and self.bulk_plan_id and self.bulk_authorized_ids
                     and self.bulk_max_redirects_per_source == 0):
@@ -319,11 +328,18 @@ class OfficialBaseSpider(scrapy.Spider):
             if (self.bulk_validation_required
                     and source["id"] not in self.bulk_authorized_ids):
                 record = self._base_record(source)
+                if self._public_diagnostic_resume is not None:
+                    reason = public_resume_skip_reason(
+                        source, self._public_diagnostic_scope, self._public_diagnostic_resume,
+                        self._agentfuse_containment.by_source,
+                    )
+                else:
+                    reason = ("public_diagnostic_source_not_in_scope" if self._public_diagnostic_scope is not None
+                              else "bulk_run_plan_not_present" if not self.bulk_plan_id
+                              else "bulk_source_not_in_authorized_scope")
                 record.update(
                     status="source_bulk_validation_not_approved",
-                    error=("public_diagnostic_source_not_in_scope" if self._public_diagnostic_scope is not None
-                           else "bulk_run_plan_not_present" if not self.bulk_plan_id
-                           else "bulk_source_not_in_authorized_scope"),
+                    error=reason,
                     http_status=None, final_url="",
                     policy_observation="not_fetched_by_bulk_source_access_gate",
                 )
@@ -381,6 +397,12 @@ class OfficialBaseSpider(scrapy.Spider):
                 "public_diagnostic_scope_id": self.bulk_plan_id,
                 "public_diagnostic_scope_sha256": self.bulk_plan_sha256,
             } if self._public_diagnostic_scope is not None else {}),
+            **({
+                "public_diagnostic_resume_descriptor_sha256": RESUME_DESCRIPTOR_SHA256,
+                "public_diagnostic_resume_selection_sha256": self._public_diagnostic_resume_selection_sha256,
+                "public_diagnostic_resume_candidate_count": len(self.bulk_authorized_ids),
+                "public_diagnostic_resume_prior_job_ids": list(self._public_diagnostic_resume["prior_job_ids"]),
+            } if self._public_diagnostic_resume is not None else {}),
             "bulk_gate_decision": self.bulk_gate_decision,
             "source_lifecycle_state": profile["state"],
             "source_policy_status": profile["policy_status"],
