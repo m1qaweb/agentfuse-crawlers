@@ -198,7 +198,9 @@ def test_resume_respects_a_new_negative_review(monkeypatch):
             "ownership_evidence_url": None, "publisher_access_policy_url": None,
             "robots_url": None, "publisher_terms_reviewed": False,
             "robots_reviewed": False, "private_retention_reviewed": False,
-            "evidence_note": "Synthetic negative test record only, never installed or actual permission.",
+            "evidence_note": (f"Synthetic negative test record for {source['id']} and {source['url']}; "
+                              "this fixture exercises deferred access only and is never installed "
+                              "or represented as a real publisher policy review or permission."),
         }},
     }
     policy.validate_access_registry(registry, now=now)
