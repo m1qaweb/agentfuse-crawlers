@@ -267,6 +267,7 @@ def test_strict_robots_middleware_registered_before_source_gate():
     spider_mw = app_settings.DOWNLOADER_MIDDLEWARES
     assert spider_mw == {
         "scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware": None,
+        "agentfuse_crawlers.validation_downloader.ValidationPreRobotsGuard": 90,
         "agentfuse_crawlers.validation_downloader.ValidationRobotsMiddleware": 100,
         "agentfuse_crawlers.validation_downloader.ValidationDownloadGate": 110,
     }
