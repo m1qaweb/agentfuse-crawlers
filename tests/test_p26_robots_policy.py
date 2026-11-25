@@ -52,3 +52,23 @@ def test_nonmissing_http_failure_is_never_permission(status):
 def test_ambiguous_content_is_held(updates, reason):
     with pytest.raises(ValueError, match=reason):
         evaluate(**updates)
+
+
+@pytest.mark.parametrize("directive", [
+    b"Crawl-delay: 5", b"crawl-delay: 0.5", b"CRAWL-DELAY: 10 # seconds",
+    b"Crawl-delay: -1", b"Crawl-delay:", b"Crawl-delay: invalid",
+    b"Crawl-delay: 0\xef\xbf\xbd", b"Crawl-delay: 0\nCrawl-delay: 5",
+    b"User-agent: OtherBot\nCrawl-delay: 5",
+])
+def test_unenforced_crawl_delay_holds_origin(directive):
+    with pytest.raises(ValueError, match="robots_crawl_delay_not_enforced"):
+        evaluate(body=RULES + directive + b"\n")
+
+
+@pytest.mark.parametrize("directive", [
+    b"Crawl-delay: 0", b"Crawl-delay: 0.0", b"crawl-delay: 00.00 # zero",
+    b"# Crawl-delay: 5",
+])
+def test_zero_or_commented_crawl_delay_keeps_original_bytes(directive):
+    body = RULES + directive + b"\n"
+    assert evaluate(body=body) == body
