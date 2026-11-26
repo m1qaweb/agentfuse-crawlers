@@ -16,6 +16,7 @@ from urllib.parse import quote, urljoin, urlsplit
 from lxml import etree
 
 from agentfuse_crawlers.recent_window import WindowAccumulator
+from agentfuse_crawlers.release_heading_layouts import heading_marker
 
 MAX_EVENTS = 80
 MAX_BODY_CHARS = 24000
@@ -386,9 +387,12 @@ def _signals(main):
                 yield "body", value, node, 0
 
 
-def _make_event(source_id, source_url, title, heading_node, day, kind, date_text):
+def _make_event(source_id, source_url, title, heading_node, day, kind, date_text,
+                *, explicit_version=None):
     version_match = VERSION.search(title)
-    version = version_match.group(1) if version_match else None
+    version = explicit_version if explicit_version is not None else (
+        version_match.group(1) if version_match else None
+    )
     permalink = _permalink(heading_node, source_url)
     related = _related_references(heading_node, source_url)
     # Use the FULL recognized heading (up to parser's bounded 250 chars), not
@@ -475,6 +479,8 @@ def extract_release_events(main, source_url, source_id):
     date_context = (None, "", "")
     context_heading_level = None
     date_group_active = False
+    # A known labeled h2 day is scoped to direct h3 release headings only.
+    source_date_group = False
     pending_date = False
     entries_seen = 0
     # The November 4 real, hash-pinned Zyte Items include GitHub release
@@ -537,6 +543,49 @@ def extract_release_events(main, source_url, source_id):
                     ignore_dates_until_new_heading = True
                     continue
             ignore_dates_until_new_heading = False
+            marker = heading_marker(source_id, source_url, level, text)
+            if source_date_group and level <= context_heading_level:
+                finish()
+                source_date_group = False
+                date_context = (None, "", "")
+                context_heading_level = None
+                date_group_active = False
+                pending_date = False
+            if marker and marker.kind == "date_group":
+                finish()
+                month_group = None
+                date_context = (
+                    marker.day,
+                    "heading_known_layout_explicit_date" if marker.day
+                    else "heading_known_layout_invalid_date",
+                    text,
+                )
+                context_heading_level = level
+                source_date_group = True
+                date_group_active = True
+                # Never fabricate an event from prose before the first h3.
+                pending_date = False
+                continue
+            if source_date_group:
+                if level == context_heading_level + 1:
+                    finish()
+                    if (text.lower() in SKIP_TITLE or text.lower() in SUBHEADING
+                            or _marker_shape(text) or _year_month(text)):
+                        continue
+                    current = _make_event(source_id, source_url, text, node, *date_context)
+                    current["_level"] = level
+                    current["_date_scope"] = True
+                elif current is not None:
+                    # Nested detail headings, even versioned ones, belong to
+                    # this release, not independent date-inheriting entries.
+                    room = MAX_BODY_CHARS - current["_body_length"]
+                    if room < len(text):
+                        current["_body_overflow"] = True
+                    if room > 0:
+                        piece = text[:room]
+                        current["_body"].append(piece)
+                        current["_body_length"] += len(piece)
+                continue
             # H1 normally identifies the entire page; it is not a release
             # event unless it explicitly contains a version or a dateline.
             if level == 1 and not VERSION.search(text) and not _date(text)[0]:
@@ -564,6 +613,14 @@ def extract_release_events(main, source_url, source_id):
                     and level <= context_heading_level):
                 month_group = None
             title, inline_day, inline_kind, stamp = _inline_heading(text, month_group)
+            explicit_version = None
+            if marker and marker.kind == "dated_heading":
+                title = text
+                inline_day = marker.day
+                inline_kind = ("known_layout_explicit_date" if marker.day
+                               else "known_layout_invalid_date")
+                stamp = marker.date_text
+                explicit_version = marker.version
             if (current is not None and level > current["_level"]
                     and not date_group_active and not VERSION.search(text)):
                 # Deeper generic headings within an identified release are
@@ -588,7 +645,8 @@ def extract_release_events(main, source_url, source_id):
                 chosen = date_context
             else:
                 chosen = (None, "", "")
-            current = _make_event(source_id, source_url, title, node, *chosen)
+            current = _make_event(source_id, source_url, title, node, *chosen,
+                                  explicit_version=explicit_version)
             current["_level"] = level
             current["_date_scope"] = date_group_active
             # An ordinary dateline preceding a heading applies once. A day
@@ -597,7 +655,9 @@ def extract_release_events(main, source_url, source_id):
             if not date_group_active:
                 date_context = (None, "", "")
         elif typ in {"date", "timestamp"}:
-            if ignore_dates_until_new_heading:
+            # The explicit parent day owns direct DeepSeek release headings.
+            # Other dates inside this bounded group are not publication dates.
+            if source_date_group or ignore_dates_until_new_heading:
                 continue
             parsed, kind = _date(text, month_group)
             if typ == "timestamp" and not parsed:
@@ -671,7 +731,7 @@ def extract_release_events(main, source_url, source_id):
         # must create a NEW evidence baseline before any cross-run comparison.
         # Some generic headings use the day in their provisional review-only
         # identity; reusing v3 could fabricate a "first-seen" event on upgrade.
-        "release_identity_revision": "release_owner_date_scope_v5",
+        "release_identity_revision": "release_owner_date_scope_v6",
         "release_events": events,
         "release_event_count": entries_seen,
         "release_github_ui_error_placeholder_count": github_ui_errors,
