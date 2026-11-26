@@ -245,5 +245,5 @@ def test_current_identity_revision_is_declared_to_all_release_events():
         "<h2>v2.28.2</h2><p>Some deployment details.</p>",
     )
     assert data["release_events_schema"] == "1.1"
-    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v6"
     assert data["release_events"][0]["identity_basis"] == "stable_title_and_version_no_date"

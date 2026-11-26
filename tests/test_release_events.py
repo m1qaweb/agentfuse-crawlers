@@ -96,7 +96,7 @@ def test_november_and_december_standalone_datelines_keep_correct_order():
     assert data["release_order_direction"] == "newest_first"
     assert data["latest_release_date_candidate"] == "2026-12-01"
     assert data["release_event_identity_collision"] is False
-    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v6"
     assert not data["latest_publication_verified"]
 
 
@@ -164,7 +164,7 @@ def test_github_release_ui_errors_never_become_vendor_events_or_latest(ui_headin
     assert data["release_window_coverage_status"] == (
         "incomplete_github_ui_error_placeholder"
     )
-    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v6"
     assert assess_capture("changelog", data, data["text"]) == (
         "needs_review", "github_release_ui_error_placeholder"
     )
@@ -213,7 +213,7 @@ def test_non_github_release_heading_same_words_is_not_globally_suppressed():
     assert data["release_events"][0]["title"] == "Uh oh!"
     assert data["release_github_ui_error_placeholder_count"] == 0
     assert data["release_github_commit_metadata_skipped_count"] == 0
-    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v6"
 
 
 def test_offline_comparator_rejects_mislabelled_github_ui_error_items():

@@ -57,7 +57,7 @@ def test_repeating_generic_titles_two_dates_are_distinct_but_review_only(title):
     assert all(e["identity_basis"] == "date_scoped_generic_heading_review_only"
                and e["release_identity_requires_manual_review"]
                for e in item["release_events"])
-    assert item["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert item["release_identity_revision"] == "release_owner_date_scope_v6"
     assert item["latest_publication_verified"] is False
     assert item["approved_for_advisor"] is False
     reversed_item = crawl("<h2>October, 2026</h2>" + second + first)
@@ -233,7 +233,7 @@ def test_upgrade_from_prior_month_parser_v3_cannot_create_false_release_alert():
     prior = copy.deepcopy(new)
     prior["release_identity_revision"] = "release_owner_date_scope_v3"
     prior["content_sha256"] = "0" * 64
-    assert new["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert new["release_identity_revision"] == "release_owner_date_scope_v6"
     assert new["release_events"][0]["published_at"] == "2026-11-06"
     changes = compare({SID: new}, {SID: prior})
     assert [x["change_type"] for x in changes] == ["new_baseline"]
@@ -256,7 +256,7 @@ def test_github_ui_filter_v4_to_v5_is_new_baseline_not_vendor_release():
         "</main></html>",
         source_url, category="changelog", source_id=sid,
     )
-    assert data["release_identity_revision"] == "release_owner_date_scope_v5"
+    assert data["release_identity_revision"] == "release_owner_date_scope_v6"
     assert data["release_github_ui_error_placeholder_count"] == 1
     new = snapshot(data)
     new["source_id"] = sid
