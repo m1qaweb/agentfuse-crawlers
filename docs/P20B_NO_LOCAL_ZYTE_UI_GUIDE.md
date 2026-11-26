@@ -43,6 +43,21 @@ publisher access or completed accuracy metrics. All full-spider
 arguments are explicitly marked NOT_AUTHORIZED until the human
 preflight is complete.
 
+**November 26 preflight correction:** the generated guide now runs the same
+installed full-category plan matcher and authorization validator as the live
+three-argument spider. Each category reports its local plan status, exact
+primary request cap, selected-ID digest, plan digest and expiry (if valid).
+The text guide withholds the copyable argument block when the installed
+plan is missing, invalid, expired or ambiguous. Its JSON/CSV arguments are
+reference-only, not a launch instruction. A recognized Cloud full-category
+job with no matching plan refuses startup rather than making publisher
+GETs. The guide also records the local package fingerprint; normal validation
+CI saves the verified egg/package fingerprint receipt in its existing
+synthetic-only artifact. Compare that expected package fingerprint to the
+actual remote deployment, not merely the GitHub source version. No local
+plan result establishes independent publisher permission, a verified
+remote deployment, or authorization to start a paid job.
+
 The run also triggers when P20B itself is first opened as a PR,
 so its pre-merge Actions artifact can be reviewed before merging.
 This runs the same no-publisher-fetch planning code.

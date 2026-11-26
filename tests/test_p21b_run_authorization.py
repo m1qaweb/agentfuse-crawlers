@@ -799,3 +799,39 @@ def test_r2_only_reviewed_zero_redirect_full_category_enables_containment(monkey
     assert len(state.blocked) == 1 and state.global_reason is None
     single = DocumentationSpider(cohort="all", source_ids=src["id"])
     assert state_for(single) is None
+
+
+@pytest.mark.parametrize("case", ["valid", "expired", "ambiguous", "wrong_url_hash"])
+def test_three_argument_preflight_reports_only_exact_local_plan(monkeypatch, case):
+    from scripts.prepare_zyte_ui_args import build_full_diagnostic_ui_guide, _job_text
+
+    selected, reviews, plans, pid, _ = fake_case(count=194, allowed_count=2)
+    if case == "expired":
+        plans["plans"][pid]["reviewed_at_utc"] = _time(timedelta(days=-2))
+        plans["plans"][pid]["expires_at_utc"] = _time(timedelta(days=-1))
+    elif case == "ambiguous":
+        plans["plans"]["synthetic_second_full_plan"] = deepcopy(plans["plans"][pid])
+    elif case == "wrong_url_hash":
+        plans["plans"][pid]["source_urls_sha256"] = "0" * 64
+    _mock_private_registries(monkeypatch, reviews, plans)
+    guide = build_full_diagnostic_ui_guide()
+    row = next(x for x in guide["jobs"] if x["category"] == "documentation")
+    gate = row["local_bulk_plan_preflight"]
+    assert guide["full_diagnostic_approved_to_run"] is False
+    assert gate["run_authorized_by_guide"] is gate["remote_deployment_verified"] is False
+    if case == "valid":
+        assert gate["status"] == "locally_valid_reviewed_plan_NOT_REMOTE_VERIFIED"
+        assert gate["plan_id"] == pid
+        assert gate["plan_sha256"] == policy.digest(plans["plans"][pid])
+        assert gate["authorized_source_ids_sha256"] == selection_ids_sha256(selected[:2])
+        assert gate["locally_eligible_source_count"] == gate["max_primary_requests"] == 2
+        assert guide["locally_eligible_primary_source_count"] == 2
+        assert "confirm_full_inventory = yes" in _job_text(row)
+    else:
+        assert gate["status"] == "invalid_or_ambiguous_reviewed_plan"
+        assert gate["max_primary_requests"] == 0
+        assert gate["plan_id"] is None
+        assert guide["locally_eligible_primary_source_count"] == 0
+        assert "confirm_full_inventory = yes" not in _job_text(row)
+    assert all(x["local_bulk_plan_preflight"]["max_primary_requests"] == 0
+               for x in guide["jobs"] if x["category"] != "documentation")

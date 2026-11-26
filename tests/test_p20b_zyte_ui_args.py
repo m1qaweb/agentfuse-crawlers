@@ -8,7 +8,7 @@ from collections import Counter
 import pytest
 
 from agentfuse_crawlers.run_context import (
-    manifest_sha256, selection_ids_sha256,
+    manifest_sha256, package_fingerprint, selection_ids_sha256,
 )
 from agentfuse_crawlers.source_lifecycle import registry_revision_sha256
 from agentfuse_crawlers.sources import load_sources, select_sources
@@ -26,6 +26,8 @@ def test_exact_safely_pinned_460_source_3_spider_zyte_ui_jobs():
     assert result["manual_spider_jobs"] == 3
     assert result["source_manifest_sha256"] == manifest_sha256()
     assert result["source_registry_sha256"] == registry_revision_sha256()
+    assert result["expected_package_sha256_NOT_REMOTE_PROOF"] == package_fingerprint()
+    assert result["locally_eligible_primary_source_count"] == 0
     expected = [
         ("official_changelogs", "changelog", 89),
         ("official_pricing", "pricing", 177),
@@ -53,6 +55,10 @@ def test_exact_safely_pinned_460_source_3_spider_zyte_ui_jobs():
         assert row["tags"] == []
         assert row["explicitly_no_source_ids_argument"] is True
         assert row["operator_review_status"].startswith("NOT_AUTHORIZED")
+        gate = row["local_bulk_plan_preflight"]
+        assert gate["status"] == "no_matching_reviewed_plan"
+        assert gate["locally_eligible_source_count"] == gate["max_primary_requests"] == 0
+        assert gate["run_authorized_by_guide"] is gate["remote_deployment_verified"] is False
         assert row["scheduled_jobs"] == 0
         assert row["advisor_fact_approvals"] == 0
     assert result["jobs"][0]["source_ids_locally_policy_blocked"] == (
@@ -112,13 +118,19 @@ def test_operator_can_download_full_copy_paste_args_without_local_checkout(
                if "expected_bulk_plan_sha256" in row)
     assert all(row["human_authorization_status"].startswith("NOT_AUTHORIZED")
                for row in rows)
+    assert all(row["local_plan_primary_request_cap"] == "0"
+               and row["local_plan_status"] == "no_matching_reviewed_plan"
+               and row["expected_package_sha256"] == package_fingerprint() for row in rows)
     txt = (folder / "READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt").read_text()
     for x in ("SPIDER: official_changelogs", "SPIDER: official_pricing",
-              "SPIDER: official_documentation", "confirm_full_inventory = yes",
-              "cohort = all", "collection_mode = validation",
+              "SPIDER: official_documentation", "LOCAL PRIMARY REQUEST CAP: 0",
+              "DO NOT RUN: arguments withheld", "EXPECTED PACKAGE SHA-256",
               "the spider locates ONE exact current reviewed plan",
               "DO NOT add source_ids", "NOT AUTHORIZED"):
         assert x in txt
+    assert "confirm_full_inventory = yes" not in txt
+    assert "cohort = all" not in txt
+    assert "collection_mode = validation" not in txt
     if os.name == "posix":
         assert folder.stat().st_mode & 0o777 == 0o700
         for file in folder.iterdir():
