@@ -13,6 +13,7 @@ from agentfuse_crawlers.rate_units import (
     PRICE_MARKER, analyze_cell, clean,
 )
 from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
+from agentfuse_crawlers.pricing_transposed import deepseek_rate_contexts
 from agentfuse_crawlers.pricing_visibility import in_explicitly_nonvisible_context
 from agentfuse_crawlers.pricing_cards import extract_card_evidence
 from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
@@ -309,6 +310,10 @@ def extract_pricing_evidence(main, source_url, source_id, *,
             main, table, info["heading_context"], family_profile,
         )
         matrix, clipped, rows = _grid(table)
+        transposed_contexts = deepseek_rate_contexts(
+            matrix, source_id=source_id, source_url=source_url,
+            heading_context=info["heading_context"], clipped=clipped,
+        )
         header_rows = _header_count(table, matrix, rows)
         rows_incomplete = rows_incomplete or clipped
         label = " ".join((info["heading_context"], info["caption"], info["label"]))
@@ -369,6 +374,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     info["caption"], row_unit,
                     scoped_text(table_scope.get(id(table), ())),
                 ))
+                rate_context = transposed_contexts.get((row_num, col))
                 explicit_parts = explicit_inline_components(
                     raw, model_label=model, row_header=row_label,
                     table_caption=caption,
@@ -395,7 +401,37 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                         legend=fireworks_legend,
                         family_profile=family_profile,
                     )
-                if explicit_parts:
+                if rate_context:
+                    # Explicit rate labels live in row-spanned cells, while
+                    # the model is a column header. Retain exact conditions;
+                    # do not infer currency, hours, or unconditional quotes.
+                    explicit_parts = []
+                    candidate = analyze_cell(
+                        raw, model_label=rate_context["model"],
+                        column_header=rate_context["model_header"],
+                        row_header=rate_context["rate_label"],
+                        table_context=info["heading_context"],
+                        table_caption=caption, footnotes=info["footnotes"],
+                    )
+                    candidate.update(
+                        billing_unit=rate_context["billing_unit"],
+                        price_dimension=rate_context["price_dimension"],
+                        billing_time_band_candidate=rate_context["billing_time_band_candidate"],
+                        normalized_amount_decimal=None,
+                        review_quote_amount_decimal=None,
+                        review_quote_candidate=False,
+                        comparable_candidate=False,
+                    )
+                    candidate["normalization_blockers"] = list(dict.fromkeys([
+                        *(b for b in candidate["normalization_blockers"] if b not in {
+                            "missing_explicit_billing_unit", "missing_price_dimension",
+                            "missing_model_or_service",
+                        }),
+                        "peak_off_peak_schedule_requires_review",
+                        "transposed_model_identity_and_footnote_requires_review",
+                    ]))
+                    candidates = [candidate]
+                elif explicit_parts:
                     inline_cells_split += 1
                     inline_component_extras += len(explicit_parts) - 1
                     candidates = explicit_parts
@@ -475,10 +511,20 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     candidate["table_caption"] = info["caption"]
                     candidate["heading_context"] = info["heading_context"]
                     candidate["footnotes"] = info["footnotes"]
+                    if rate_context:
+                        candidate["row_label"] = rate_context["rate_label"]
+                        candidate["column_label"] = rate_context["model_header"]
+                        candidate["model_label_provenance"] = "transposed_model_column_header"
+                        candidate["model_label_hygiene_status"] = "transposed_explicit_model_header_review_only"
+                        candidate["model_label_requires_review"] = True
+                        candidate["model_row_price_scope_qualifier_requires_review"] = True
+                        candidate["model_label_description_present"] = False
                     evidence_key = (
                         raw + "|" + header + "|" + row_label + "|" + label
                     )
-                    if explicit_parts:
+                    if rate_context:
+                        evidence_key += "|" + rate_context["model_header"] + "|" + rate_context["rate_label"]
+                    elif explicit_parts:
                         evidence_key += "|" + str(part_index)
                     candidate["source_evidence_sha256"] = hashlib.sha256(
                         evidence_key.encode("utf-8")
@@ -551,7 +597,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "evidence_quote_v6_cloudflare_literal_components",
+        "pricing_parser_revision": "evidence_quote_v7_deepseek_transposed_context",
         "pricing_inline_adapter_revision": ADAPTER_REVISION,
         "pricing_inline_adapter_family": (
             family_profile["page_family_candidate"] if family_profile else None

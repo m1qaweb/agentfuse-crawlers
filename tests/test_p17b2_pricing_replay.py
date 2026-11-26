@@ -130,7 +130,7 @@ def test_replay_freezes_exact_original_html_and_extractor_version(scenario):
     assert source["snapshot_sha256"] == manifest[
         "snapshots"][0]["snapshot"]["sha256"]
     assert source["pricing_parser_revision"] == (
-        "evidence_quote_v6_cloudflare_literal_components"
+        "evidence_quote_v7_deepseek_transposed_context"
     )
     assert source["pricing_inline_rate_cells_split"] == 2
     assert source["pricing_legend_backed_triplet_cells_split"] == 2

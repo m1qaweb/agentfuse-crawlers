@@ -49,7 +49,7 @@ def test_source_exact_literal_token_components_are_distinct_unapproved_rows(
         raw, dims, amounts):
     data = capture(raw)
     assert data["pricing_parser_revision"] == (
-        "evidence_quote_v6_cloudflare_literal_components"
+        "evidence_quote_v7_deepseek_transposed_context"
     )
     assert data["pricing_inline_adapter_family"] == "request_credit_metering"
     assert data["pricing_price_cells_examined"] == 1
@@ -170,7 +170,7 @@ def test_offline_window_assembly_accepts_bound_review_only_inline_components():
     source = _as_window(capture(THREE))
     output = assemble_source_windows([source])
     assert output["pricing_parser_revision"] == (
-        "evidence_quote_v6_cloudflare_literal_components"
+        "evidence_quote_v7_deepseek_transposed_context"
     )
     assert output["recognized_table_window_coverage_complete"] is True
     assert output["price_observation_count"] == 3
