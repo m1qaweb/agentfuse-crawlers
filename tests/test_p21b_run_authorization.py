@@ -801,11 +801,17 @@ def test_r2_only_reviewed_zero_redirect_full_category_enables_containment(monkey
     assert state_for(single) is None
 
 
-@pytest.mark.parametrize("case", ["valid", "expired", "ambiguous", "wrong_url_hash"])
+@pytest.mark.parametrize("case", [
+    "valid_zero_redirect", "valid_redirect_capable", "expired", "ambiguous", "wrong_url_hash",
+])
 def test_three_argument_preflight_reports_only_exact_local_plan(monkeypatch, case):
     from scripts.prepare_zyte_ui_args import build_full_diagnostic_ui_guide, _job_text
 
     selected, reviews, plans, pid, _ = fake_case(count=194, allowed_count=2)
+    # The ordinary fixture allows three redirects for older bulk plans.
+    # Only zero-redirect full-category plans are suitable for the R2 guide.
+    if case != "valid_redirect_capable":
+        plans["plans"][pid]["max_redirects_per_source"] = 0
     if case == "expired":
         plans["plans"][pid]["reviewed_at_utc"] = _time(timedelta(days=-2))
         plans["plans"][pid]["expires_at_utc"] = _time(timedelta(days=-1))
@@ -819,19 +825,35 @@ def test_three_argument_preflight_reports_only_exact_local_plan(monkeypatch, cas
     gate = row["local_bulk_plan_preflight"]
     assert guide["full_diagnostic_approved_to_run"] is False
     assert gate["run_authorized_by_guide"] is gate["remote_deployment_verified"] is False
-    if case == "valid":
+    if case in {"valid_zero_redirect", "valid_redirect_capable"}:
         assert gate["status"] == "locally_valid_reviewed_plan_NOT_REMOTE_VERIFIED"
         assert gate["plan_id"] == pid
         assert gate["plan_sha256"] == policy.digest(plans["plans"][pid])
         assert gate["authorized_source_ids_sha256"] == selection_ids_sha256(selected[:2])
         assert gate["locally_eligible_source_count"] == gate["max_primary_requests"] == 2
         assert guide["locally_eligible_primary_source_count"] == 2
-        assert "confirm_full_inventory = yes" in _job_text(row)
+        expected_redirects = 0 if case == "valid_zero_redirect" else 3
+        assert gate["max_redirects_per_source"] == expected_redirects
+        if case == "valid_zero_redirect":
+            assert row["argument_status"] == "REFERENCE_ONLY_NOT_AUTHORIZED"
+            assert row["arguments"] == {
+                "cohort": "all", "confirm_full_inventory": "yes",
+                "collection_mode": "validation",
+            }
+            assert "confirm_full_inventory = yes" in _job_text(row)
+        else:
+            # A plan can be valid at the general policy boundary yet be
+            # unsuitable for this supervised zero-redirect campaign.
+            assert row["argument_status"] == "WITHHELD_NO_USABLE_ZERO_REDIRECT_PLAN"
+            assert row["arguments"] == {}
+            assert "confirm_full_inventory = yes" not in _job_text(row)
     else:
         assert gate["status"] == "invalid_or_ambiguous_reviewed_plan"
         assert gate["max_primary_requests"] == 0
         assert gate["plan_id"] is None
         assert guide["locally_eligible_primary_source_count"] == 0
+        assert row["argument_status"] == "WITHHELD_NO_USABLE_ZERO_REDIRECT_PLAN"
+        assert row["arguments"] == {}
         assert "confirm_full_inventory = yes" not in _job_text(row)
     assert all(x["local_bulk_plan_preflight"]["max_primary_requests"] == 0
                for x in guide["jobs"] if x["category"] != "documentation")
