@@ -211,12 +211,19 @@ jobs:
           assert guide["network_requests_performed"] == guide["zyte_jobs_created"] == 0
           assert len(guide["jobs"]) == 3
           assert sum(j["configured_source_count"] for j in guide["jobs"]) == 460
-          for job in guide["jobs"]:
+          order = ["pricing", "documentation", "changelog"]
+          assert [job["category"] for job in guide["jobs"]] == order
+          for index, job in enumerate(guide["jobs"]):
               args = job["arguments"]
-              assert args["cohort"] == "all"
-              assert args["collection_mode"] == "validation"
-              assert args["confirm_full_inventory"] == "yes"
-              assert "source_ids" not in args and "limit" not in args
+              gate = job["local_bulk_plan_preflight"]
+              assert job["prior_categories_require_reconciliation"] == order[:index]
+              if (gate["status"] == "locally_valid_reviewed_plan_NOT_REMOTE_VERIFIED"
+                      and gate["max_redirects_per_source"] == 0):
+                  assert args == {"cohort": "all", "collection_mode": "validation", "confirm_full_inventory": "yes"}
+                  assert job["argument_status"] == "REFERENCE_ONLY_NOT_AUTHORIZED"
+              else:
+                  assert args == {}
+                  assert job["argument_status"] == "WITHHELD_NO_USABLE_ZERO_REDIRECT_PLAN"
               assert job["operator_review_status"].startswith("NOT_AUTHORIZED")
           for wid in ("wave_01", "wave_02"):
               w = json.loads((prefix / "p20b-preflight" / wid / "manual_canary_plan.json").read_text())
