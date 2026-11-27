@@ -41,3 +41,23 @@ def heading_marker(source_id, source_url, level, text):
     except ValueError:
         day = None
     return HeadingMarker(kind, day, match.groupdict().get('version'), stamp)
+
+
+GROQ_ACTION_SCOPE = ('groqcloud_changelog', 'https://console.groq.com/docs/changelog')
+_GROQ_ACTION = re.compile(r'(Added|Changed|Deprecated|Removed)(?: +|(?=[A-Z0-9]))[A-Za-z0-9][^\r\n]*')
+_GROQ_ANCHOR = re.compile(r'[a-z0-9][a-z0-9_-]{0,119}')
+
+
+def groq_action_heading(source_id, source_url, level, title, anchor, permalink):
+    """Distinguish explicit Groq action labels sharing a subject anchor.
+
+    This is a provisional action/anchor identity, not a publisher event ID,
+    date, or release version. Duplicate action+anchor remains ambiguous.
+    """
+    if ((source_id, source_url) != GROQ_ACTION_SCOPE or level != 3
+            or not isinstance(title, str) or not 0 < len(title) < 250
+            or not isinstance(anchor, str) or not _GROQ_ANCHOR.fullmatch(anchor)
+            or permalink != source_url + '#' + anchor):
+        return None
+    marker = _GROQ_ACTION.fullmatch(title)
+    return marker.group(1).lower() if marker else None
