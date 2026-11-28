@@ -17,7 +17,8 @@ from lxml import etree
 
 from agentfuse_crawlers.recent_window import WindowAccumulator
 from agentfuse_crawlers.release_heading_layouts import (
-    GROQ_ACTION_SCOPE, groq_action_heading, heading_marker,
+    ANTIGRAVITY_SCOPE, GROQ_ACTION_SCOPE, antigravity_h3_version,
+    groq_action_heading, heading_marker,
 )
 
 GROQ_ACTION_IDENTITY = "groq_action_anchor_review_only"
@@ -397,6 +398,16 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
     version = explicit_version if explicit_version is not None else (
         version_match.group(1) if version_match else None
     )
+    # This exact multi-stream page used ordinary h3 version references
+    # (including model names and bug-fix notes) as release versions.
+    # Retain literal version-only headings and explicit date evidence;
+    # never manufacture a version from descriptive headings.
+    antigravity_version_review = False
+    if ((source_id, source_url) == ANTIGRAVITY_SCOPE
+            and _tag(heading_node) == "h3" and version is not None):
+        literal_version = antigravity_h3_version(title)
+        antigravity_version_review = literal_version is None
+        version = literal_version
     permalink = _permalink(heading_node, source_url)
     groq_action = groq_action_heading(
         source_id, source_url, 3 if _tag(heading_node) == "h3" else 0,
@@ -441,7 +452,8 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
             else "date_scoped_generic_heading_review_only" if generic_dated
             else "stable_title_and_version_no_date"
         ),
-        "release_identity_requires_manual_review": generic_dated or bool(groq_action),
+        "release_identity_requires_manual_review": (generic_dated or bool(groq_action)
+                                                    or antigravity_version_review),
         "evidence_locator": {
             "heading_id": heading_node.get("id", "")[:120],
             "source_url": source_url,
@@ -456,6 +468,7 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         "_level": 2,
         "_date_scope": False,
         "_body_overflow": False,
+        "_antigravity_version_review": antigravity_version_review,
     }
 
 
@@ -498,6 +511,7 @@ def extract_release_events(main, source_url, source_id):
     pending_date = False
     entries_seen = 0
     groq_action_reviews = 0
+    antigravity_version_reviews = 0
     # The November 4 real, hash-pinned Zyte Items include GitHub release
     # pages with UI error and signature headings promoted as releases.
     # Filter only literal GitHub listing UI markers, never generic text or
@@ -510,7 +524,7 @@ def extract_release_events(main, source_url, source_id):
     ignore_dates_until_new_heading = False
 
     def finish():
-        nonlocal current, entries_seen, groq_action_reviews
+        nonlocal current, entries_seen, groq_action_reviews, antigravity_version_reviews
         if current is None:
             return
         body = _normalize(" ".join(current.pop("_body")))
@@ -522,6 +536,7 @@ def extract_release_events(main, source_url, source_id):
         # whose year could not be established.
         unresolved_dateline = "unresolved_month_day" in current["published_date_provenance"]
         action_review = current["identity_basis"] == GROQ_ACTION_IDENTITY
+        antigravity_version_reviews += int(current.pop("_antigravity_version_review"))
         if not (current["published_at"] or current["version"] or unresolved_dateline
                 or action_review):
             current = None
@@ -740,6 +755,7 @@ def extract_release_events(main, source_url, source_id):
     # Do not make this source comparable or promote a newest-release claim.
     reliable_date = bool(dated_order_ok and dated and not collision
                          and not groq_action_reviews and not github_ui_errors
+                         and not antigravity_version_reviews
                          and view["recent_body_loss_count"] == 0)
     latest = max(dated) if reliable_date else None
     return {
@@ -754,9 +770,12 @@ def extract_release_events(main, source_url, source_id):
         "release_identity_revision": (
             "release_owner_date_scope_v7_groq_action"
             if (source_id, source_url) == GROQ_ACTION_SCOPE
+            else "release_owner_date_scope_v7_antigravity_h3_version"
+            if (source_id, source_url) == ANTIGRAVITY_SCOPE
             else "release_owner_date_scope_v6"
         ),
         "release_action_identity_review_count": groq_action_reviews,
+        "release_unsubstantiated_version_heading_count": antigravity_version_reviews,
         "release_events": events,
         "release_event_count": entries_seen,
         "release_github_ui_error_placeholder_count": github_ui_errors,
@@ -795,15 +814,19 @@ def extract_release_events(main, source_url, source_id):
         "latest_release_date_status": (
             "ambiguous_github_ui_error_placeholder" if github_ui_errors else
             "action_identity_requires_review" if groq_action_reviews else
+            "unsubstantiated_version_heading_requires_review"
+            if antigravity_version_reviews else
             "ambiguous_undated_or_collision"
             if newest_undated or collision or view["order"] in {"mixed", "unknown"}
             else "event_date_candidate_only" if latest else "unknown"
         ),
         "release_window_complete": (view["window_complete"] and not github_ui_errors
-                                    and not groq_action_reviews),
+                                    and not groq_action_reviews
+                                    and not antigravity_version_reviews),
         "release_window_coverage_status": (
             "incomplete_github_ui_error_placeholder" if github_ui_errors else
-            "unverified_order_or_entry_evidence" if groq_action_reviews else
+            "unverified_order_or_entry_evidence"
+            if groq_action_reviews or antigravity_version_reviews else
             "ordered_recognized_events_on_fetched_page"
             if view["window_complete"] else "unverified_order_or_entry_evidence"
         ),

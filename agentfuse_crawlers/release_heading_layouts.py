@@ -61,3 +61,20 @@ def groq_action_heading(source_id, source_url, level, title, anchor, permalink):
         return None
     marker = _GROQ_ACTION.fullmatch(title)
     return marker.group(1).lower() if marker else None
+
+
+ANTIGRAVITY_SCOPE = ('google_antigravity_changelog', 'https://antigravity.google/docs/changelog')
+_ANTIGRAVITY_VERSION = re.compile(r'v([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)', re.I)
+
+
+def antigravity_h3_version(title):
+    """Only a literal version-only heading is evidence of an app version.
+
+    A model number or version mentioned by a feature/bug-fix heading is
+    not enough. This recognizer makes no product/channel or date claim.
+    Caller must enforce the exact source/URL and observed h3 level.
+    """
+    if not isinstance(title, str) or not 0 < len(title) < 250:
+        return None
+    match = _ANTIGRAVITY_VERSION.fullmatch(title)
+    return match.group(1) if match else None
