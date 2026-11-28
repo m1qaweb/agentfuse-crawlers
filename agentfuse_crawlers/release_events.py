@@ -16,7 +16,11 @@ from urllib.parse import quote, urljoin, urlsplit
 from lxml import etree
 
 from agentfuse_crawlers.recent_window import WindowAccumulator
-from agentfuse_crawlers.release_heading_layouts import heading_marker
+from agentfuse_crawlers.release_heading_layouts import (
+    GROQ_ACTION_SCOPE, groq_action_heading, heading_marker,
+)
+
+GROQ_ACTION_IDENTITY = "groq_action_anchor_review_only"
 
 MAX_EVENTS = 80
 MAX_BODY_CHARS = 24000
@@ -394,6 +398,14 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         version_match.group(1) if version_match else None
     )
     permalink = _permalink(heading_node, source_url)
+    groq_action = groq_action_heading(
+        source_id, source_url, 3 if _tag(heading_node) == "h3" else 0,
+        title, heading_node.get("id", ""), permalink,
+    )
+    if groq_action:
+        # Model numbers and multiple SDK versions in these action titles
+        # do not identify a release version of the changelog itself.
+        version = None
     related = _related_references(heading_node, source_url)
     # Use the FULL recognized heading (up to parser's bounded 250 chars), not
     # the 100-character display excerpt. A publication-date correction should
@@ -405,7 +417,8 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         and _generic_dated_title(title)
     )
     identity = (
-        "announcement:" + permalink if permalink != source_url
+        "groq_action:" + groq_action + "|anchor:" + permalink if groq_action
+        else "announcement:" + permalink if permalink != source_url
         else "dated_generic:" + stable_heading + "|day:" + day
         if generic_dated
         else "heading:" + stable_heading + "|version:" + (version or "")
@@ -423,11 +436,12 @@ def _make_event(source_id, source_url, title, heading_node, day, kind, date_text
         "permalink": permalink,
         "related_documentation_urls": related,
         "identity_basis": (
-            "release_owned_permalink" if permalink != source_url
+            GROQ_ACTION_IDENTITY if groq_action
+            else "release_owned_permalink" if permalink != source_url
             else "date_scoped_generic_heading_review_only" if generic_dated
             else "stable_title_and_version_no_date"
         ),
-        "release_identity_requires_manual_review": generic_dated,
+        "release_identity_requires_manual_review": generic_dated or bool(groq_action),
         "evidence_locator": {
             "heading_id": heading_node.get("id", "")[:120],
             "source_url": source_url,
@@ -483,6 +497,7 @@ def extract_release_events(main, source_url, source_id):
     source_date_group = False
     pending_date = False
     entries_seen = 0
+    groq_action_reviews = 0
     # The November 4 real, hash-pinned Zyte Items include GitHub release
     # pages with UI error and signature headings promoted as releases.
     # Filter only literal GitHub listing UI markers, never generic text or
@@ -495,7 +510,7 @@ def extract_release_events(main, source_url, source_id):
     ignore_dates_until_new_heading = False
 
     def finish():
-        nonlocal current, entries_seen
+        nonlocal current, entries_seen, groq_action_reviews
         if current is None:
             return
         body = _normalize(" ".join(current.pop("_body")))
@@ -506,7 +521,9 @@ def extract_release_events(main, source_url, source_id):
         # undated candidates only for versions or a real month/day marker
         # whose year could not be established.
         unresolved_dateline = "unresolved_month_day" in current["published_date_provenance"]
-        if not (current["published_at"] or current["version"] or unresolved_dateline):
+        action_review = current["identity_basis"] == GROQ_ACTION_IDENTITY
+        if not (current["published_at"] or current["version"] or unresolved_dateline
+                or action_review):
             current = None
             return
         # The entire bounded event text is hashed even when the display
@@ -520,6 +537,7 @@ def extract_release_events(main, source_url, source_id):
         current["heading_level"] = heading_level
         _finalize_generic_date_identity(current, source_id, source_url)
         entries_seen += 1
+        groq_action_reviews += int(action_review)
         window.add(current)
         current = None
 
@@ -718,8 +736,10 @@ def extract_release_events(main, source_url, source_id):
             "newest_first", "oldest_first", "equal_values", "single",
         }
     )
+    # The action/anchor key is provisional even if all visible dates agree.
+    # Do not make this source comparable or promote a newest-release claim.
     reliable_date = bool(dated_order_ok and dated and not collision
-                         and not github_ui_errors
+                         and not groq_action_reviews and not github_ui_errors
                          and view["recent_body_loss_count"] == 0)
     latest = max(dated) if reliable_date else None
     return {
@@ -731,7 +751,12 @@ def extract_release_events(main, source_url, source_id):
         # must create a NEW evidence baseline before any cross-run comparison.
         # Some generic headings use the day in their provisional review-only
         # identity; reusing v3 could fabricate a "first-seen" event on upgrade.
-        "release_identity_revision": "release_owner_date_scope_v6",
+        "release_identity_revision": (
+            "release_owner_date_scope_v7_groq_action"
+            if (source_id, source_url) == GROQ_ACTION_SCOPE
+            else "release_owner_date_scope_v6"
+        ),
+        "release_action_identity_review_count": groq_action_reviews,
         "release_events": events,
         "release_event_count": entries_seen,
         "release_github_ui_error_placeholder_count": github_ui_errors,
@@ -769,13 +794,16 @@ def extract_release_events(main, source_url, source_id):
         "latest_release_date_candidate": latest,
         "latest_release_date_status": (
             "ambiguous_github_ui_error_placeholder" if github_ui_errors else
+            "action_identity_requires_review" if groq_action_reviews else
             "ambiguous_undated_or_collision"
             if newest_undated or collision or view["order"] in {"mixed", "unknown"}
             else "event_date_candidate_only" if latest else "unknown"
         ),
-        "release_window_complete": view["window_complete"] and not github_ui_errors,
+        "release_window_complete": (view["window_complete"] and not github_ui_errors
+                                    and not groq_action_reviews),
         "release_window_coverage_status": (
             "incomplete_github_ui_error_placeholder" if github_ui_errors else
+            "unverified_order_or_entry_evidence" if groq_action_reviews else
             "ordered_recognized_events_on_fetched_page"
             if view["window_complete"] else "unverified_order_or_entry_evidence"
         ),
