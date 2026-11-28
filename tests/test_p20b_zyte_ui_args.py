@@ -13,7 +13,7 @@ from agentfuse_crawlers.run_context import (
 from agentfuse_crawlers.source_lifecycle import registry_revision_sha256
 from agentfuse_crawlers.sources import load_sources, select_sources
 from scripts.prepare_zyte_ui_args import (
-    KIND, build_full_diagnostic_ui_guide,
+    KIND, ORDER, VALID_LOCAL_PLAN, build_full_diagnostic_ui_guide,
     write_zyte_ui_guide, main as ui_main,
 )
 from scripts.replay_release_snapshots import _digest
@@ -29,20 +29,18 @@ def test_exact_safely_pinned_460_source_3_spider_zyte_ui_jobs():
     assert result["expected_package_sha256_NOT_REMOTE_PROOF"] == package_fingerprint()
     assert result["locally_eligible_primary_source_count"] == 0
     expected = [
-        ("official_changelogs", "changelog", 89),
         ("official_pricing", "pricing", 177),
         ("official_documentation", "documentation", 194),
+        ("official_changelogs", "changelog", 89),
     ]
     assert [(x["spider"], x["category"], x["configured_source_count"])
             for x in result["jobs"]] == expected
     for row in result["jobs"]:
         args = row["arguments"]
         selected = select_sources(row["category"], cohort="all")
-        assert args == {
-            "cohort": "all",
-            "confirm_full_inventory": "yes",
-            "collection_mode": "validation",
-        }
+        assert args == {}
+        assert row["argument_status"] == "WITHHELD_NO_USABLE_ZERO_REDIRECT_PLAN"
+        assert row["prior_categories_require_reconciliation"] == list(ORDER[:ORDER.index(row["category"])])
         assert row["scope_fingerprints_reference_only"] == {
             "expected_manifest_sha256": manifest_sha256(),
             "expected_selection_ids_sha256": selection_ids_sha256(selected),
@@ -61,15 +59,9 @@ def test_exact_safely_pinned_460_source_3_spider_zyte_ui_jobs():
         assert gate["run_authorized_by_guide"] is gate["remote_deployment_verified"] is False
         assert row["scheduled_jobs"] == 0
         assert row["advisor_fact_approvals"] == 0
-    assert result["jobs"][0]["source_ids_locally_policy_blocked"] == (
-        ["v0_changelog"]
-    )
-    assert result["jobs"][1]["source_ids_locally_policy_blocked"] == (
-        ["v0_pricing"]
-    )
-    assert result["jobs"][2]["source_ids_locally_policy_blocked"] == (
-        ["v0_docs"]
-    )
+    assert result["jobs"][0]["source_ids_locally_policy_blocked"] == ["v0_pricing"]
+    assert result["jobs"][1]["source_ids_locally_policy_blocked"] == ["v0_docs"]
+    assert result["jobs"][2]["source_ids_locally_policy_blocked"] == ["v0_changelog"]
     assert result["full_diagnostic_approved_to_run"] is False
     assert result["recurrent_monitoring_approved"] is False
     assert result["all_source_publisher_permissions_verified_here"] is False
@@ -103,9 +95,10 @@ def test_operator_can_download_full_copy_paste_args_without_local_checkout(
         "official_changelogs", "official_pricing",
         "official_documentation",
     }
-    assert all(row["cohort"] == "all" for row in rows)
-    assert all(row["confirm_full_inventory"] == "yes" for row in rows)
-    assert all(row["collection_mode"] == "validation" for row in rows)
+    assert [row["category"] for row in rows] == list(ORDER)
+    assert [row["prior_categories_require_reconciliation"] for row in rows] == ["", "pricing", "pricing,documentation"]
+    assert all(row["cohort"] == row["confirm_full_inventory"] == row["collection_mode"] == "" for row in rows)
+    assert all(row["argument_status"] == "WITHHELD_NO_USABLE_ZERO_REDIRECT_PLAN" for row in rows)
     assert all("source_ids" not in row for row in rows)
     assert all(row["expected_manifest_sha256"] == manifest_sha256()
                for row in rows)
@@ -131,6 +124,9 @@ def test_operator_can_download_full_copy_paste_args_without_local_checkout(
     assert "confirm_full_inventory = yes" not in txt
     assert "cohort = all" not in txt
     assert "collection_mode = validation" not in txt
+    assert "pricing -> documentation -> changelog" in txt
+    assert "Any barrier, hold" in txt
+    assert "Do not skip a missing prior plan" in txt
     if os.name == "posix":
         assert folder.stat().st_mode & 0o777 == 0o700
         for file in folder.iterdir():
@@ -208,3 +204,38 @@ def test_operator_output_never_implicitly_approves_real_scrapes():
         assert not row["scheduled_jobs"]
         assert row["source_ids_locally_policy_blocked"]
         assert "approval" not in row["arguments"]
+
+
+@pytest.mark.parametrize("status,redirects,expected", [
+    (VALID_LOCAL_PLAN, 0, True),
+    (VALID_LOCAL_PLAN, 1, False),
+    ("invalid_or_ambiguous_reviewed_plan", 0, False),
+    ("no_matching_reviewed_plan", 0, False),
+])
+def test_compact_reference_only_for_local_zero_redirect_plan(monkeypatch, tmp_path, status, redirects, expected):
+    import scripts.prepare_zyte_ui_args as module
+    original = module.inspect_local_full_category_plan
+    def fake(selected, category, package_sha):
+        gate = original(selected, category, package_sha)
+        if category == "pricing":
+            gate.update(status=status, max_redirects_per_source=redirects,
+                        max_primary_requests=1 if status == VALID_LOCAL_PLAN else 0,
+                        locally_eligible_source_count=1 if status == VALID_LOCAL_PLAN else 0)
+        return gate
+    monkeypatch.setattr(module, "inspect_local_full_category_plan", fake)
+    guide = build_full_diagnostic_ui_guide()
+    price, docs, changes = guide["jobs"]
+    expected_args = {"cohort": "all", "confirm_full_inventory": "yes", "collection_mode": "validation"} if expected else {}
+    assert price["arguments"] == expected_args
+    assert docs["arguments"] == changes["arguments"] == {}
+    assert guide["full_diagnostic_approved_to_run"] is False
+    assert price["local_bulk_plan_preflight"]["run_authorized_by_guide"] is False
+    folder = write_zyte_ui_guide(guide, tmp_path / "conditional")
+    saved = json.loads((folder / "zyte_full_3_spiders_NOT_AUTHORIZED.json").read_text())
+    assert saved["jobs"][0]["arguments"] == expected_args
+    with (folder / "zyte_full_3_spiders_NOT_AUTHORIZED.csv").open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows[0]["confirm_full_inventory"] == ("yes" if expected else "")
+    assert all(row["confirm_full_inventory"] == "" for row in rows[1:])
+    txt = (folder / "READ_ME_ZYTE_UI_SETTINGS_NOT_AUTHORIZED.txt").read_text()
+    assert txt.count("confirm_full_inventory = yes") == int(expected)

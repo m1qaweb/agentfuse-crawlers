@@ -47,9 +47,10 @@ preflight is complete.
 installed full-category plan matcher and authorization validator as the live
 three-argument spider. Each category reports its local plan status, exact
 primary request cap, selected-ID digest, plan digest and expiry (if valid).
-The text guide withholds the copyable argument block when the installed
-plan is missing, invalid, expired or ambiguous. Its JSON/CSV arguments are
-reference-only, not a launch instruction. A recognized Cloud full-category
+The guide withholds argument values in all three output formats (text,
+JSON and CSV) when the installed plan is missing, invalid, expired,
+ambiguous or permits redirects. A locally valid zero-redirect plan exposes
+reference-only values, not a launch instruction. A recognized Cloud full-category
 job with no matching plan refuses startup rather than making publisher
 GETs. The guide also records the local package fingerprint; normal validation
 CI saves the verified egg/package fingerprint receipt in its existing
@@ -155,12 +156,25 @@ separate Zyte jobs** (not a single 460-source spider):
 
 | Spider | Expected source Items |
 |---|---:|
-| official_changelogs | 89 |
 | official_pricing | 177 |
 | official_documentation | 194 |
+| official_changelogs | 89 |
 | TOTAL | 460 |
 
-For each spider enter:
+**Run sequentially in the order above, not concurrently.** Preserve a
+persistent private operator ledger with exact scope, package, actual job IDs
+and attempted source IDs. Before each later category, reconcile the full
+Items, Requests, Logs and job metadata of every preceding category. Stop
+on any publisher group barrier, intentional containment hold, unexplained
+missing primary or Item, abnormal close or audit integrity issue. Do not
+skip a missing preceding plan, blindly retry a completed/unknown job, or
+use a later category to bypass a hold. A different partial scope requires
+its own reviewed decision. The Dashboard does not enforce a shared ledger;
+see [R2 containment](R2_PUBLISHER_CONTAINMENT_RUNBOOK.md). The three
+configured counts above do not specify primary request caps.
+
+For each spider with a locally usable zero-redirect reviewed plan, enter
+only after all other gates pass:
 
     Arguments key                Value
     ---------------------------- -----------------------

@@ -35,13 +35,15 @@ from scripts.replay_release_snapshots import _digest
 SCHEMA = "1.0"
 KIND = "p20b_manual_zyte_ui_instructions_not_crawl_permission"
 EXPECTED = {"documentation": 194, "pricing": 177, "changelog": 89}
-ORDER = ("changelog", "pricing", "documentation")
+ORDER = ("pricing", "documentation", "changelog")
+VALID_LOCAL_PLAN = "locally_valid_reviewed_plan_NOT_REMOTE_VERIFIED"
 CSV_FIELDS = (
     "spider", "category", "configured_source_count", "job_units",
     "priority", "cohort", "confirm_full_inventory", "collection_mode",
     "expected_manifest_sha256", "expected_selection_ids_sha256",
     "expected_source_registry_sha256", "human_authorization_status",
     "expected_package_sha256", "local_plan_status", "local_plan_primary_request_cap",
+    "prior_categories_require_reconciliation", "argument_status",
 )
 
 
@@ -136,6 +138,11 @@ def build_full_diagnostic_ui_guide():
             "source_ids", "limit", "offset", "monitor",
         )):
             raise ValueError("Unsafe scope argument in full-inventory guide")
+        gate = inspect_local_full_category_plan(selected, category, package_sha)
+        # R2 requires an exact zero-redirect plan. Local checks alone
+        # cannot validate a preceding remote job or approve launch.
+        args_available = (gate["status"] == VALID_LOCAL_PLAN
+                          and gate["max_redirects_per_source"] == 0)
         jobs.append({
             "spider": SPIDERS[category],
             "category": category,
@@ -143,11 +150,12 @@ def build_full_diagnostic_ui_guide():
             "job_units": 1,
             "priority": "Normal",
             "tags": [],
-            "arguments": args,
+            "arguments": args if args_available else {},
+            "argument_status": ("REFERENCE_ONLY_NOT_AUTHORIZED" if args_available
+                                else "WITHHELD_NO_USABLE_ZERO_REDIRECT_PLAN"),
+            "prior_categories_require_reconciliation": list(ORDER[:ORDER.index(category)]),
             "scope_fingerprints_reference_only": scope_fingerprints,
-            "local_bulk_plan_preflight": inspect_local_full_category_plan(
-                selected, category, package_sha,
-            ),
+            "local_bulk_plan_preflight": gate,
             "explicitly_no_source_ids_argument": True,
             "source_ids_locally_policy_blocked": blocked,
             "operator_review_status":
@@ -181,6 +189,8 @@ def build_full_diagnostic_ui_guide():
             "Complete archived, two-round real cross-category Zyte pilot",
             "Preserve blocked and quarantined URL records rather than request them",
             "Approve one supervised full-inventory diagnostic, not an ongoing schedule",
+            "Use one private campaign ledger; reconcile every prior category before proceeding",
+            "Stop after any prior barrier or incomplete evidence; do not skip categories or blindly retry",
             "Keep production advisor facts, DB writes and auto-alerts disabled",
         ],
         "new_publisher_permissions_granted": 0,
@@ -205,13 +215,17 @@ def _job_text(record):
     lines.extend([
         "LOCAL PLAN STATUS: " + gate["status"],
         "LOCAL PRIMARY REQUEST CAP: " + str(gate["max_primary_requests"]),
+        "LOCAL REDIRECT CAP: " + str(gate["max_redirects_per_source"]),
+        "PRIOR CATEGORIES TO RECONCILE: " + (
+            ", ".join(record["prior_categories_require_reconciliation"]) or "none (first category)"
+        ),
     ])
-    if gate["status"] == "locally_valid_reviewed_plan_NOT_REMOTE_VERIFIED":
+    if record["argument_status"] == "REFERENCE_ONLY_NOT_AUTHORIZED":
         lines.append("REFERENCE ARGUMENTS (NOT AUTHORIZED TO RUN):")
         for key, value in record["arguments"].items():
             lines.append("  " + key + " = " + value)
     else:
-        lines.append("DO NOT RUN: arguments withheld; no usable local reviewed plan.")
+        lines.append("DO NOT RUN: arguments withheld; no usable local reviewed zero-redirect plan.")
     lines.extend([
         "",
         "No bulk_run_plan_id, expected_bulk_plan_sha256 or ",
@@ -227,6 +241,11 @@ def _job_text(record):
             + (", ".join(record["source_ids_locally_policy_blocked"]) or "none"),
         "NOT AUTHORIZED: human publisher access checks, successful real canaries,",
         "matching Zyte deployment, budget and explicit approval are required.",
+        "Use one persistent private ledger; preserve prior attempted IDs and job receipts.",
+        "Before a later category, reconcile complete prior Items, Requests, Logs and metadata.",
+        "Any barrier, hold, unexpected missing primary/Item, abnormal close or audit issue",
+        "means STOP; owner review and a newly approved scope are required.",
+        "Do not skip a missing prior plan or retry an unknown/completed job.",
         "",
     ])
     return "\n".join(lines)
@@ -249,6 +268,8 @@ def _csv_bytes(guide):
             "expected_package_sha256": guide["expected_package_sha256_NOT_REMOTE_PROOF"],
             "local_plan_status": record["local_bulk_plan_preflight"]["status"],
             "local_plan_primary_request_cap": record["local_bulk_plan_preflight"]["max_primary_requests"],
+            "prior_categories_require_reconciliation": ",".join(record["prior_categories_require_reconciliation"]),
+            "argument_status": record["argument_status"],
         }
         writer.writerow({
             key: _safe_csv(row.get(key, "")) for key in CSV_FIELDS
@@ -275,7 +296,9 @@ def write_zyte_ui_guide(guide, out_dir):
             "Run only after individual access/policy reviews, real cross-category\n"
             "two-round canaries, validated Zyte revision and human approval.\n\n"
             "The screenshot's 1 Job Unit + Normal Priority are appropriate.\n"
-            "Run each of the THREE spiders separately; no single spider has 460 IDs.\n\n"
+            "Run sequentially: pricing -> documentation -> changelog, never in parallel.\n"
+            "A missing plan is NOT a reason to skip to a later category in this campaign.\n"
+            "Any different partial scope requires its own explicit owner decision.\n\n"
         )
         txt = (heading + "EXPECTED PACKAGE SHA-256 (LOCAL ONLY): "
                + guide["expected_package_sha256_NOT_REMOTE_PROOF"] + "\n\n"
