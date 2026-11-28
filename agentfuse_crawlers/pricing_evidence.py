@@ -14,6 +14,9 @@ from agentfuse_crawlers.rate_units import (
 )
 from agentfuse_crawlers.pricing_scope import table_declarations, scoped_text
 from agentfuse_crawlers.pricing_transposed import deepseek_rate_contexts
+from agentfuse_crawlers.pricing_perplexity import (
+    PERPLEXITY_SCOPE, non_tariff_reason, pricing_parser_revision,
+)
 from agentfuse_crawlers.pricing_visibility import in_explicitly_nonvisible_context
 from agentfuse_crawlers.pricing_cards import extract_card_evidence
 from agentfuse_crawlers.model_labels import inspect_model_cell, visible_cell_text
@@ -299,6 +302,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
     rows_incomplete = False
     potential_rate_cells = 0
     ambiguous_table_cells = 0
+    non_tariff_cells_excluded = 0
     inline_cells_split = 0
     inline_component_extras = 0
     inline_unlabeled_multi_amount_cells = 0
@@ -316,6 +320,14 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         )
         header_rows = _header_count(table, matrix, rows)
         rows_incomplete = rows_incomplete or clipped
+        # Only the exact, unmerged, single-header-row layout can exclude
+        # explanatory prices. An unfamiliar or clipped grid falls back.
+        perplexity_headers = ()
+        if ((source_id, source_url) == PERPLEXITY_SCOPE and not clipped
+                and header_rows == 1 and matrix and matrix[0]
+                and all(c["header"] and c["origin_row"] == 0
+                        and c["origin_col"] == j for j, c in enumerate(matrix[0]))):
+            perplexity_headers = tuple(c["text"] for c in matrix[0])
         label = " ".join((info["heading_context"], info["caption"], info["label"]))
         if len(legacy_tables) < MAX_RAW_TABLES:
             legacy_tables.append({
@@ -350,6 +362,13 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                     model_label_recovered_rows += 1
             else:
                 model = _model_label(first, info["heading_context"], info["caption"])
+            # Do not classify a spanning/merged data row as a worked example.
+            perplexity_row = (
+                tuple(c["text"] for c in cells)
+                if perplexity_headers and len(cells) == len(perplexity_headers)
+                and all(c["origin_row"] == row_num and c["origin_col"] == j
+                        for j, c in enumerate(cells)) else ()
+            )
             # Other columns may explicitly identify units for THIS row.
             row_unit = " ".join(
                 cell["text"] for col, cell in enumerate(cells[1:], start=1)
@@ -367,6 +386,18 @@ def extract_pricing_evidence(main, source_url, source_id, *,
                 if cell["origin_row"] != row_num or cell["origin_col"] != col:
                     # A row/colspan carried forward is the SAME displayed
                     # amount; never duplicate it as another independent rate.
+                    continue
+                # Excluded cells remain in bounded raw table excerpts;
+                # account for them separately rather than as independent rates.
+                reason = non_tariff_reason(
+                    source_id=source_id, source_url=source_url,
+                    heading_context=info["heading_context"], headers=perplexity_headers,
+                    row=perplexity_row, column=col,
+                ) if perplexity_row else None
+                if reason:
+                    non_tariff_cells_excluded += 1
+                    counts = info.setdefault("non_tariff_cells_excluded", {})
+                    counts[reason] = counts.get(reason, 0) + 1
                     continue
                 potential_rate_cells += 1
                 raw = cell["text"]
@@ -597,7 +628,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         # Adding structurally different evidence changes typed rate inventory.
         # New parser revision must be baselined, not mistaken for a vendor rate
         # launch or price increase relative to old archives.
-        "pricing_parser_revision": "evidence_quote_v7_deepseek_transposed_context",
+        "pricing_parser_revision": pricing_parser_revision(source_id, source_url),
         "pricing_inline_adapter_revision": ADAPTER_REVISION,
         "pricing_inline_adapter_family": (
             family_profile["page_family_candidate"] if family_profile else None
@@ -639,6 +670,7 @@ def extract_pricing_evidence(main, source_url, source_id, *,
         "pricing_coverage_status": status,
         "pricing_product_scope_unresolved": scope_unresolved,
         "pricing_price_cells_examined": potential_rate_cells,
+        "pricing_non_tariff_cells_excluded": non_tariff_cells_excluded,
         "pricing_inline_rate_cells_split": inline_cells_split,
         "pricing_cloudflare_explicit_token_cells_split": sum(
             x.get("inline_component_parent_identity_review_status") ==

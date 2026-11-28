@@ -12,8 +12,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from agentfuse_crawlers.sources import load_sources
-
-REVISION = "evidence_quote_v7_deepseek_transposed_context"
+from agentfuse_crawlers.pricing_perplexity import (
+    DEFAULT_PRICING_PARSER_REVISION as REVISION, pricing_parser_revision,
+)
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SAFE_NAME = re.compile(r"^[a-z0-9_]{1,90}$")
 IDENTITY_FIELDS = (
@@ -33,7 +34,7 @@ def _verify_row(row, source):
         raise ValueError("Crawler window must explicitly refuse advisor approval")
     if row.get("pricing_evidence_schema") != "1.0" or row.get(
         "pricing_parser_revision"
-    ) != REVISION:
+    ) != pricing_parser_revision(source["source_id"], source["source_url"]):
         raise ValueError("Window requires exact P11B pricing parser revision")
     if row.get("http_status") != 200 or row.get("status") not in {
         "partial_capture", "captured",
@@ -189,7 +190,7 @@ def assemble_source_windows(rows):
         "source_registry_sha256": first["source_registry_sha256"],
         "deployment_revision": first["deployment_revision"],
         "content_sha256": first["content_sha256"],
-        "pricing_parser_revision": REVISION,
+        "pricing_parser_revision": first["pricing_parser_revision"],
         "covered_recognized_relevant_tables": cursor,
         "recognized_relevant_tables": relevant,
         "separate_job_count": len(jobs),
