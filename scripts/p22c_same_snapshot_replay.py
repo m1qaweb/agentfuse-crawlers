@@ -22,6 +22,7 @@ from agentfuse_crawlers.pricing_evidence import (
     _contexts, _grid, _header_count, _is_relevant, _table_info,
     MAX_SCAN_TABLES, MAX_ROW_SCAN, MAX_OBSERVATIONS,
 )
+from agentfuse_crawlers.pricing_perplexity import pricing_parser_revision
 from agentfuse_crawlers.run_context import manifest_sha256, package_fingerprint
 from agentfuse_crawlers.source_lifecycle import registry_revision_sha256
 from agentfuse_crawlers.sources import load_sources
@@ -170,8 +171,7 @@ def plan_source(raw, *, source_id, expected_sha256, rows_per_window=64):
         "source_manifest_sha256": manifest_sha256(),
         "source_lifecycle_sha256": registry_revision_sha256(),
         "parser_package_sha256": package_fingerprint(),
-        "pricing_parser_revision":
-            "evidence_quote_v7_deepseek_transposed_context",
+        "pricing_parser_revision": pricing_parser_revision(source_id, source["url"]),
         "rows_per_window": rows_per_window,
         "inventory": inventory,
         "tables": meta, "windows": windows,
